@@ -1,10 +1,10 @@
 {
   "name": "obsidian-mcp-pro",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The most feature-complete MCP server for Obsidian vaults — search, read, write, tag, link analysis, graph traversal, canvas support, and more.",
   "type": "module",
   "bin": {
-    "obsidian-mcp-pro": "./build/index.js"
+    "obsidian-mcp-pro": "build/index.js"
   },
   "main": "./build/index.js",
   "scripts": {
@@ -13,14 +13,29 @@
     "start": "node build/index.js",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["mcp", "obsidian", "model-context-protocol", "ai", "claude", "llm", "knowledge-management", "notes", "markdown", "vault"],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "obsidian",
+    "model-context-protocol",
+    "ai",
+    "claude",
+    "llm",
+    "knowledge-management",
+    "notes",
+    "markdown",
+    "vault"
+  ],
+  "author": "rps321",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/rps321321/obsidian-mcp-pro.git"
   },
-  "files": ["build", "README.md", "LICENSE"],
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },
