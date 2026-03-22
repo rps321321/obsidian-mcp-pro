@@ -15,14 +15,15 @@ import { registerLinkTools } from "./tools/links.js";
 import { registerCanvasTools } from "./tools/canvas.js";
 
 async function main(): Promise<void> {
-  let vaultPath: string;
+  let vaultPath: string | undefined;
 
   try {
     const config = getVaultConfig();
     vaultPath = config.vaultPath;
   } catch (err) {
-    console.error(`[obsidian-mcp-pro] Failed to detect vault: ${err}`);
-    process.exit(1);
+    console.error(`[obsidian-mcp-pro] Warning: ${err}`);
+    console.error(`[obsidian-mcp-pro] Server will start but tools will return errors until a vault is configured.`);
+    console.error(`[obsidian-mcp-pro] Set OBSIDIAN_VAULT_PATH environment variable to fix this.`);
   }
 
   const server = new McpServer({
@@ -30,12 +31,15 @@ async function main(): Promise<void> {
     version: "1.1.0",
   });
 
+  const noVaultError = "No Obsidian vault configured. Set OBSIDIAN_VAULT_PATH environment variable.";
+
   // --- MCP Resources ---
 
   server.resource(
     "note",
     new ResourceTemplate("obsidian://note/{+path}", { list: undefined }),
     async (uri: URL, params: Variables) => {
+      if (!vaultPath) throw new Error(noVaultError);
       const rawPath = params.path;
       const notePath = Array.isArray(rawPath) ? rawPath.join("/") : (rawPath ?? "");
 
@@ -62,6 +66,7 @@ async function main(): Promise<void> {
   );
 
   server.resource("tags", "obsidian://tags", async (uri) => {
+    if (!vaultPath) throw new Error(noVaultError);
     const tagIndex: Record<string, string[]> = {};
     const notes = await listNotes(vaultPath);
 
@@ -93,6 +98,7 @@ async function main(): Promise<void> {
   });
 
   server.resource("daily", "obsidian://daily", async (uri) => {
+    if (!vaultPath) throw new Error(noVaultError);
     const dailyConfig = getDailyNoteConfig(vaultPath);
     const today = new Date();
     const year = today.getFullYear();
@@ -138,11 +144,12 @@ async function main(): Promise<void> {
 
   // --- Register tool groups ---
 
-  registerReadTools(server, vaultPath);
-  registerWriteTools(server, vaultPath);
-  registerTagTools(server, vaultPath);
-  registerLinkTools(server, vaultPath);
-  registerCanvasTools(server, vaultPath);
+  const effectiveVaultPath = vaultPath ?? "";
+  registerReadTools(server, effectiveVaultPath);
+  registerWriteTools(server, effectiveVaultPath);
+  registerTagTools(server, effectiveVaultPath);
+  registerLinkTools(server, effectiveVaultPath);
+  registerCanvasTools(server, effectiveVaultPath);
 
   // --- Connect transport ---
 
@@ -150,7 +157,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
 
   console.error(`[obsidian-mcp-pro] Server started`);
-  console.error(`[obsidian-mcp-pro] Vault: ${vaultPath}`);
+  console.error(`[obsidian-mcp-pro] Vault: ${vaultPath ?? "(not configured)"}`);
 }
 
 main().catch((err) => {
