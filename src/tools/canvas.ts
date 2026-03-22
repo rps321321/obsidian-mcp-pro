@@ -5,35 +5,41 @@ import type { CanvasNode, CanvasData } from "../types.js";
 import { randomUUID } from "crypto";
 
 export function registerCanvasTools(server: McpServer, vaultPath: string): void {
-  server.tool(
+  server.registerTool(
     "list_canvases",
-    "List all canvas files in the vault",
-    {},
+    {
+      description: "List all canvas files in the vault",
+      inputSchema: {},
+    },
     async () => {
       try {
         const files = await listCanvasFiles(vaultPath);
 
         if (files.length === 0) {
-          return { content: [{ type: "text", text: "No canvas files found in the vault." }] };
+          return { content: [{ type: "text" as const, text: "No canvas files found in the vault." }] };
         }
 
         const formatted = files.map((f, i) => `${i + 1}. ${f}`).join("\n");
         return {
-          content: [{ type: "text", text: `Found ${files.length} canvas file(s):\n\n${formatted}` }],
+          content: [{ type: "text" as const, text: `Found ${files.length} canvas file(s):\n\n${formatted}` }],
         };
       } catch (err) {
         console.error("Failed to list canvas files:", err);
         return {
-          content: [{ type: "text", text: `Error listing canvas files: ${(err as Error).message}` }],
+          content: [{ type: "text" as const, text: `Error listing canvas files: ${(err as Error).message}` }],
         };
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "read_canvas",
-    "Read and display the contents of an Obsidian canvas file",
-    { path: z.string().describe("Relative path to the .canvas file") },
+    {
+      description: "Read and display the contents of an Obsidian canvas file",
+      inputSchema: {
+        path: z.string().describe("Relative path to the .canvas file"),
+      },
+    },
     async ({ path: canvasPath }) => {
       try {
         const data = await readCanvasFile(vaultPath, canvasPath);
@@ -58,6 +64,8 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
               preview = node.file;
             } else if (node.type === "link" && node.url) {
               preview = node.url;
+            } else if (node.type === "group" && node.label) {
+              preview = `Group: ${node.label}`;
             }
 
             lines.push(`  [${node.id}] type=${node.type} pos=${pos} size=${size}`);
@@ -84,28 +92,30 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           }
         }
 
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("Failed to read canvas:", err);
         return {
-          content: [{ type: "text", text: `Error reading canvas: ${(err as Error).message}` }],
+          content: [{ type: "text" as const, text: `Error reading canvas: ${(err as Error).message}` }],
         };
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "add_canvas_node",
-    "Add a new node to an Obsidian canvas",
     {
-      canvasPath: z.string().describe("Relative path to the .canvas file"),
-      type: z.enum(["text", "file", "link"]).describe("Node type"),
-      content: z.string().describe("Text content, file path, or URL depending on type"),
-      x: z.number().optional().default(0).describe("X position"),
-      y: z.number().optional().default(0).describe("Y position"),
-      width: z.number().optional().default(250).describe("Node width"),
-      height: z.number().optional().default(60).describe("Node height"),
-      color: z.string().optional().describe("Color: '1'-'6' for Obsidian palette, or hex"),
+      description: "Add a new node to an Obsidian canvas",
+      inputSchema: {
+        canvasPath: z.string().describe("Relative path to the .canvas file"),
+        type: z.enum(["text", "file", "link", "group"]).describe("Node type"),
+        content: z.string().describe("Text content, file path, URL, or group label depending on type"),
+        x: z.number().optional().default(0).describe("X position"),
+        y: z.number().optional().default(0).describe("Y position"),
+        width: z.number().optional().default(250).describe("Node width"),
+        height: z.number().optional().default(60).describe("Node height"),
+        color: z.string().optional().describe("Color: '1'-'6' for Obsidian palette, or hex"),
+      },
     },
     async ({ canvasPath, type, content, x, y, width, height, color }) => {
       try {
@@ -127,6 +137,8 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           node.file = content;
         } else if (type === "link") {
           node.url = content;
+        } else if (type === "group") {
+          node.label = content;
         }
 
         if (color) {
@@ -137,27 +149,29 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         await writeCanvasFile(vaultPath, canvasPath, data);
 
         return {
-          content: [{ type: "text", text: `Node added successfully.\nID: ${id}\nType: ${type}\nPosition: (${x}, ${y})` }],
+          content: [{ type: "text" as const, text: `Node added successfully.\nID: ${id}\nType: ${type}\nPosition: (${x}, ${y})` }],
         };
       } catch (err) {
         console.error("Failed to add canvas node:", err);
         return {
-          content: [{ type: "text", text: `Error adding node: ${(err as Error).message}` }],
+          content: [{ type: "text" as const, text: `Error adding node: ${(err as Error).message}` }],
         };
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "add_canvas_edge",
-    "Add an edge (connection) between two nodes in a canvas",
     {
-      canvasPath: z.string().describe("Relative path to the .canvas file"),
-      fromNode: z.string().describe("Source node ID"),
-      toNode: z.string().describe("Target node ID"),
-      label: z.string().optional().describe("Edge label"),
-      fromSide: z.enum(["top", "right", "bottom", "left"]).optional().describe("Side of source node"),
-      toSide: z.enum(["top", "right", "bottom", "left"]).optional().describe("Side of target node"),
+      description: "Add an edge (connection) between two nodes in a canvas",
+      inputSchema: {
+        canvasPath: z.string().describe("Relative path to the .canvas file"),
+        fromNode: z.string().describe("Source node ID"),
+        toNode: z.string().describe("Target node ID"),
+        label: z.string().optional().describe("Edge label"),
+        fromSide: z.enum(["top", "right", "bottom", "left"]).optional().describe("Side of source node"),
+        toSide: z.enum(["top", "right", "bottom", "left"]).optional().describe("Side of target node"),
+      },
     },
     async ({ canvasPath, fromNode, toNode, label, fromSide, toSide }) => {
       try {
@@ -168,12 +182,12 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
 
         if (!fromExists) {
           return {
-            content: [{ type: "text", text: `Error: source node '${fromNode}' not found in canvas.` }],
+            content: [{ type: "text" as const, text: `Error: source node '${fromNode}' not found in canvas.` }],
           };
         }
         if (!toExists) {
           return {
-            content: [{ type: "text", text: `Error: target node '${toNode}' not found in canvas.` }],
+            content: [{ type: "text" as const, text: `Error: target node '${toNode}' not found in canvas.` }],
           };
         }
 
@@ -192,12 +206,12 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         await writeCanvasFile(vaultPath, canvasPath, data);
 
         return {
-          content: [{ type: "text", text: `Edge added successfully.\nID: ${id}\nFrom: ${fromNode} -> To: ${toNode}${label ? `\nLabel: ${label}` : ""}` }],
+          content: [{ type: "text" as const, text: `Edge added successfully.\nID: ${id}\nFrom: ${fromNode} -> To: ${toNode}${label ? `\nLabel: ${label}` : ""}` }],
         };
       } catch (err) {
         console.error("Failed to add canvas edge:", err);
         return {
-          content: [{ type: "text", text: `Error adding edge: ${(err as Error).message}` }],
+          content: [{ type: "text" as const, text: `Error adding edge: ${(err as Error).message}` }],
         };
       }
     },

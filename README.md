@@ -111,26 +111,26 @@ Auto-detection works on **macOS**, **Windows**, and **Linux** by reading the pla
 |------|-------------|----------------|
 | `search_notes` | Full-text search across all notes | `query`, `caseSensitive`, `maxResults`, `folder` |
 | `get_note` | Read a note's content and metadata | `path` |
-| `list_notes` | List notes in the vault or a folder | `folder`, `pattern`, `recursive` |
+| `list_notes` | List notes in the vault or a folder | `folder`, `limit` |
 | `get_daily_note` | Get today's (or a specific date's) daily note | `date` |
-| `search_by_frontmatter` | Find notes by frontmatter field values | `field`, `value`, `operator` |
+| `search_by_frontmatter` | Find notes by frontmatter property values | `property`, `value`, `folder` |
 | `create_note` | Create a new note with content and frontmatter | `path`, `content`, `frontmatter` |
-| `append_to_note` | Append content to an existing note | `path`, `content` |
+| `append_to_note` | Append content to an existing note | `path`, `content`, `ensureNewline` |
 | `prepend_to_note` | Prepend content after frontmatter | `path`, `content` |
-| `update_frontmatter` | Update frontmatter fields on a note | `path`, `fields` |
-| `create_daily_note` | Create today's daily note from template | `date`, `content` |
-| `move_note` | Move or rename a note | `source`, `destination` |
-| `delete_note` | Delete a note from the vault | `path`, `confirm` |
-| `get_tags` | Get all tags and their usage counts | `sort` |
-| `search_by_tag` | Find all notes with a specific tag | `tag`, `includeChildren` |
+| `update_frontmatter` | Update frontmatter properties on a note | `path`, `properties` |
+| `create_daily_note` | Create today's daily note from template | `date`, `content`, `templatePath` |
+| `move_note` | Move or rename a note | `oldPath`, `newPath` |
+| `delete_note` | Delete a note from the vault | `path`, `permanent` |
+| `get_tags` | Get all tags and their usage counts | `sortBy` |
+| `search_by_tag` | Find all notes with a specific tag | `tag`, `includeContent` |
 | `get_backlinks` | Get all notes that link to a given note | `path` |
 | `get_outlinks` | Get all links from a given note | `path` |
-| `find_orphans` | Find notes with no links in or out | `folder` |
+| `find_orphans` | Find notes with no links in or out | `includeOutlinksCheck` |
 | `find_broken_links` | Detect links pointing to non-existent notes | `folder` |
-| `get_graph_neighbors` | Get notes connected within N link hops | `path`, `depth` |
+| `get_graph_neighbors` | Get notes connected within N link hops | `path`, `depth`, `direction` |
+| `list_canvases` | List all `.canvas` files in the vault | — |
 | `read_canvas` | Read a `.canvas` file's nodes and edges | `path` |
-| `add_canvas_node` | Add a node to a canvas | `canvasPath`, `type`, `x`, `y`, `width`, `height` |
-| `list_canvases` | List all `.canvas` files in the vault | `folder` |
+| `add_canvas_node` | Add a node to a canvas | `canvasPath`, `type`, `content`, `x`, `y` |
 | `add_canvas_edge` | Add an edge between two canvas nodes | `canvasPath`, `fromNode`, `toNode` |
 
 ---
@@ -151,7 +151,7 @@ Resources provide a URI-based way to access vault data:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/obsidian-mcp-pro.git
+git clone https://github.com/rps321321/obsidian-mcp-pro.git
 cd obsidian-mcp-pro
 
 # Install dependencies

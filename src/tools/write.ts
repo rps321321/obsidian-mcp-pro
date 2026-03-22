@@ -117,7 +117,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     async ({ path: notePath, content, ensureNewline }) => {
       try {
         const resolvedPath = ensureMdExtension(notePath);
-        const preparedContent = ensureNewline ? content : content;
+        const preparedContent = ensureNewline ? "\n" + content : content;
         await appendToNote(vaultPath, resolvedPath, preparedContent);
         return textResult(`Appended content to '${resolvedPath}'.`);
       } catch (err) {
