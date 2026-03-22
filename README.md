@@ -8,6 +8,8 @@
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
 
+[![obsidian-mcp-pro MCP server](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro/badges/card.svg)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
+
 ---
 
 ## Features
