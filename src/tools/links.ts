@@ -96,13 +96,17 @@ function findLineWithLink(
 }
 
 export function registerLinkTools(server: McpServer, vaultPath: string): void {
+  function errorResult(text: string) {
+    return { content: [{ type: "text" as const, text }], isError: true as const };
+  }
+
   // ── get_backlinks ──────────────────────────────────────────────
   server.registerTool(
     "get_backlinks",
     {
       description: "Find all notes that link to a specific note",
       inputSchema: {
-        path: z.string().describe("The target note path (relative to vault root)"),
+        path: z.string().min(1).describe("The target note path (relative to vault root)"),
       },
     },
     async ({ path: targetPath }) => {
@@ -139,14 +143,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
 
         if (!resolvedTarget) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No note found matching path: ${targetPath}`,
-              },
-            ],
-          };
+          return errorResult(`No note found matching path: ${targetPath}`);
         }
 
         const backlinkSources = graph.backlinks.get(resolvedTarget);
@@ -209,14 +206,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: output }] };
       } catch (err) {
         console.error("get_backlinks error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error finding backlinks: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error finding backlinks: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -227,7 +217,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
     {
       description: "Get all links from a specific note",
       inputSchema: {
-        path: z.string().describe("The note path (relative to vault root)"),
+        path: z.string().min(1).describe("The note path (relative to vault root)"),
       },
     },
     async ({ path: notePath }) => {
@@ -289,14 +279,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("get_outlinks error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error getting outlinks: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error getting outlinks: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -312,9 +295,14 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           .optional()
           .default(true)
           .describe("Also check for notes with no outgoing links"),
+        maxResults: z
+          .number()
+          .optional()
+          .default(200)
+          .describe("Maximum results to return"),
       },
     },
-    async ({ includeOutlinksCheck }) => {
+    async ({ includeOutlinksCheck, maxResults }) => {
       try {
         const graph = await buildLinkGraph(vaultPath);
 
@@ -335,24 +323,42 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           }
         }
 
+        // Apply maxResults cap across all categories
+        let remaining = maxResults;
+
+        const cappedIsolated = fullyIsolated.slice(0, remaining);
+        remaining -= cappedIsolated.length;
+        const cappedNoBacklinks = noBacklinks.slice(0, Math.max(0, remaining));
+        remaining -= cappedNoBacklinks.length;
+        const cappedNoOutlinks = includeOutlinksCheck ? noOutlinks.slice(0, Math.max(0, remaining)) : [];
+
         const lines: string[] = [
           `Orphan analysis for vault (${graph.allNotes.length} notes total)\n`,
         ];
 
         lines.push(`Fully isolated (no links in or out): ${fullyIsolated.length}`);
-        for (const note of fullyIsolated) {
+        for (const note of cappedIsolated) {
           lines.push(`  - ${note.path}`);
+        }
+        if (cappedIsolated.length < fullyIsolated.length) {
+          lines.push(`  ... and ${fullyIsolated.length - cappedIsolated.length} more`);
         }
 
         lines.push(`\nNo backlinks (not linked by any note): ${noBacklinks.length}`);
-        for (const note of noBacklinks) {
+        for (const note of cappedNoBacklinks) {
           lines.push(`  - ${note.path}`);
+        }
+        if (cappedNoBacklinks.length < noBacklinks.length) {
+          lines.push(`  ... and ${noBacklinks.length - cappedNoBacklinks.length} more`);
         }
 
         if (includeOutlinksCheck) {
           lines.push(`\nNo outlinks (links to no other notes): ${noOutlinks.length}`);
-          for (const note of noOutlinks) {
+          for (const note of cappedNoOutlinks) {
             lines.push(`  - ${note.path}`);
+          }
+          if (cappedNoOutlinks.length < noOutlinks.length) {
+            lines.push(`  ... and ${noOutlinks.length - cappedNoOutlinks.length} more`);
           }
         }
 
@@ -362,14 +368,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("find_orphans error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error finding orphans: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error finding orphans: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -384,9 +383,14 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           .string()
           .optional()
           .describe("Limit scan to a specific folder"),
+        maxResults: z
+          .number()
+          .optional()
+          .default(200)
+          .describe("Maximum results to return"),
       },
     },
-    async ({ folder }) => {
+    async ({ folder, maxResults }) => {
       try {
         // Get all notes in vault for resolution, but only scan the folder
         const allNotes = await listNotes(vaultPath);
@@ -440,33 +444,36 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
 
         let totalBroken = 0;
+        for (const brokenLinks of brokenBySource.values()) {
+          totalBroken += brokenLinks.length;
+        }
+
         const lines: string[] = [];
         const scopeStr = folder ? ` (folder: ${folder})` : "";
         lines.push(`Broken links report${scopeStr}\n`);
 
+        let shown = 0;
         for (const [sourcePath, brokenLinks] of brokenBySource) {
+          if (shown >= maxResults) break;
           lines.push(`${sourcePath}:`);
           for (const bl of brokenLinks) {
+            if (shown >= maxResults) break;
             const lineStr = bl.line > 0 ? ` (line ${bl.line})` : "";
             lines.push(`  - [[${bl.targetLink}]]${lineStr}`);
-            totalBroken++;
+            shown++;
           }
           lines.push("");
         }
 
+        if (shown < totalBroken) {
+          lines.push(`... and ${totalBroken - shown} more broken link(s) not shown`);
+        }
         lines.push(`Total: ${totalBroken} broken link(s) across ${brokenBySource.size} file(s)`);
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("find_broken_links error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error finding broken links: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error finding broken links: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -477,7 +484,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
     {
       description: "Get notes within N link-hops of a given note",
       inputSchema: {
-        path: z.string().describe("The starting note path (relative to vault root)"),
+        path: z.string().min(1).describe("The starting note path (relative to vault root)"),
         depth: z
           .number()
           .int()
@@ -526,14 +533,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
 
         if (!resolvedStart) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No note found matching path: ${startPath}`,
-              },
-            ],
-          };
+          return errorResult(`No note found matching path: ${startPath}`);
         }
 
         // BFS traversal
@@ -633,14 +633,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("get_graph_neighbors error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error getting graph neighbors: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error getting graph neighbors: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );

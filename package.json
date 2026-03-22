@@ -1,6 +1,6 @@
 {
   "name": "obsidian-mcp-pro",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "The most feature-complete MCP server for Obsidian vaults — search, read, write, tag, link analysis, graph traversal, canvas support, and more.",
   "type": "module",
   "bin": {
@@ -27,6 +27,10 @@
   ],
   "author": "rps321",
   "license": "MIT",
+  "homepage": "https://github.com/rps321321/obsidian-mcp-pro#readme",
+  "bugs": {
+    "url": "https://github.com/rps321321/obsidian-mcp-pro/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/rps321321/obsidian-mcp-pro.git"
@@ -37,13 +41,12 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.17.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "zod": "^3.24.0",
-    "gray-matter": "^4.0.3",
-    "glob": "^11.0.0"
+    "gray-matter": "^4.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

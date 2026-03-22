@@ -2,19 +2,22 @@ import fs from "fs/promises";
 import path from "path";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 
-const EXCLUDED_DIRS = [".obsidian", ".trash"];
+const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 
 function isExcluded(relativePath: string): boolean {
-  const normalized = relativePath.replace(/\\/g, "/");
+  const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
   return EXCLUDED_DIRS.some(
     (dir) => normalized.startsWith(`${dir}/`) || normalized === dir,
   );
 }
 
-function resolveVaultPath(vaultPath: string, relativePath: string): string {
+export function resolveVaultPath(vaultPath: string, relativePath: string): string {
+  if (relativePath.includes('\0')) {
+    throw new Error("Invalid path: contains null byte");
+  }
   const resolved = path.resolve(vaultPath, relativePath);
-  // Prevent path traversal outside vault
-  if (!resolved.startsWith(path.resolve(vaultPath))) {
+  const resolvedVault = path.resolve(vaultPath);
+  if (!resolved.startsWith(resolvedVault + path.sep) && resolved !== resolvedVault) {
     throw new Error(`Path traversal detected: ${relativePath}`);
   }
   return resolved;
@@ -124,6 +127,11 @@ export async function deleteNote(
   if (useTrash) {
     const trashDir = path.join(vaultPath, ".trash");
     const trashPath = path.join(trashDir, relativePath);
+    const resolvedTrash = path.resolve(trashPath);
+    const resolvedTrashDir = path.resolve(trashDir);
+    if (!resolvedTrash.startsWith(resolvedTrashDir + path.sep) && resolvedTrash !== resolvedTrashDir) {
+      throw new Error(`Invalid trash path: ${relativePath}`);
+    }
     await fs.mkdir(path.dirname(trashPath), { recursive: true });
     await fs.rename(fullPath, trashPath);
   } else {
@@ -138,6 +146,12 @@ export async function moveNote(
 ): Promise<void> {
   const fullOldPath = resolveVaultPath(vaultPath, oldPath);
   const fullNewPath = resolveVaultPath(vaultPath, newPath);
+  try {
+    await fs.access(fullNewPath);
+    throw new Error(`Destination already exists: ${newPath}`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
   await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
   await fs.rename(fullOldPath, fullNewPath);
 }
@@ -224,7 +238,15 @@ export async function getNoteStats(
 export async function listCanvasFiles(
   vaultPath: string,
 ): Promise<string[]> {
-  const entries = await fs.readdir(vaultPath, { recursive: true }) as unknown as string[];
+  let entries: string[];
+  try {
+    entries = await fs.readdir(vaultPath, { recursive: true }) as unknown as string[];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw err;
+  }
   const canvasFiles: string[] = [];
 
   for (const entry of entries) {
@@ -243,7 +265,20 @@ export async function readCanvasFile(
 ): Promise<CanvasData> {
   const fullPath = resolveVaultPath(vaultPath, relativePath);
   const content = await fs.readFile(fullPath, "utf-8");
-  return JSON.parse(content) as CanvasData;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(`Invalid canvas file (malformed JSON): ${relativePath}`);
+  }
+  const data = parsed as Record<string, unknown>;
+  if (!Array.isArray(data.nodes)) {
+    return { nodes: [], edges: [] };
+  }
+  return {
+    nodes: data.nodes as CanvasData["nodes"],
+    edges: Array.isArray(data.edges) ? data.edges as CanvasData["edges"] : [],
+  };
 }
 
 export async function writeCanvasFile(

@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
-import * as fs from "fs";
+import * as fs from "fs/promises";
 import * as path from "path";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
+import { resolveVaultPath, listNotes, readNote } from "./lib/vault.js";
+import { extractTags } from "./lib/markdown.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
 import { registerTagTools } from "./tools/tags.js";
@@ -25,60 +27,59 @@ async function main(): Promise<void> {
 
   const server = new McpServer({
     name: "obsidian-mcp-pro",
-    version: "1.0.1",
+    version: "1.1.0",
   });
 
   // --- MCP Resources ---
 
   server.resource(
     "note",
-    new ResourceTemplate("obsidian://note/{path}", { list: undefined }),
+    new ResourceTemplate("obsidian://note/{+path}", { list: undefined }),
     async (uri: URL, params: Variables) => {
       const rawPath = params.path;
-      const notePath = Array.isArray(rawPath) ? rawPath[0] : (rawPath ?? "");
-      const fullPath = path.join(vaultPath, notePath);
+      const notePath = Array.isArray(rawPath) ? rawPath.join("/") : (rawPath ?? "");
 
-      if (!fs.existsSync(fullPath)) {
-        throw new Error(`Note not found: ${notePath}`);
+      if (!notePath) {
+        throw new Error("Note path is required");
       }
 
-      const content = fs.readFileSync(fullPath, "utf-8");
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: "text/markdown",
-            text: content,
-          },
-        ],
-      };
+      try {
+        const fullPath = resolveVaultPath(vaultPath, notePath);
+        const content = await fs.readFile(fullPath, "utf-8");
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: "text/markdown",
+              text: content,
+            },
+          ],
+        };
+      } catch (err) {
+        throw new Error(`Failed to read note: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   );
 
   server.resource("tags", "obsidian://tags", async (uri) => {
     const tagIndex: Record<string, string[]> = {};
-    const walkDir = (dir: string): void => {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.name.startsWith(".")) continue;
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walkDir(fullPath);
-        } else if (entry.name.endsWith(".md")) {
-          const content = fs.readFileSync(fullPath, "utf-8");
-          const relativePath = path.relative(vaultPath, fullPath);
-          const tags = content.match(/#[a-zA-Z][\w/-]*/g) ?? [];
-          for (const tag of tags) {
-            if (!tagIndex[tag]) {
-              tagIndex[tag] = [];
-            }
-            tagIndex[tag].push(relativePath);
-          }
-        }
-      }
-    };
+    const notes = await listNotes(vaultPath);
 
-    walkDir(vaultPath);
+    for (const notePath of notes) {
+      try {
+        const content = await readNote(vaultPath, notePath);
+        const tags = extractTags(content);
+        for (const tag of tags) {
+          const normalizedTag = `#${tag}`;
+          if (!tagIndex[normalizedTag]) {
+            tagIndex[normalizedTag] = [];
+          }
+          tagIndex[normalizedTag].push(notePath);
+        }
+      } catch {
+        // Skip unreadable notes
+      }
+    }
 
     return {
       contents: [
@@ -98,7 +99,6 @@ async function main(): Promise<void> {
     const month = String(today.getMonth() + 1).padStart(2, "0");
     const day = String(today.getDate()).padStart(2, "0");
 
-    // Build the filename from the configured format
     let filename = dailyConfig.format
       .replace("YYYY", String(year))
       .replace("MM", month)
@@ -108,32 +108,32 @@ async function main(): Promise<void> {
       filename += ".md";
     }
 
-    const dailyNotePath = dailyConfig.folder
-      ? path.join(vaultPath, dailyConfig.folder, filename)
-      : path.join(vaultPath, filename);
+    const notePath = dailyConfig.folder
+      ? `${dailyConfig.folder}/${filename}`
+      : filename;
 
-    if (!fs.existsSync(dailyNotePath)) {
+    try {
+      const content = await readNote(vaultPath, notePath);
       return {
         contents: [
           {
             uri: uri.href,
             mimeType: "text/markdown",
-            text: `No daily note found for today (expected at ${path.relative(vaultPath, dailyNotePath)})`,
+            text: content,
+          },
+        ],
+      };
+    } catch {
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "text/markdown",
+            text: `No daily note found for today (expected at ${notePath})`,
           },
         ],
       };
     }
-
-    const content = fs.readFileSync(dailyNotePath, "utf-8");
-    return {
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "text/markdown",
-          text: content,
-        },
-      ],
-    };
   });
 
   // --- Register tool groups ---

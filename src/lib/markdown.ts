@@ -36,13 +36,34 @@ export function updateFrontmatter(
  */
 function createCodeBlockTracker(): (line: string) => boolean {
   let insideCodeBlock = false;
+  let fenceChar = "";
+  let fenceLength = 0;
   return (line: string): boolean => {
     const trimmed = line.trimStart();
-    if (trimmed.startsWith("```")) {
-      insideCodeBlock = !insideCodeBlock;
-      return true; // skip the fence line itself
+    if (!insideCodeBlock) {
+      const backtickMatch = trimmed.match(/^(`{3,})/);
+      const tildeMatch = trimmed.match(/^(~{3,})/);
+      if (backtickMatch) {
+        insideCodeBlock = true;
+        fenceChar = "`";
+        fenceLength = backtickMatch[1].length;
+        return true;
+      }
+      if (tildeMatch) {
+        insideCodeBlock = true;
+        fenceChar = "~";
+        fenceLength = tildeMatch[1].length;
+        return true;
+      }
+      return false;
+    } else {
+      const closePattern = new RegExp(`^${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}{${fenceLength},}\\s*$`);
+      if (closePattern.test(trimmed)) {
+        insideCodeBlock = false;
+        return true;
+      }
+      return true;
     }
-    return insideCodeBlock;
   };
 }
 
@@ -106,14 +127,15 @@ export function extractTags(content: string): string[] {
 
   // Extract frontmatter tags
   const { data, content: body } = parseFrontmatter(content);
-  if (data.tags) {
-    if (Array.isArray(data.tags)) {
-      for (const tag of data.tags) {
+  const tagFieldValue = data.tags ?? data.tag;
+  if (tagFieldValue) {
+    if (Array.isArray(tagFieldValue)) {
+      for (const tag of tagFieldValue) {
         const t = String(tag).trim();
         if (t) tagSet.add(t);
       }
-    } else if (typeof data.tags === "string") {
-      for (const tag of data.tags.split(",")) {
+    } else if (typeof tagFieldValue === "string") {
+      for (const tag of tagFieldValue.split(",")) {
         const t = tag.trim();
         if (t) tagSet.add(t);
       }
@@ -123,10 +145,13 @@ export function extractTags(content: string): string[] {
   // Extract inline tags from body
   const lines = body.split("\n");
   const isInsideCodeBlock = createCodeBlockTracker();
-  const tagRegex = /(?:^|\s)#([a-zA-Z0-9_/-]+)/g;
+  const tagRegex = /(?:^|\s)#([a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_][a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_/-]*)/g;
 
   for (const line of lines) {
     if (isInsideCodeBlock(line)) continue;
+
+    // Skip ATX headings
+    if (/^\s*#{1,6}\s/.test(line)) continue;
 
     const cleaned = stripInlineCode(line);
     let match: RegExpExecArray | null;
@@ -145,17 +170,15 @@ export function extractTags(content: string): string[] {
  */
 export function extractAliases(content: string): string[] {
   const { data } = parseFrontmatter(content);
-  if (!data.aliases) return [];
+  const aliasField = data.aliases ?? data.alias;
+  if (!aliasField) return [];
 
-  if (Array.isArray(data.aliases)) {
-    return data.aliases.map((a: unknown) => String(a).trim()).filter(Boolean);
+  if (Array.isArray(aliasField)) {
+    return aliasField.map((a: unknown) => String(a).trim()).filter(Boolean);
   }
 
-  if (typeof data.aliases === "string") {
-    return data.aliases
-      .split(",")
-      .map((a: string) => a.trim())
-      .filter(Boolean);
+  if (typeof aliasField === "string") {
+    return aliasField.split(",").map((a: string) => a.trim()).filter(Boolean);
   }
 
   return [];
@@ -203,25 +226,26 @@ export function resolveWikilink(
   _currentNotePath: string,
   allNotePaths: string[],
 ): string | null {
-  // Normalize: strip .md if present, we'll compare basenames
-  const normalizedLink = link.replace(/\.md$/i, "");
+  // Strip heading anchors and block refs before resolution
+  const cleanLink = link.split("#")[0].split("^")[0].trim();
+  if (!cleanLink) return null;
 
-  // Exact relative path match (with or without extension)
+  // Normalize: strip .md if present, we'll compare basenames
+  const normalizedLink = cleanLink.replace(/\.md$/i, "");
+
+  // Exact relative path match (case-insensitive)
+  const normalizedLinkLower = normalizedLink.toLowerCase();
   for (const notePath of allNotePaths) {
-    const withoutExt = notePath.replace(/\.md$/i, "");
-    if (withoutExt === normalizedLink) return notePath;
+    const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
+    if (withoutExt === normalizedLinkLower) return notePath;
   }
 
-  // Match by path suffix — handles [[folder/note]] style links
+  // Match by path suffix (case-insensitive)
   if (normalizedLink.includes("/")) {
     for (const notePath of allNotePaths) {
-      const withoutExt = notePath.replace(/\.md$/i, "");
-      if (withoutExt.endsWith(normalizedLink)) {
-        // Ensure the match is at a path boundary
-        const prefix = withoutExt.slice(
-          0,
-          withoutExt.length - normalizedLink.length,
-        );
+      const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
+      if (withoutExt.endsWith(normalizedLinkLower)) {
+        const prefix = withoutExt.slice(0, withoutExt.length - normalizedLinkLower.length);
         if (prefix === "" || prefix.endsWith("/")) return notePath;
       }
     }

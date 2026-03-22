@@ -4,6 +4,10 @@ import { listNotes, readNote } from "../lib/vault.js";
 import { extractTags } from "../lib/markdown.js";
 import type { TagInfo } from "../types.js";
 
+function errorResult(text: string) {
+  return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
 export function registerTagTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "get_tags",
@@ -20,7 +24,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
     async ({ sortBy }) => {
       try {
         const notes = await listNotes(vaultPath);
-        const tagMap = new Map<string, TagInfo>();
+        const tagMap = new Map<string, { tag: string; files: Set<string> }>();
 
         for (const notePath of notes) {
           let content: string;
@@ -36,21 +40,21 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
             const normalizedTag = tag.toLowerCase();
             const existing = tagMap.get(normalizedTag);
             if (existing) {
-              existing.count++;
-              if (!existing.files.includes(notePath)) {
-                existing.files.push(notePath);
-              }
+              existing.files.add(notePath);
             } else {
               tagMap.set(normalizedTag, {
                 tag: normalizedTag,
-                count: 1,
-                files: [notePath],
+                files: new Set([notePath]),
               });
             }
           }
         }
 
-        const tagInfos = Array.from(tagMap.values());
+        const tagInfos: TagInfo[] = Array.from(tagMap.values()).map(({ tag, files }) => ({
+          tag,
+          count: files.size,
+          files: [...files],
+        }));
 
         if (sortBy === "name") {
           tagInfos.sort((a, b) => a.tag.localeCompare(b.tag));
@@ -71,14 +75,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("Error in get_tags:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error listing tags: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error listing tags: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -94,15 +91,18 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           .optional()
           .default(false)
           .describe("If true, include first 200 characters of note content as a preview"),
+        maxResults: z.number().optional().default(100).describe("Maximum number of results"),
       },
     },
-    async ({ tag, includeContent }) => {
+    async ({ tag, includeContent, maxResults }) => {
       try {
         const searchTag = tag.replace(/^#/, "").toLowerCase();
         const notes = await listNotes(vaultPath);
         const matchingNotes: { path: string; preview?: string }[] = [];
 
         for (const notePath of notes) {
+          if (matchingNotes.length >= maxResults) break;
+
           let content: string;
           try {
             content = await readNote(vaultPath, notePath);
@@ -151,14 +151,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("Error in search_by_tag:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error searching by tag: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error searching by tag: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );

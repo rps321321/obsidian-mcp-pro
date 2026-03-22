@@ -59,8 +59,10 @@ export interface CanvasEdge {
   id: string;
   fromNode: string;
   toNode: string;
-  fromSide?: string;
-  toSide?: string;
+  fromSide?: "top" | "right" | "bottom" | "left";
+  toSide?: "top" | "right" | "bottom" | "left";
+  fromEnd?: "none" | "arrow";
+  toEnd?: "none" | "arrow";
   label?: string;
   color?: string;
 }

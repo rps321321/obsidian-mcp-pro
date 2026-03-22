@@ -5,6 +5,10 @@ import { parseFrontmatter, extractTags } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 
 export function registerReadTools(server: McpServer, vaultPath: string): void {
+  function errorResult(text: string) {
+    return { content: [{ type: "text" as const, text }], isError: true as const };
+  }
+
   server.registerTool(
     "search_notes",
     {
@@ -64,14 +68,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("search_notes error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error searching notes: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error searching notes: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -83,13 +80,14 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       inputSchema: {
         path: z
           .string()
+          .min(1)
           .describe("Relative path to the note within the vault"),
       },
     },
     async ({ path: notePath }) => {
       try {
         const content = await readNote(vaultPath, notePath);
-        const { data: frontmatterData } = parseFrontmatter(content);
+        const { data: frontmatterData, content: bodyContent } = parseFrontmatter(content);
 
         const header: string[] = [];
         if (Object.keys(frontmatterData).length > 0) {
@@ -112,21 +110,14 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             {
               type: "text" as const,
               text: header.length > 0
-                ? header.join("\n") + content
+                ? header.join("\n") + bodyContent
                 : content,
             },
           ],
         };
       } catch (err) {
         console.error("get_note error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error reading note: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error reading note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -164,14 +155,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("list_notes error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error listing notes: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error listing notes: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -214,17 +198,10 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         try {
           content = await readNote(vaultPath, notePath);
         } catch {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Daily note not found for ${targetDate} (expected at "${notePath}")`,
-              },
-            ],
-          };
+          return errorResult(`Daily note not found for ${targetDate} (expected at "${notePath}")`);
         }
 
-        const { data: dailyFrontmatter } = parseFrontmatter(content);
+        const { data: dailyFrontmatter, content: dailyBody } = parseFrontmatter(content);
         const header: string[] = [
           `Daily Note: ${targetDate}`,
           `Path: ${notePath}`,
@@ -242,19 +219,12 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
 
         return {
           content: [
-            { type: "text" as const, text: header.join("\n") + content },
+            { type: "text" as const, text: header.join("\n") + dailyBody },
           ],
         };
       } catch (err) {
         console.error("get_daily_note error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error reading daily note: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error reading daily note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -266,8 +236,9 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       inputSchema: {
         property: z
           .string()
+          .min(1)
           .describe("Frontmatter property key to search for"),
-        value: z.string().describe("Value to match against the property"),
+        value: z.string().min(1).describe("Value to match against the property"),
         folder: z
           .string()
           .optional()
@@ -340,14 +311,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("search_by_frontmatter error:", err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error searching by frontmatter: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-        };
+        return errorResult(`Error searching by frontmatter: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );

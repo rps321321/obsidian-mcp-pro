@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import matter from "gray-matter";
 import {
   writeNote,
   appendToNote,
@@ -7,6 +8,7 @@ import {
   deleteNote,
   moveNote,
   readNote,
+  resolveVaultPath,
 } from "../lib/vault.js";
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
@@ -17,8 +19,12 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function errorResult(text: string) {
+  return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
 function ensureMdExtension(filePath: string): string {
-  return filePath.endsWith(".md") ? filePath : `${filePath}.md`;
+  return /\.md$/i.test(filePath) ? filePath : `${filePath}.md`;
 }
 
 function formatDate(date: Date, format: string): string {
@@ -32,22 +38,13 @@ function formatDate(date: Date, format: string): string {
     .replace("DD", dd);
 }
 
-function objectToYamlFrontmatter(obj: Record<string, unknown>): string {
-  const lines = Object.entries(obj).map(([key, value]) => {
-    if (Array.isArray(value)) {
-      const items = value.map((v) => `  - ${v}`).join("\n");
-      return `${key}:\n${items}`;
-    }
-    if (typeof value === "string" && (value.includes(":") || value.includes("#"))) {
-      return `${key}: "${value}"`;
-    }
-    return `${key}: ${value}`;
-  });
-  return `---\n${lines.join("\n")}\n---\n`;
+function buildFrontmatterContent(frontmatterObj: Record<string, unknown>, body: string): string {
+  return matter.stringify(body, frontmatterObj);
 }
 
 async function noteExists(vaultPath: string, relativePath: string): Promise<boolean> {
   try {
+    resolveVaultPath(vaultPath, relativePath); // validates path
     await fs.access(path.resolve(vaultPath, relativePath));
     return true;
   } catch {
@@ -62,7 +59,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       description: "Create a new note with optional frontmatter and content",
       inputSchema: {
-        path: z.string().describe("Relative path like 'folder/note.md'"),
+        path: z.string().min(1).describe("Relative path like 'folder/note.md'"),
         content: z.string().describe("Note content"),
         frontmatter: z
           .string()
@@ -75,26 +72,28 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const resolvedPath = ensureMdExtension(notePath);
 
         if (await noteExists(vaultPath, resolvedPath)) {
-          return textResult(`Error: Note already exists at '${resolvedPath}'. Use append or update tools instead.`);
+          return errorResult(`Error: Note already exists at '${resolvedPath}'. Use append or update tools instead.`);
         }
 
-        let finalContent = content;
+        let finalContent: string;
 
         if (frontmatter) {
           let parsed: Record<string, unknown>;
           try {
             parsed = JSON.parse(frontmatter) as Record<string, unknown>;
           } catch {
-            return textResult("Error: Invalid JSON in frontmatter parameter.");
+            return errorResult("Error: Invalid JSON in frontmatter parameter.");
           }
-          finalContent = objectToYamlFrontmatter(parsed) + content;
+          finalContent = buildFrontmatterContent(parsed, content);
+        } else {
+          finalContent = content;
         }
 
         await writeNote(vaultPath, resolvedPath, finalContent);
         return textResult(`Created note at '${resolvedPath}'.`);
       } catch (err) {
         console.error("create_note error:", err);
-        return textResult(`Error creating note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error creating note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -105,7 +104,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       description: "Append content to the end of an existing note",
       inputSchema: {
-        path: z.string().describe("Relative path to the note"),
+        path: z.string().min(1).describe("Relative path to the note"),
         content: z.string().describe("Content to append"),
         ensureNewline: z
           .boolean()
@@ -114,15 +113,15 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           .describe("Ensure content starts on a new line (default: true)"),
       },
     },
-    async ({ path: notePath, content, ensureNewline }) => {
+    async ({ path: notePath, content }) => {
+      // ensureNewline is handled by vault.ts appendToNote
       try {
         const resolvedPath = ensureMdExtension(notePath);
-        const preparedContent = ensureNewline ? "\n" + content : content;
-        await appendToNote(vaultPath, resolvedPath, preparedContent);
+        await appendToNote(vaultPath, resolvedPath, content);
         return textResult(`Appended content to '${resolvedPath}'.`);
       } catch (err) {
         console.error("append_to_note error:", err);
-        return textResult(`Error appending to note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error appending to note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -133,7 +132,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       description: "Prepend content to a note, after frontmatter if present",
       inputSchema: {
-        path: z.string().describe("Relative path to the note"),
+        path: z.string().min(1).describe("Relative path to the note"),
         content: z.string().describe("Content to prepend"),
       },
     },
@@ -144,7 +143,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Prepended content to '${resolvedPath}'.`);
       } catch (err) {
         console.error("prepend_to_note error:", err);
-        return textResult(`Error prepending to note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error prepending to note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -155,7 +154,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       description: "Update frontmatter properties of a note without changing the body content",
       inputSchema: {
-        path: z.string().describe("Relative path to the note"),
+        path: z.string().min(1).describe("Relative path to the note"),
         properties: z
           .string()
           .describe("JSON string of key-value pairs to set in frontmatter"),
@@ -169,7 +168,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         try {
           parsed = JSON.parse(properties) as Record<string, unknown>;
         } catch {
-          return textResult("Error: Invalid JSON in properties parameter.");
+          return errorResult("Error: Invalid JSON in properties parameter.");
         }
 
         const existing = await readNote(vaultPath, resolvedPath);
@@ -179,7 +178,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Updated frontmatter of '${resolvedPath}' with ${Object.keys(parsed).length} properties.`);
       } catch (err) {
         console.error("update_frontmatter error:", err);
-        return textResult(`Error updating frontmatter: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error updating frontmatter: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -207,7 +206,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const targetDate = date ? new Date(date + "T00:00:00") : new Date();
 
         if (isNaN(targetDate.getTime())) {
-          return textResult("Error: Invalid date format. Use YYYY-MM-DD.");
+          return errorResult("Error: Invalid date format. Use YYYY-MM-DD.");
         }
 
         const dateStr = formatDate(targetDate, config.format);
@@ -215,7 +214,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const notePath = `${folder}${dateStr}.md`;
 
         if (await noteExists(vaultPath, notePath)) {
-          return textResult(`Error: Daily note already exists at '${notePath}'.`);
+          return errorResult(`Error: Daily note already exists at '${notePath}'.`);
         }
 
         let finalContent = content ?? "";
@@ -225,7 +224,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             const templateContent = await readNote(vaultPath, templatePath);
             finalContent = templateContent.replace(/\{\{date\}\}/g, dateStr);
           } catch (err) {
-            return textResult(`Error reading template: ${err instanceof Error ? err.message : String(err)}`);
+            return errorResult(`Error reading template: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
 
@@ -233,7 +232,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Created daily note at '${notePath}'.`);
       } catch (err) {
         console.error("create_daily_note error:", err);
-        return textResult(`Error creating daily note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error creating daily note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -244,8 +243,8 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       description: "Move or rename a note to a new path",
       inputSchema: {
-        oldPath: z.string().describe("Current relative path of the note"),
-        newPath: z.string().describe("New relative path for the note"),
+        oldPath: z.string().min(1).describe("Current relative path of the note"),
+        newPath: z.string().min(1).describe("New relative path for the note"),
       },
     },
     async ({ oldPath, newPath }) => {
@@ -256,7 +255,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Moved note from '${resolvedOld}' to '${resolvedNew}'.`);
       } catch (err) {
         console.error("move_note error:", err);
-        return textResult(`Error moving note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error moving note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -267,7 +266,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       description: "Delete a note (moves to vault trash by default)",
       inputSchema: {
-        path: z.string().describe("Relative path to the note"),
+        path: z.string().min(1).describe("Relative path to the note"),
         permanent: z
           .boolean()
           .optional()
@@ -284,7 +283,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Note '${resolvedPath}' ${method}.`);
       } catch (err) {
         console.error("delete_note error:", err);
-        return textResult(`Error deleting note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error deleting note: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );

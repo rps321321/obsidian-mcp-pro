@@ -35,7 +35,8 @@ function getObsidianConfigPath(): string {
   }
 
   // Linux and other Unix-like systems
-  return path.join(os.homedir(), ".config", "obsidian", "obsidian.json");
+  const configDir = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  return path.join(configDir, "obsidian", "obsidian.json");
 }
 
 function isValidVaultPath(vaultPath: string): boolean {

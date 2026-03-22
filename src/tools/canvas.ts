@@ -4,6 +4,10 @@ import { listCanvasFiles, readCanvasFile, writeCanvasFile } from "../lib/vault.j
 import type { CanvasNode, CanvasData } from "../types.js";
 import { randomUUID } from "crypto";
 
+function errorResult(text: string) {
+  return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
 export function registerCanvasTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "list_canvases",
@@ -25,9 +29,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         };
       } catch (err) {
         console.error("Failed to list canvas files:", err);
-        return {
-          content: [{ type: "text" as const, text: `Error listing canvas files: ${(err as Error).message}` }],
-        };
+        return errorResult(`Error listing canvas files: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -37,7 +39,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     {
       description: "Read and display the contents of an Obsidian canvas file",
       inputSchema: {
-        path: z.string().describe("Relative path to the .canvas file"),
+        path: z.string().min(1).describe("Relative path to the .canvas file"),
       },
     },
     async ({ path: canvasPath }) => {
@@ -95,9 +97,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("Failed to read canvas:", err);
-        return {
-          content: [{ type: "text" as const, text: `Error reading canvas: ${(err as Error).message}` }],
-        };
+        return errorResult(`Error reading canvas: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -107,7 +107,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     {
       description: "Add a new node to an Obsidian canvas",
       inputSchema: {
-        canvasPath: z.string().describe("Relative path to the .canvas file"),
+        canvasPath: z.string().min(1).describe("Relative path to the .canvas file"),
         type: z.enum(["text", "file", "link", "group"]).describe("Node type"),
         content: z.string().describe("Text content, file path, URL, or group label depending on type"),
         x: z.number().optional().default(0).describe("X position"),
@@ -153,9 +153,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         };
       } catch (err) {
         console.error("Failed to add canvas node:", err);
-        return {
-          content: [{ type: "text" as const, text: `Error adding node: ${(err as Error).message}` }],
-        };
+        return errorResult(`Error adding node: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
@@ -165,7 +163,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     {
       description: "Add an edge (connection) between two nodes in a canvas",
       inputSchema: {
-        canvasPath: z.string().describe("Relative path to the .canvas file"),
+        canvasPath: z.string().min(1).describe("Relative path to the .canvas file"),
         fromNode: z.string().describe("Source node ID"),
         toNode: z.string().describe("Target node ID"),
         label: z.string().optional().describe("Edge label"),
@@ -181,14 +179,10 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         const toExists = data.nodes.some((n) => n.id === toNode);
 
         if (!fromExists) {
-          return {
-            content: [{ type: "text" as const, text: `Error: source node '${fromNode}' not found in canvas.` }],
-          };
+          return errorResult(`Error: source node '${fromNode}' not found in canvas.`);
         }
         if (!toExists) {
-          return {
-            content: [{ type: "text" as const, text: `Error: target node '${toNode}' not found in canvas.` }],
-          };
+          return errorResult(`Error: target node '${toNode}' not found in canvas.`);
         }
 
         const id = randomUUID();
@@ -210,9 +204,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         };
       } catch (err) {
         console.error("Failed to add canvas edge:", err);
-        return {
-          content: [{ type: "text" as const, text: `Error adding edge: ${(err as Error).message}` }],
-        };
+        return errorResult(`Error adding edge: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );
