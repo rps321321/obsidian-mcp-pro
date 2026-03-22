@@ -46,6 +46,8 @@ It auto-detects your vault location on macOS, Windows, and Linux. You can also p
 
 It's **free, open source, MIT licensed**. No telemetry, no cloud, everything stays local.
 
+Backed by 122 automated tests and a full security audit. Runs on macOS, Windows, and Linux.
+
 **GitHub:** [github.com/rps321321/obsidian-mcp-pro](https://github.com/rps321321/obsidian-mcp-pro)
 **npm:** [npmjs.com/package/obsidian-mcp-pro](https://www.npmjs.com/package/obsidian-mcp-pro)
 

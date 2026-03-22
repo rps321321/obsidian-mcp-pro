@@ -5,6 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/obsidian-mcp-pro.svg)](https://www.npmjs.com/package/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
+[![Tests](https://img.shields.io/badge/tests-122_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
 
@@ -188,6 +189,14 @@ src/
 ```
 
 ---
+
+## Testing
+
+```bash
+npm test
+```
+
+122 tests covering vault operations, markdown parsing (frontmatter, wikilinks, tags, code block detection), and integration tests with a mock vault.
 
 ## License
 

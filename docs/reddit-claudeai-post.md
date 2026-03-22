@@ -20,6 +20,10 @@ Most Obsidian MCP servers give you 5-8 tools — basically read, write, search. 
 
 Path traversal protection on every file operation. Proper `isError` compliance on all tool responses. Your vault stays sandboxed.
 
+## Testing
+
+122 automated tests — unit tests for vault operations and markdown parsing, plus integration tests with a mock vault. Every tool is tested.
+
 ## Setup
 
 **Claude Desktop** — add to `claude_desktop_config.json`:

@@ -274,6 +274,7 @@ During a security audit before publishing, I found and fixed several issues:
 - PR submitted to [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 - Works with Claude Desktop, Claude Code, Cursor, and any MCP-compatible client
 - Zero-config for single-vault setups: `npx -y obsidian-mcp-pro` just works
+- 122 automated tests covering vault operations, markdown parsing, and full integration testing
 
 ## What I Learned
 

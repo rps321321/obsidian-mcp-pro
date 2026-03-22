@@ -30,6 +30,8 @@ It auto-detects your vault from Obsidian's config, so zero setup for most users.
 
 This is not tied to any specific LLM or client. MCP is an open protocol -- if your tool speaks MCP, this server works with it.
 
+122 automated tests. Security-audited (path traversal protection, input validation on every tool).
+
 GitHub: https://github.com/rps321321/obsidian-mcp-pro
 npm: https://www.npmjs.com/package/obsidian-mcp-pro
 
