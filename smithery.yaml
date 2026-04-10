@@ -1,0 +1,24 @@
+# Smithery MCP Server Configuration
+# https://smithery.ai/docs/config
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      vaultPath:
+        type: string
+        description: Absolute path to your Obsidian vault folder. Leave empty for auto-detection.
+      vaultName:
+        type: string
+        description: Vault folder name to select when multiple vaults exist (alternative to vaultPath).
+    required: []
+  commandFunction: |-
+    (config) => ({
+      command: "npx",
+      args: ["-y", "obsidian-mcp-pro"],
+      env: {
+        ...(config.vaultPath ? { OBSIDIAN_VAULT_PATH: config.vaultPath } : {}),
+        ...(config.vaultName ? { OBSIDIAN_VAULT_NAME: config.vaultName } : {}),
+      }
+    })
