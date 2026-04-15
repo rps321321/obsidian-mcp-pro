@@ -178,6 +178,14 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const config = getDailyNoteConfig(vaultPath);
         const targetDate = date ?? new Date().toISOString().slice(0, 10);
 
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+          return errorResult(`Invalid date format: "${targetDate}". Use YYYY-MM-DD.`);
+        }
+        const parsed = new Date(`${targetDate}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) {
+          return errorResult(`Invalid date: "${targetDate}".`);
+        }
+
         // Build the filename from the configured format
         // Replace common date tokens with actual date parts
         const [year, month, day] = targetDate.split("-");

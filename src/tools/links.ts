@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes, readNote } from "../lib/vault.js";
+import { listNotes, readNote, getNoteStats } from "../lib/vault.js";
 import { extractWikilinks, resolveWikilink } from "../lib/markdown.js";
 import type { LinkInfo, BrokenLink, OrphanNote, GraphNeighbor } from "../types.js";
 
@@ -14,11 +14,54 @@ interface LinkGraphData {
   noteLines: Map<string, string[]>;
 }
 
+// Per-vault+folder cache. Invalidated when any note's mtime changes,
+// the file set changes, or after 30 seconds (defensive TTL).
+interface CachedGraph {
+  data: LinkGraphData;
+  /** Fingerprint = "<count>:<max-mtime-ms>" */
+  fingerprint: string;
+  cachedAt: number;
+}
+const GRAPH_CACHE_TTL_MS = 30_000;
+const graphCache = new Map<string, CachedGraph>();
+
+async function fingerprintVault(
+  vaultPath: string,
+  notes: string[],
+): Promise<string> {
+  let maxMtime = 0;
+  // Stat in parallel with a small concurrency cap to avoid FD exhaustion
+  const CONCURRENCY = 16;
+  for (let i = 0; i < notes.length; i += CONCURRENCY) {
+    const slice = notes.slice(i, i + CONCURRENCY);
+    const stats = await Promise.all(
+      slice.map((n) => getNoteStats(vaultPath, n).catch(() => null)),
+    );
+    for (const s of stats) {
+      if (s?.modified) {
+        const ms = s.modified.getTime();
+        if (ms > maxMtime) maxMtime = ms;
+      }
+    }
+  }
+  return `${notes.length}:${maxMtime}`;
+}
+
 async function buildLinkGraph(
   vaultPath: string,
   folder?: string,
 ): Promise<LinkGraphData> {
+  const cacheKey = `${vaultPath}::${folder ?? ""}`;
+  const cached = graphCache.get(cacheKey);
   const allNotes = await listNotes(vaultPath, folder);
+
+  if (cached && Date.now() - cached.cachedAt < GRAPH_CACHE_TTL_MS) {
+    const fp = await fingerprintVault(vaultPath, allNotes);
+    if (fp === cached.fingerprint) {
+      return cached.data;
+    }
+  }
+
   const outlinks = new Map<string, Set<string>>();
   const backlinks = new Map<string, Set<string>>();
   const rawLinks = new Map<string, LinkInfo[]>();
@@ -30,14 +73,42 @@ async function buildLinkGraph(
     backlinks.set(notePath, new Set());
   }
 
+  // Build basename index once for O(1) resolution instead of O(N) per link
+  const basenameIndex = new Map<string, string[]>();
   for (const notePath of allNotes) {
-    let content: string;
-    try {
-      content = await readNote(vaultPath, notePath);
-    } catch {
-      console.error(`Failed to read note for link graph: ${notePath}`);
-      continue;
+    const base = notePath
+      .replace(/\.md$/i, "")
+      .split("/")
+      .pop()!
+      .toLowerCase();
+    const arr = basenameIndex.get(base) ?? [];
+    arr.push(notePath);
+    basenameIndex.set(base, arr);
+  }
+
+  // Read notes in parallel with a concurrency cap
+  const CONCURRENCY = 16;
+  const noteContents = new Map<string, string>();
+  for (let i = 0; i < allNotes.length; i += CONCURRENCY) {
+    const slice = allNotes.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      slice.map(async (p) => {
+        try {
+          return [p, await readNote(vaultPath, p)] as const;
+        } catch {
+          console.error(`Failed to read note for link graph: ${p}`);
+          return null;
+        }
+      }),
+    );
+    for (const r of results) {
+      if (r) noteContents.set(r[0], r[1]);
     }
+  }
+
+  for (const notePath of allNotes) {
+    const content = noteContents.get(notePath);
+    if (content === undefined) continue;
 
     noteLines.set(notePath, content.split("\n"));
     const links = extractWikilinks(content);
@@ -70,7 +141,10 @@ async function buildLinkGraph(
     outlinks.set(notePath, outSet);
   }
 
-  return { allNotes, outlinks, backlinks, rawLinks, noteLines };
+  const data: LinkGraphData = { allNotes, outlinks, backlinks, rawLinks, noteLines };
+  const fingerprint = await fingerprintVault(vaultPath, allNotes);
+  graphCache.set(cacheKey, { data, fingerprint, cachedAt: Date.now() });
+  return data;
 }
 
 function findLineWithLink(

@@ -4,3 +4,11 @@ build/
 .env.local
 *.tgz
 .DS_Store
+
+# MCP registry credentials — never commit
+.mcpregistry_*_token
+
+# Local publisher tooling and test artifacts
+mcp-publisher.exe
+mcp-publisher.tar.gz
+.playwright-mcp/
