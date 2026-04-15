@@ -12,7 +12,13 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "get_tags",
     {
+      title: "Get All Tags",
       description: "List all tags used in the vault with their usage counts",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         sortBy: z
           .enum(["count", "name"])
@@ -83,15 +89,32 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "search_by_tag",
     {
-      description: "Find all notes that contain a specific tag",
+      title: "Search by Tag",
+      description:
+        "Find all notes tagged with a specific tag, including nested sub-tags (searching 'project' matches both #project and #project/alpha). Detects tags from both inline #hashtags and YAML frontmatter. Returns matching note paths with optional content previews. Use to collect notes belonging to a topic, area, or workflow stage.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
-        tag: z.string().describe("Tag to search for (with or without # prefix)"),
+        tag: z
+          .string()
+          .min(1)
+          .describe("Tag to search for, with or without # prefix (e.g., 'project' or '#project'). Matches nested tags like 'project/alpha'."),
         includeContent: z
           .boolean()
           .optional()
           .default(false)
-          .describe("If true, include first 200 characters of note content as a preview"),
-        maxResults: z.number().optional().default(100).describe("Maximum number of results"),
+          .describe("If true, include the first 200 characters of each matching note as a preview (default: false)"),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .default(100)
+          .describe("Maximum number of matching notes to return (1-1000, default: 100)"),
       },
     },
     async ({ tag, includeContent, maxResults }) => {
