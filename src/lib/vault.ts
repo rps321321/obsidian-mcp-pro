@@ -3,12 +3,53 @@ import path from "path";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
+const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
 
 function isExcluded(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
   return EXCLUDED_DIRS.some(
     (dir) => normalized.startsWith(`${dir}/`) || normalized === dir,
   );
+}
+
+/**
+ * Walk a directory tree recursively while pruning excluded directories at the
+ * traversal level (so `.git`, `.obsidian`, `.trash` subtrees are never read).
+ * Returns forward-slash relative paths from `baseDir`.
+ */
+async function walkVault(
+  baseDir: string,
+  extensions: string[],
+): Promise<string[]> {
+  const results: string[] = [];
+  const exts = extensions.map((e) => e.toLowerCase());
+
+  async function walk(dir: string, relPrefix: string): Promise<void> {
+    let entries: import("fs").Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+    for (const entry of entries) {
+      const name = entry.name;
+      if (entry.isDirectory()) {
+        // Prune excluded directories only at the vault root level.
+        if (relPrefix === "" && EXCLUDED_SET.has(name.toLowerCase())) continue;
+        const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
+        await walk(path.join(dir, name), nextPrefix);
+      } else if (entry.isFile()) {
+        const lower = name.toLowerCase();
+        if (!exts.some((ext) => lower.endsWith(ext))) continue;
+        const relPath = relPrefix === "" ? name : `${relPrefix}/${name}`;
+        results.push(relPath);
+      }
+    }
+  }
+
+  await walk(baseDir, "");
+  return results;
 }
 
 export function resolveVaultPath(vaultPath: string, relativePath: string): string {
@@ -31,25 +72,11 @@ export async function listNotes(
     ? resolveVaultPath(vaultPath, folder)
     : path.resolve(vaultPath);
 
-  let entries: string[];
-  try {
-    entries = await fs.readdir(baseDir, { recursive: true }) as unknown as string[];
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-    throw err;
-  }
+  const entries = await walkVault(baseDir, [".md"]);
 
   const notes: string[] = [];
-  for (const entry of entries) {
-    const normalized = entry.replace(/\\/g, "/");
-    if (!normalized.endsWith(".md")) continue;
-
-    const relativeFromVault = folder
-      ? `${folder}/${normalized}`.replace(/\\/g, "/")
-      : normalized;
-
+  for (const rel of entries) {
+    const relativeFromVault = folder ? `${folder}/${rel}` : rel;
     if (isExcluded(relativeFromVault)) continue;
     notes.push(relativeFromVault);
   }
@@ -238,22 +265,12 @@ export async function getNoteStats(
 export async function listCanvasFiles(
   vaultPath: string,
 ): Promise<string[]> {
-  let entries: string[];
-  try {
-    entries = await fs.readdir(vaultPath, { recursive: true }) as unknown as string[];
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-    throw err;
-  }
-  const canvasFiles: string[] = [];
+  const entries = await walkVault(path.resolve(vaultPath), [".canvas"]);
 
-  for (const entry of entries) {
-    const normalized = entry.replace(/\\/g, "/");
-    if (!normalized.endsWith(".canvas")) continue;
-    if (isExcluded(normalized)) continue;
-    canvasFiles.push(normalized);
+  const canvasFiles: string[] = [];
+  for (const rel of entries) {
+    if (isExcluded(rel)) continue;
+    canvasFiles.push(rel);
   }
 
   return canvasFiles.sort();

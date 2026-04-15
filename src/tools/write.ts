@@ -13,7 +13,6 @@ import {
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 import fs from "fs/promises";
-import path from "path";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -44,8 +43,8 @@ function buildFrontmatterContent(frontmatterObj: Record<string, unknown>, body: 
 
 async function noteExists(vaultPath: string, relativePath: string): Promise<boolean> {
   try {
-    resolveVaultPath(vaultPath, relativePath); // validates path
-    await fs.access(path.resolve(vaultPath, relativePath));
+    const resolved = resolveVaultPath(vaultPath, relativePath); // validates + returns safe path
+    await fs.access(resolved);
     return true;
   } catch {
     return false;
@@ -211,7 +210,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
 
         const dateStr = formatDate(targetDate, config.format);
         const folder = config.folder ? `${config.folder}/` : "";
-        const notePath = `${folder}${dateStr}.md`;
+        const notePath = ensureMdExtension(`${folder}${dateStr}`);
 
         if (await noteExists(vaultPath, notePath)) {
           return errorResult(`Error: Daily note already exists at '${notePath}'.`);

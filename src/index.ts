@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import * as fs from "fs/promises";
+import { readFileSync } from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
@@ -13,6 +15,20 @@ import { registerWriteTools } from "./tools/write.js";
 import { registerTagTools } from "./tools/tags.js";
 import { registerLinkTools } from "./tools/links.js";
 import { registerCanvasTools } from "./tools/canvas.js";
+
+function readPackageVersion(): string {
+  try {
+    // build/index.js -> package.json is one level up (project root)
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkgPath = path.resolve(here, "..", "package.json");
+    const pkg = JSON.parse(
+      readFileSync(pkgPath, "utf-8"),
+    ) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 async function main(): Promise<void> {
   let vaultPath: string | undefined;
@@ -28,7 +44,7 @@ async function main(): Promise<void> {
 
   const server = new McpServer({
     name: "obsidian-mcp-pro",
-    version: "1.1.0",
+    version: readPackageVersion(),
   });
 
   const noVaultError = "No Obsidian vault configured. Set OBSIDIAN_VAULT_PATH environment variable.";

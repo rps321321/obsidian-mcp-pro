@@ -33,4 +33,4 @@ jobs:
         run: npm test
 
       - name: Audit dependencies
-        run: npm audit --audit-level=moderate || true
+        run: npm audit --audit-level=moderate
