@@ -12,23 +12,36 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "search_notes",
     {
-      description: "Full-text search across all notes in the vault",
+      title: "Search Notes",
+      description:
+        "Full-text search across all notes in the vault. Returns matching note paths grouped with the line numbers and snippet content of each hit. Use to locate notes containing a phrase, keyword, or code fragment; pair with get_note to retrieve full bodies.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
-        query: z.string().describe("Search query string"),
+        query: z
+          .string()
+          .min(1)
+          .describe("Literal search string matched against note body text (not regex)"),
         caseSensitive: z
           .boolean()
           .optional()
           .default(false)
-          .describe("Whether the search should be case sensitive"),
+          .describe("If true, match case exactly; otherwise case-insensitive (default: false)"),
         maxResults: z
           .number()
+          .int()
+          .min(1)
+          .max(500)
           .optional()
           .default(20)
-          .describe("Maximum number of results to return"),
+          .describe("Maximum number of matching notes to return (1-500, default: 20)"),
         folder: z
           .string()
           .optional()
-          .describe("Limit search to a specific folder"),
+          .describe("Restrict search to this folder relative to the vault root (omit to search entire vault)"),
       },
     },
     async ({ query, caseSensitive, maxResults, folder }) => {
@@ -76,12 +89,19 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "get_note",
     {
-      description: "Read the full content of a note by its path",
+      title: "Get Note",
+      description:
+        "Read the full content of a single note, including its parsed YAML frontmatter (rendered as a labeled header block), a flat list of inline #tags, and the markdown body. Use to retrieve a specific note by exact path — for discovery across many notes, prefer search_notes, search_by_tag, or list_notes.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         path: z
           .string()
           .min(1)
-          .describe("Relative path to the note within the vault"),
+          .describe("Relative path from vault root to the note (e.g., 'folder/note.md'). Extension required."),
       },
     },
     async ({ path: notePath }) => {
@@ -125,17 +145,27 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "list_notes",
     {
-      description: "List all notes in the vault or a specific folder",
+      title: "List Notes",
+      description:
+        "Enumerate every markdown note in the vault (or a single folder), returning a sorted list of relative paths along with the total count. Truncates output to `limit` entries but still reports the total. Use to browse vault structure, build a file picker, or enumerate targets for batch processing.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         folder: z
           .string()
           .optional()
-          .describe("Folder to list notes from (omit for entire vault)"),
+          .describe("Folder relative to vault root to restrict the listing (omit to list the entire vault)"),
         limit: z
           .number()
+          .int()
+          .min(1)
+          .max(10000)
           .optional()
           .default(50)
-          .describe("Maximum number of notes to return"),
+          .describe("Maximum number of note paths to return (1-10000, default: 50). The full total count is still reported separately."),
       },
     },
     async ({ folder, limit }) => {
@@ -163,14 +193,20 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "get_daily_note",
     {
-      description: "Get today's daily note or a specific date's daily note",
+      title: "Get Daily Note",
+      description:
+        "Read the daily note for today or for a specific date, resolved via the vault's configured daily-note folder and filename format. Returns the note path, parsed frontmatter (as a labeled header block), and body. Errors if no daily note exists for that date — use create_daily_note to create one.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         date: z
           .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
           .optional()
-          .describe(
-            "Date in YYYY-MM-DD format (defaults to today)",
-          ),
+          .describe("Target date in YYYY-MM-DD format (defaults to today's local date)"),
       },
     },
     async ({ date }) => {
@@ -240,17 +276,27 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "search_by_frontmatter",
     {
-      description: "Search notes by frontmatter property values",
+      title: "Search by Frontmatter",
+      description:
+        "Find notes whose YAML frontmatter contains a given property/value pair. Comparison is case-insensitive; for array-valued properties, a match is declared if any element matches. Returns matching note paths with their full frontmatter. Use to filter notes by metadata like status, type, or tags stored in frontmatter.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         property: z
           .string()
           .min(1)
-          .describe("Frontmatter property key to search for"),
-        value: z.string().min(1).describe("Value to match against the property"),
+          .describe("Frontmatter key to look up (e.g., 'status', 'type', 'author')"),
+        value: z
+          .string()
+          .min(1)
+          .describe("Value to match against the property (case-insensitive; matches any array element)"),
         folder: z
           .string()
           .optional()
-          .describe("Limit search to a specific folder"),
+          .describe("Restrict search to this folder relative to the vault root (omit to search entire vault)"),
       },
     },
     async ({ property, value, folder }) => {

@@ -178,9 +178,19 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "get_backlinks",
     {
-      description: "Find all notes that link to a specific note",
+      title: "Get Backlinks",
+      description:
+        "List all notes that contain a wikilink pointing to the target note. Each result includes the source note path, line number, and the surrounding line text for context. Use to understand which notes reference a topic, or to assess the impact of renaming or deleting a note. Accepts paths with or without .md extension; falls back to basename matching if exact match fails.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
-        path: z.string().min(1).describe("The target note path (relative to vault root)"),
+        path: z
+          .string()
+          .min(1)
+          .describe("Target note path relative to vault root (e.g., 'folder/note.md' or 'note'). Extension optional."),
       },
     },
     async ({ path: targetPath }) => {
@@ -289,9 +299,19 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "get_outlinks",
     {
-      description: "Get all links from a specific note",
+      title: "Get Outlinks",
+      description:
+        "List every outgoing wikilink from a note, partitioned into valid links (resolve to an existing note), broken links (target not found), and file embeds (![[...]]). Returns the raw link text and resolved paths. Use to audit a note's references, detect broken links, or follow downstream dependencies.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
-        path: z.string().min(1).describe("The note path (relative to vault root)"),
+        path: z
+          .string()
+          .min(1)
+          .describe("Source note path relative to vault root (e.g., 'folder/note.md'). Extension optional."),
       },
     },
     async ({ path: notePath }) => {
@@ -362,18 +382,28 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "find_orphans",
     {
-      description: "Find notes that have no incoming or outgoing links",
+      title: "Find Orphan Notes",
+      description:
+        "Identify disconnected notes in the vault's link graph, classified into three groups: fully isolated (no links in or out), no-backlinks (nothing links to them), and no-outlinks (they link to nothing). Returns counts per category and an example list per category, capped by maxResults. Use to surface abandoned notes, missing hub pages, or candidates for archiving.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         includeOutlinksCheck: z
           .boolean()
           .optional()
           .default(true)
-          .describe("Also check for notes with no outgoing links"),
+          .describe("If true (default), also report notes with no outgoing links; if false, only report fully-isolated notes and notes with no backlinks."),
         maxResults: z
           .number()
+          .int()
+          .min(1)
+          .max(5000)
           .optional()
           .default(200)
-          .describe("Maximum results to return"),
+          .describe("Maximum total note paths to list across all categories (1-5000, default: 200). Full counts are always reported regardless."),
       },
     },
     async ({ includeOutlinksCheck, maxResults }) => {
@@ -451,17 +481,27 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "find_broken_links",
     {
-      description: "Find all wikilinks that point to non-existent notes",
+      title: "Find Broken Links",
+      description:
+        "Scan notes for wikilinks ([[target]]) whose target does not resolve to any existing note in the vault. Returns a per-source report grouping each note with its broken link text and line numbers, plus a total count. Use after renaming, moving, or deleting notes to catch dangling references. Resolution uses the whole vault even when scanning a single folder, so only truly unresolvable links are reported.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         folder: z
           .string()
           .optional()
-          .describe("Limit scan to a specific folder"),
+          .describe("Restrict the scan to notes within this folder (resolution still uses the entire vault). Omit to scan every note."),
         maxResults: z
           .number()
+          .int()
+          .min(1)
+          .max(5000)
           .optional()
           .default(200)
-          .describe("Maximum results to return"),
+          .describe("Maximum broken link entries to show (1-5000, default: 200). Grouped by source note. Remaining matches are summarized."),
       },
     },
     async ({ folder, maxResults }) => {
@@ -556,7 +596,13 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "get_graph_neighbors",
     {
+      title: "Get Graph Neighbors",
       description: "Get notes within N link-hops of a given note",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         path: z.string().min(1).describe("The starting note path (relative to vault root)"),
         depth: z

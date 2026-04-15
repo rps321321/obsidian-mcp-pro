@@ -12,7 +12,14 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
   server.registerTool(
     "list_canvases",
     {
-      description: "List all canvas files in the vault",
+      title: "List Canvases",
+      description:
+        "Enumerate every Obsidian canvas file (.canvas) anywhere in the vault, returning a numbered list of relative paths and the total count. Takes no parameters — scans the entire vault. Use to discover available canvases before calling read_canvas, add_canvas_node, or add_canvas_edge.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {},
     },
     async () => {
@@ -37,9 +44,19 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
   server.registerTool(
     "read_canvas",
     {
-      description: "Read and display the contents of an Obsidian canvas file",
+      title: "Read Canvas",
+      description:
+        "Read an Obsidian canvas file (.canvas, JSON format) and return a human-readable summary of its structure: every node with id, type, position, size, and content preview, plus every edge with source/target node ids and optional label. Use to inspect or navigate a canvas before calling add_canvas_node or add_canvas_edge.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
-        path: z.string().min(1).describe("Relative path to the .canvas file"),
+        path: z
+          .string()
+          .min(1)
+          .describe("Relative path from vault root to the .canvas file (e.g., 'boards/roadmap.canvas')"),
       },
     },
     async ({ path: canvasPath }) => {
@@ -105,16 +122,54 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
   server.registerTool(
     "add_canvas_node",
     {
-      description: "Add a new node to an Obsidian canvas",
+      title: "Add Canvas Node",
+      description:
+        "Add a new node to an Obsidian canvas and persist the updated file. Supports four node types: 'text' (markdown block), 'file' (embedded vault note reference), 'link' (external URL), and 'group' (labeled container). Returns the generated node UUID, needed to connect nodes via add_canvas_edge.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
       inputSchema: {
-        canvasPath: z.string().min(1).describe("Relative path to the .canvas file"),
-        type: z.enum(["text", "file", "link", "group"]).describe("Node type"),
-        content: z.string().describe("Text content, file path, URL, or group label depending on type"),
-        x: z.number().optional().default(0).describe("X position"),
-        y: z.number().optional().default(0).describe("Y position"),
-        width: z.number().optional().default(250).describe("Node width"),
-        height: z.number().optional().default(60).describe("Node height"),
-        color: z.string().optional().describe("Color: '1'-'6' for Obsidian palette, or hex"),
+        canvasPath: z
+          .string()
+          .min(1)
+          .describe("Relative path from vault root to the target .canvas file"),
+        type: z
+          .enum(["text", "file", "link", "group"])
+          .describe("Node kind: 'text' = markdown block, 'file' = vault note reference, 'link' = external URL, 'group' = labeled container"),
+        content: z
+          .string()
+          .describe("Interpretation depends on type: text body for 'text', relative note path for 'file', URL for 'link', display label for 'group'"),
+        x: z
+          .number()
+          .optional()
+          .default(0)
+          .describe("X coordinate on the canvas (default: 0)"),
+        y: z
+          .number()
+          .optional()
+          .default(0)
+          .describe("Y coordinate on the canvas (default: 0)"),
+        width: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(250)
+          .describe("Node width in pixels (default: 250)"),
+        height: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(60)
+          .describe("Node height in pixels (default: 60)"),
+        color: z
+          .string()
+          .optional()
+          .describe("Color: '1'-'6' for Obsidian's preset palette (red/orange/yellow/green/cyan/purple), or a hex code like '#ff5555'"),
       },
     },
     async ({ canvasPath, type, content, x, y, width, height, color }) => {
@@ -161,14 +216,40 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
   server.registerTool(
     "add_canvas_edge",
     {
-      description: "Add an edge (connection) between two nodes in a canvas",
+      title: "Add Canvas Edge",
+      description:
+        "Create a directed edge connecting two existing canvas nodes. Both fromNode and toNode must already exist on the canvas (use read_canvas to list node ids, or capture the id returned by add_canvas_node). Optional fromSide/toSide control which face of each node the edge anchors to. Returns the generated edge UUID.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
       inputSchema: {
-        canvasPath: z.string().min(1).describe("Relative path to the .canvas file"),
-        fromNode: z.string().describe("Source node ID"),
-        toNode: z.string().describe("Target node ID"),
-        label: z.string().optional().describe("Edge label"),
-        fromSide: z.enum(["top", "right", "bottom", "left"]).optional().describe("Side of source node"),
-        toSide: z.enum(["top", "right", "bottom", "left"]).optional().describe("Side of target node"),
+        canvasPath: z
+          .string()
+          .min(1)
+          .describe("Relative path from vault root to the target .canvas file"),
+        fromNode: z
+          .string()
+          .min(1)
+          .describe("UUID of the source (origin) node — must already exist on the canvas"),
+        toNode: z
+          .string()
+          .min(1)
+          .describe("UUID of the target (destination) node — must already exist on the canvas"),
+        label: z
+          .string()
+          .optional()
+          .describe("Optional text label rendered on the edge"),
+        fromSide: z
+          .enum(["top", "right", "bottom", "left"])
+          .optional()
+          .describe("Face of the source node the edge leaves from (default: auto-chosen by Obsidian)"),
+        toSide: z
+          .enum(["top", "right", "bottom", "left"])
+          .optional()
+          .describe("Face of the target node the edge arrives at (default: auto-chosen by Obsidian)"),
       },
     },
     async ({ canvasPath, fromNode, toNode, label, fromSide, toSide }) => {
