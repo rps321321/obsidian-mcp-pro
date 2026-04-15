@@ -8,8 +8,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
 [![Tests](https://img.shields.io/badge/tests-122_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tool Quality](https://img.shields.io/badge/Glama-all_23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
+
+Every one of the 23 tools ships with rich descriptions, typed schemas, human-readable titles, and safety annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so your agent picks the right tool, passes the right arguments, and handles results correctly — with an average **4.40/5** score and all 23 tools rated A on [Glama's quality index](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro).
 
 [![obsidian-mcp-pro MCP server](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro/badges/card.svg)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
@@ -27,9 +30,9 @@ Give AI assistants deep, structured access to your Obsidian knowledge base. Read
 ### Write & Modify
 - Create new notes with frontmatter and content
 - Append or prepend content to existing notes
-- Update frontmatter properties programmatically
-- Move and rename notes with automatic link updates
-- Delete notes safely
+- Update frontmatter properties programmatically (merges — unlisted keys are preserved)
+- Move and rename notes (pair with `find_broken_links` to surface any references that need updating)
+- Delete notes safely — moved to the vault's `.trash` folder by default, with an optional permanent flag
 
 ### Tags
 - Build and query a complete tag index
@@ -200,6 +203,12 @@ npm test
 
 122 tests covering vault operations, markdown parsing (frontmatter, wikilinks, tags, code block detection), and integration tests with a mock vault.
 
+---
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for version history and release notes.
+
 ## License
 
 MIT
@@ -209,3 +218,5 @@ MIT
 ## Contributing
 
 Contributions welcome! Please open an issue first to discuss what you'd like to change. Pull requests without a corresponding issue may be closed.
+
+If you're adding or editing a tool, read [docs/TOOL_AUTHORING.md](./docs/TOOL_AUTHORING.md) first — it documents the description, schema, and annotation conventions that keep every tool at A-grade quality.
