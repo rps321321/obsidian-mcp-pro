@@ -2,6 +2,8 @@
 
 **The most feature-complete MCP server for Obsidian vaults.**
 
+[![obsidian-mcp-pro MCP server](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro/badges/card.svg)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
+
 [![npm version](https://img.shields.io/npm/v/obsidian-mcp-pro.svg)](https://www.npmjs.com/package/obsidian-mcp-pro)
 [![npm downloads](https://img.shields.io/npm/dm/obsidian-mcp-pro.svg)](https://www.npmjs.com/package/obsidian-mcp-pro)
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
@@ -13,8 +15,6 @@
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
 
 Every one of the 23 tools ships with rich descriptions, typed schemas, human-readable titles, and safety annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so your agent picks the right tool, passes the right arguments, and handles results correctly — with an average **4.40/5** score and all 23 tools rated A on [Glama's quality index](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro).
-
-[![obsidian-mcp-pro MCP server](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro/badges/card.svg)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 ---
 
