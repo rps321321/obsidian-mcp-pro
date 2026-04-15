@@ -597,14 +597,18 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
     "get_graph_neighbors",
     {
       title: "Get Graph Neighbors",
-      description: "Get notes within N link-hops of a given note",
+      description:
+        "Traverse the wikilink graph outward from a starting note and return every note reachable within N hops, grouped by depth level with an indented tree visualization. Each neighbor is tagged with its hop distance and direction (inbound = reached via backlink, outbound = reached via outlink). Use to explore a topic cluster, map a note's local neighborhood, or find related notes beyond direct links. Accepts paths with or without .md extension.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
       inputSchema: {
-        path: z.string().min(1).describe("The starting note path (relative to vault root)"),
+        path: z
+          .string()
+          .min(1)
+          .describe("Starting note path relative to vault root (e.g., 'projects/alpha.md'). Extension optional; falls back to basename match."),
         depth: z
           .number()
           .int()
@@ -612,12 +616,12 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           .max(5)
           .optional()
           .default(1)
-          .describe("Maximum number of link-hops (1-5)"),
+          .describe("Maximum link-hops to traverse from the start note (1-5, default: 1). Higher values explore further but can return many notes."),
         direction: z
           .enum(["both", "inbound", "outbound"])
           .optional()
           .default("both")
-          .describe("Direction to traverse: inbound (backlinks), outbound (outlinks), or both"),
+          .describe("Traversal direction: 'outbound' follows outlinks the start note points to, 'inbound' follows backlinks pointing at the start note, 'both' follows either (default)"),
       },
     },
     async ({ path: startPath, depth, direction }) => {

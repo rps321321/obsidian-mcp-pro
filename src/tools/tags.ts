@@ -13,7 +13,8 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
     "get_tags",
     {
       title: "Get All Tags",
-      description: "List all tags used in the vault with their usage counts",
+      description:
+        "Enumerate every unique tag used across the vault along with the number of notes each tag appears in. Detects tags from both inline #hashtags and YAML frontmatter, normalizes them case-insensitively, and returns a sorted list plus the total unique tag count. Use to build a tag cloud, pick categories, audit taxonomy, or discover available tags before calling search_by_tag.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -24,7 +25,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           .enum(["count", "name"])
           .optional()
           .default("count")
-          .describe("Sort tags by usage count (descending) or name (alphabetical)"),
+          .describe("Sort order: 'count' = by usage count descending (most-used first, default), 'name' = alphabetical by tag name"),
       },
     },
     async ({ sortBy }) => {
