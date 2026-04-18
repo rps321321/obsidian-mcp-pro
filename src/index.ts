@@ -143,7 +143,7 @@ function readPackageVersion(): string {
   }
 }
 
-function buildMcpServer(vaultPath: string | undefined): McpServer {
+export function buildMcpServer(vaultPath: string | undefined): McpServer {
   const server = new McpServer({
     name: "obsidian-mcp-pro",
     version: readPackageVersion(),
@@ -339,7 +339,26 @@ async function main(): Promise<void> {
   console.error(`[obsidian-mcp-pro] Vault: ${vaultPath ?? "(not configured)"}`);
 }
 
-main().catch((err) => {
-  console.error(`[obsidian-mcp-pro] Fatal error: ${err}`);
-  process.exit(1);
-});
+export { startHttpServer, type HttpServerHandle, type HttpServerOptions } from "./http-server.js";
+
+// Only auto-run as CLI when this file is the entrypoint. Library consumers
+// (e.g. the Obsidian plugin wrapper) import named exports and drive the
+// server themselves without triggering CLI arg parsing.
+function isCliEntry(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    const thisUrl = new URL(import.meta.url);
+    const argvUrl = new URL(`file://${path.resolve(argv1).replace(/\\/g, "/")}`);
+    return thisUrl.pathname.toLowerCase() === argvUrl.pathname.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+if (isCliEntry()) {
+  main().catch((err) => {
+    console.error(`[obsidian-mcp-pro] Fatal error: ${err}`);
+    process.exit(1);
+  });
+}
