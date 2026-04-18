@@ -2,6 +2,8 @@
 
 **The most feature-complete MCP server for Obsidian vaults.**
 
+⭐ **Please [star us on GitHub](https://github.com/rps321321/obsidian-mcp-pro) — it helps us reach more users!**
+
 [![obsidian-mcp-pro MCP server](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro/badges/card.svg)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 [![npm version](https://img.shields.io/npm/v/obsidian-mcp-pro.svg)](https://www.npmjs.com/package/obsidian-mcp-pro)
