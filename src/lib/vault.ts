@@ -98,13 +98,71 @@ export function resolveVaultPath(vaultPath: string, relativePath: string): strin
   return resolved;
 }
 
+// `path.resolve` strips `..` syntactically but does NOT follow symlinks.
+// A symlink inside the vault pointing outside would pass the sync check and
+// then leak data through `readFile`. Realpath the deepest existing ancestor
+// and re-verify boundary.
+const realVaultCache = new Map<string, string>();
+async function getRealVaultRoot(vaultPath: string): Promise<string> {
+  const key = path.resolve(vaultPath);
+  const cached = realVaultCache.get(key);
+  if (cached) return cached;
+  let real: string;
+  try {
+    real = await fs.realpath(key);
+  } catch {
+    real = key;
+  }
+  realVaultCache.set(key, real);
+  return real;
+}
+
+async function assertRealPathWithinVault(
+  resolved: string,
+  vaultPath: string,
+): Promise<void> {
+  const realVault = await getRealVaultRoot(vaultPath);
+  const missing: string[] = [];
+  let current = resolved;
+  while (true) {
+    try {
+      const real = await fs.realpath(current);
+      const rebuilt = missing.length === 0
+        ? real
+        : path.join(real, ...[...missing].reverse());
+      if (rebuilt !== realVault && !rebuilt.startsWith(realVault + path.sep)) {
+        throw new Error("Path traversal via symlink detected");
+      }
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
+      const parent = path.dirname(current);
+      if (parent === current) {
+        throw new Error("Path traversal via symlink detected");
+      }
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+export async function resolveVaultPathSafe(
+  vaultPath: string,
+  relativePath: string,
+): Promise<string> {
+  const resolved = resolveVaultPath(vaultPath, relativePath);
+  await assertRealPathWithinVault(resolved, vaultPath);
+  return resolved;
+}
+
 export async function listNotes(
   vaultPath: string,
   folder?: string,
 ): Promise<string[]> {
   const baseDir = folder
-    ? resolveVaultPath(vaultPath, folder)
-    : path.resolve(vaultPath);
+    ? await resolveVaultPathSafe(vaultPath, folder)
+    : await getRealVaultRoot(vaultPath);
 
   const entries = await walkVault(baseDir, [".md"]);
 
@@ -122,7 +180,7 @@ export async function readNote(
   vaultPath: string,
   relativePath: string,
 ): Promise<string> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   try {
     return await fs.readFile(fullPath, "utf-8");
   } catch (err) {
@@ -139,7 +197,7 @@ export async function writeNote(
   content: string,
   options?: { exclusive?: boolean },
 ): Promise<void> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     // `wx` fails if the file exists — atomic create, closes TOCTOU with any
@@ -160,7 +218,7 @@ export async function updateNote(
   relativePath: string,
   transform: (existing: string) => string | Promise<string>,
 ): Promise<void> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
     const next = await transform(existing);
@@ -173,7 +231,7 @@ export async function appendToNote(
   relativePath: string,
   content: string,
 ): Promise<void> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
     const separator = existing.endsWith("\n") ? "" : "\n";
@@ -186,7 +244,7 @@ export async function prependToNote(
   relativePath: string,
   content: string,
 ): Promise<void> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
 
@@ -212,7 +270,7 @@ export async function deleteNote(
   relativePath: string,
   useTrash = true,
 ): Promise<void> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     if (useTrash) {
       const trashDir = path.join(vaultPath, ".trash");
@@ -235,8 +293,8 @@ export async function moveNote(
   oldPath: string,
   newPath: string,
 ): Promise<void> {
-  const fullOldPath = resolveVaultPath(vaultPath, oldPath);
-  const fullNewPath = resolveVaultPath(vaultPath, newPath);
+  const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath);
+  const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath);
   // Lock in deterministic order to prevent deadlock when two concurrent
   // moves cross-reference the same pair of paths.
   const [first, second] = [fullOldPath, fullNewPath].sort();
@@ -304,8 +362,9 @@ export async function searchNotes(
     }
 
     if (matches.length > 0) {
+      // Don't leak absolute host path to MCP clients — relative is sufficient.
       results.push({
-        path: resolveVaultPath(vaultPath, notePath),
+        path: notePath,
         relativePath: notePath,
         matches,
         score: matches.length,
@@ -323,7 +382,7 @@ export async function getNoteStats(
   vaultPath: string,
   relativePath: string,
 ): Promise<{ size: number; created: Date | null; modified: Date | null }> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   const stats = await fs.stat(fullPath);
 
   return {
@@ -336,7 +395,7 @@ export async function getNoteStats(
 export async function listCanvasFiles(
   vaultPath: string,
 ): Promise<string[]> {
-  const entries = await walkVault(path.resolve(vaultPath), [".canvas"]);
+  const entries = await walkVault(await getRealVaultRoot(vaultPath), [".canvas"]);
 
   const canvasFiles: string[] = [];
   for (const rel of entries) {
@@ -351,7 +410,7 @@ export async function readCanvasFile(
   vaultPath: string,
   relativePath: string,
 ): Promise<CanvasData> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   const content = await fs.readFile(fullPath, "utf-8");
   let parsed: unknown;
   try {
@@ -374,7 +433,7 @@ export async function writeCanvasFile(
   relativePath: string,
   data: CanvasData,
 ): Promise<void> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, JSON.stringify(data, null, 2), "utf-8");
@@ -390,7 +449,7 @@ export async function updateCanvasFile(
   relativePath: string,
   transform: (data: CanvasData) => CanvasData | Promise<CanvasData>,
 ): Promise<void> {
-  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     const raw = await fs.readFile(fullPath, "utf-8");
     let parsed: unknown;

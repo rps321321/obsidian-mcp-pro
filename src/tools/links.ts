@@ -18,7 +18,9 @@ interface LinkGraphData {
 // the file set changes, or after 30 seconds (defensive TTL).
 interface CachedGraph {
   data: LinkGraphData;
-  /** Fingerprint = "<count>:<max-mtime-ms>" */
+  /** Fingerprint folds every note's path+mtime, not just count+max. Prevents
+   *  stale hits when a note is added+deleted within one second, or when an
+   *  edit happens to restore the previous max-mtime. */
   fingerprint: string;
   cachedAt: number;
 }
@@ -41,22 +43,27 @@ async function fingerprintVault(
   vaultPath: string,
   notes: string[],
 ): Promise<string> {
-  let maxMtime = 0;
-  // Stat in parallel with a small concurrency cap to avoid FD exhaustion
+  // Accumulate a 32-bit FNV-1a hash over "<sortedPath>|<mtimeMs>;" per note.
+  // Catches add+delete churn and mtime-restoring edits that count+max-mtime
+  // alone would miss.
+  const sorted = [...notes].sort();
+  let hash = 0x811c9dc5;
   const CONCURRENCY = 16;
-  for (let i = 0; i < notes.length; i += CONCURRENCY) {
-    const slice = notes.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < sorted.length; i += CONCURRENCY) {
+    const slice = sorted.slice(i, i + CONCURRENCY);
     const stats = await Promise.all(
       slice.map((n) => getNoteStats(vaultPath, n).catch(() => null)),
     );
-    for (const s of stats) {
-      if (s?.modified) {
-        const ms = s.modified.getTime();
-        if (ms > maxMtime) maxMtime = ms;
+    for (let j = 0; j < slice.length; j++) {
+      const mtime = stats[j]?.modified?.getTime() ?? 0;
+      const entry = `${slice[j]}|${mtime};`;
+      for (let k = 0; k < entry.length; k++) {
+        hash ^= entry.charCodeAt(k);
+        hash = Math.imul(hash, 0x01000193);
       }
     }
   }
-  return `${notes.length}:${maxMtime}`;
+  return `${sorted.length}:${(hash >>> 0).toString(16)}`;
 }
 
 async function buildLinkGraph(
