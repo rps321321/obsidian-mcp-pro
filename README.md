@@ -62,7 +62,21 @@ Every one of the 23 tools ships with rich descriptions, typed schemas, human-rea
 
 ## Quick Start
 
-### Claude Desktop
+### One-command install (Claude Desktop / Cursor)
+
+```bash
+npx -y obsidian-mcp-pro install
+```
+
+This merges an entry into your `claude_desktop_config.json` (or `~/.cursor/mcp.json` with `--client=cursor`), backs up the previous file, and prints next steps. Works on macOS, Windows, and Linux.
+
+Pin a specific vault:
+
+```bash
+npx -y obsidian-mcp-pro install --vault /path/to/your/vault
+```
+
+### Manual Claude Desktop config
 
 Add this to your Claude Desktop configuration file (`claude_desktop_config.json`):
 
@@ -98,6 +112,21 @@ If you have multiple vaults, specify which one:
 ```bash
 claude mcp add obsidian-mcp-pro -- npx -y obsidian-mcp-pro
 ```
+
+### HTTP transport (remote clients, Cursor, ChatGPT, web)
+
+```bash
+npx -y obsidian-mcp-pro --transport=http --port=3333
+```
+
+Endpoint: `http://127.0.0.1:3333/mcp` (Streamable HTTP). Protect with a bearer token:
+
+```bash
+npx -y obsidian-mcp-pro --transport=http --token=your-secret
+# or: MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http
+```
+
+The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled. Override with `--host=0.0.0.0` only when you know what you're doing.
 
 ---
 

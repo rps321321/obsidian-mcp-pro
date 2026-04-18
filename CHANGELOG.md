@@ -5,6 +5,23 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-04-18
+
+### Added
+
+- **HTTP (Streamable HTTP) transport**: new `--transport=http` flag spins up
+  an MCP-over-HTTP server at `/mcp` on `127.0.0.1:3333` by default.
+  Supports per-session state via `Mcp-Session-Id` header, CORS, optional
+  bearer-token auth (`--token=...` or `MCP_HTTP_TOKEN`), a `/health`
+  endpoint, and DNS rebinding protection. Unlocks remote clients (Cursor,
+  ChatGPT MCP, web) that can't speak stdio.
+- **One-command install**: new `obsidian-mcp-pro install` subcommand merges
+  an `mcpServers` entry into Claude Desktop's `claude_desktop_config.json`
+  (or Cursor's `~/.cursor/mcp.json` with `--client=cursor`). Backs up the
+  existing config, detects the right path per-OS, accepts `--vault`,
+  `--vault-name`, and `--name` flags.
+- **CLI help + version**: `--help` / `--version` flags.
+
 ## [1.1.4] - 2026-04-18
 
 ### Security
