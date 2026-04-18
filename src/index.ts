@@ -261,17 +261,20 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
   });
 
   // --- Register tool groups ---
-  // Only register tools when a vault is configured. Registering with an empty
-  // string would make path-traversal guards resolve against process CWD,
-  // allowing arbitrary filesystem access via relative paths like "../../etc/passwd".
-  if (vaultPath) {
-    registerReadTools(server, vaultPath);
-    registerWriteTools(server, vaultPath);
-    registerTagTools(server, vaultPath);
-    registerLinkTools(server, vaultPath);
-    registerCanvasTools(server, vaultPath);
-  } else {
-    console.error(`[obsidian-mcp-pro] Tools NOT registered — vault unconfigured.`);
+  // Tools always register so MCP clients (and registries like Glama) can
+  // enumerate capabilities without a configured vault. If the vault path is
+  // missing or empty, `resolveVaultPath` throws "Vault path is not
+  // configured" at call time, which becomes the tool's error response —
+  // path-traversal guards stay intact because they reject empty vault paths
+  // at the single choke point, not by skipping registration.
+  const vaultForTools = vaultPath ?? "";
+  registerReadTools(server, vaultForTools);
+  registerWriteTools(server, vaultForTools);
+  registerTagTools(server, vaultForTools);
+  registerLinkTools(server, vaultForTools);
+  registerCanvasTools(server, vaultForTools);
+  if (!vaultPath) {
+    console.error(`[obsidian-mcp-pro] Tools registered but vault unconfigured — calls will return errors.`);
   }
 
   return server;

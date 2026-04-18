@@ -5,6 +5,18 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-04-18
+
+### Fixed
+
+- **Tools now always registered**: previously, running the server without
+  a configured vault skipped tool registration entirely, which made MCP
+  registries (Glama, etc.) report "No tools detected" since they inspect
+  servers without a vault. Tools now register unconditionally — the
+  existing vault-path check inside `resolveVaultPath` returns a clean
+  "Vault path is not configured" error at call time. Security posture
+  unchanged: the single choke point still rejects empty vault paths.
+
 ## [1.3.0] - 2026-04-18
 
 ### Added
