@@ -3,17 +3,23 @@ import path from "path";
 import type { NoteMetadata, LinkInfo } from "../types.js";
 
 /**
- * Parse YAML frontmatter from markdown content.
+ * Parse YAML frontmatter from markdown content. Malformed YAML yields empty
+ * data and the raw content — a single broken note must not abort vault-wide
+ * loops (tag enumeration, frontmatter search, link graph).
  */
 export function parseFrontmatter(content: string): {
   data: Record<string, unknown>;
   content: string;
 } {
-  const result = matter(content);
-  return {
-    data: result.data as Record<string, unknown>,
-    content: result.content,
-  };
+  try {
+    const result = matter(content);
+    return {
+      data: result.data as Record<string, unknown>,
+      content: result.content,
+    };
+  } catch {
+    return { data: {}, content };
+  }
 }
 
 /**

@@ -23,7 +23,19 @@ interface CachedGraph {
   cachedAt: number;
 }
 const GRAPH_CACHE_TTL_MS = 30_000;
+const GRAPH_CACHE_MAX_ENTRIES = 32;
 const graphCache = new Map<string, CachedGraph>();
+
+// Map iteration order = insertion order; delete+set to refresh recency.
+function setGraphCache(key: string, entry: CachedGraph): void {
+  if (graphCache.has(key)) graphCache.delete(key);
+  graphCache.set(key, entry);
+  while (graphCache.size > GRAPH_CACHE_MAX_ENTRIES) {
+    const oldest = graphCache.keys().next().value;
+    if (oldest === undefined) break;
+    graphCache.delete(oldest);
+  }
+}
 
 async function fingerprintVault(
   vaultPath: string,
@@ -58,6 +70,8 @@ async function buildLinkGraph(
   if (cached && Date.now() - cached.cachedAt < GRAPH_CACHE_TTL_MS) {
     const fp = await fingerprintVault(vaultPath, allNotes);
     if (fp === cached.fingerprint) {
+      // Refresh recency so hot entries aren't evicted under LRU pressure.
+      setGraphCache(cacheKey, cached);
       return cached.data;
     }
   }
@@ -71,19 +85,6 @@ async function buildLinkGraph(
   for (const notePath of allNotes) {
     outlinks.set(notePath, new Set());
     backlinks.set(notePath, new Set());
-  }
-
-  // Build basename index once for O(1) resolution instead of O(N) per link
-  const basenameIndex = new Map<string, string[]>();
-  for (const notePath of allNotes) {
-    const base = notePath
-      .replace(/\.md$/i, "")
-      .split("/")
-      .pop()!
-      .toLowerCase();
-    const arr = basenameIndex.get(base) ?? [];
-    arr.push(notePath);
-    basenameIndex.set(base, arr);
   }
 
   // Read notes in parallel with a concurrency cap
@@ -143,7 +144,7 @@ async function buildLinkGraph(
 
   const data: LinkGraphData = { allNotes, outlinks, backlinks, rawLinks, noteLines };
   const fingerprint = await fingerprintVault(vaultPath, allNotes);
-  graphCache.set(cacheKey, { data, fingerprint, cachedAt: Date.now() });
+  setGraphCache(cacheKey, { data, fingerprint, cachedAt: Date.now() });
   return data;
 }
 

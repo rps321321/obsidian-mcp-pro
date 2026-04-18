@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listCanvasFiles, readCanvasFile, writeCanvasFile } from "../lib/vault.js";
+import { listCanvasFiles, readCanvasFile, updateCanvasFile } from "../lib/vault.js";
 import type { CanvasNode, CanvasData } from "../types.js";
 import { randomUUID } from "crypto";
 
@@ -174,7 +174,6 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     },
     async ({ canvasPath, type, content, x, y, width, height, color }) => {
       try {
-        const data = await readCanvasFile(vaultPath, canvasPath);
         const id = randomUUID();
 
         const node: CanvasNode = {
@@ -200,8 +199,10 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           node.color = color;
         }
 
-        data.nodes.push(node);
-        await writeCanvasFile(vaultPath, canvasPath, data);
+        await updateCanvasFile(vaultPath, canvasPath, (data) => {
+          data.nodes.push(node);
+          return data;
+        });
 
         return {
           content: [{ type: "text" as const, text: `Node added successfully.\nID: ${id}\nType: ${type}\nPosition: (${x}, ${y})` }],
@@ -254,31 +255,35 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     },
     async ({ canvasPath, fromNode, toNode, label, fromSide, toSide }) => {
       try {
-        const data = await readCanvasFile(vaultPath, canvasPath);
-
-        const fromExists = data.nodes.some((n) => n.id === fromNode);
-        const toExists = data.nodes.some((n) => n.id === toNode);
-
-        if (!fromExists) {
-          return errorResult(`Error: source node '${fromNode}' not found in canvas.`);
-        }
-        if (!toExists) {
-          return errorResult(`Error: target node '${toNode}' not found in canvas.`);
-        }
-
         const id = randomUUID();
-        const edge: CanvasData["edges"][number] = {
-          id,
-          fromNode,
-          toNode,
-        };
-
-        if (label) edge.label = label;
-        if (fromSide) edge.fromSide = fromSide;
-        if (toSide) edge.toSide = toSide;
-
-        data.edges.push(edge);
-        await writeCanvasFile(vaultPath, canvasPath, data);
+        // Node-existence validated inside the lock to prevent a concurrent
+        // deletion from sneaking in between the check and the write.
+        class MissingNodeError extends Error {
+          constructor(public side: "source" | "target", public nodeId: string) {
+            super(`${side} node '${nodeId}' not found in canvas.`);
+          }
+        }
+        try {
+          await updateCanvasFile(vaultPath, canvasPath, (data) => {
+            if (!data.nodes.some((n) => n.id === fromNode)) {
+              throw new MissingNodeError("source", fromNode);
+            }
+            if (!data.nodes.some((n) => n.id === toNode)) {
+              throw new MissingNodeError("target", toNode);
+            }
+            const edge: CanvasData["edges"][number] = { id, fromNode, toNode };
+            if (label) edge.label = label;
+            if (fromSide) edge.fromSide = fromSide;
+            if (toSide) edge.toSide = toSide;
+            data.edges.push(edge);
+            return data;
+          });
+        } catch (err) {
+          if (err instanceof MissingNodeError) {
+            return errorResult(`Error: ${err.message}`);
+          }
+          throw err;
+        }
 
         return {
           content: [{ type: "text" as const, text: `Edge added successfully.\nID: ${id}\nFrom: ${fromNode} -> To: ${toNode}${label ? `\nLabel: ${label}` : ""}` }],

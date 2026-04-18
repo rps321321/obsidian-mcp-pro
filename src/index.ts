@@ -159,13 +159,18 @@ async function main(): Promise<void> {
   });
 
   // --- Register tool groups ---
-
-  const effectiveVaultPath = vaultPath ?? "";
-  registerReadTools(server, effectiveVaultPath);
-  registerWriteTools(server, effectiveVaultPath);
-  registerTagTools(server, effectiveVaultPath);
-  registerLinkTools(server, effectiveVaultPath);
-  registerCanvasTools(server, effectiveVaultPath);
+  // Only register tools when a vault is configured. Registering with an empty
+  // string would make path-traversal guards resolve against process CWD,
+  // allowing arbitrary filesystem access via relative paths like "../../etc/passwd".
+  if (vaultPath) {
+    registerReadTools(server, vaultPath);
+    registerWriteTools(server, vaultPath);
+    registerTagTools(server, vaultPath);
+    registerLinkTools(server, vaultPath);
+    registerCanvasTools(server, vaultPath);
+  } else {
+    console.error(`[obsidian-mcp-pro] Tools NOT registered — vault unconfigured.`);
+  }
 
   // --- Connect transport ---
 
