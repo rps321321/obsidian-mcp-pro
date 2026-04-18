@@ -62,6 +62,8 @@ Every one of the 23 tools ships with rich descriptions, typed schemas, human-rea
 
 ## Quick Start
 
+> **Using Obsidian?** There's also an [Obsidian plugin](https://github.com/rps321321/obsidian-mcp-pro-plugin) that runs this server inside the app with a ribbon toggle and settings UI — no config-file editing. Recommended for most users.
+
 ### One-command install (Claude Desktop / Cursor)
 
 ```bash
