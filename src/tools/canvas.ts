@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listCanvasFiles, readCanvasFile, updateCanvasFile } from "../lib/vault.js";
+import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPath } from "../lib/vault.js";
 import type { CanvasNode, CanvasData } from "../types.js";
 import { randomUUID } from "crypto";
 
@@ -188,6 +188,16 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         if (type === "text") {
           node.text = content;
         } else if (type === "file") {
+          // Validate the file reference stays inside the vault. Without this
+          // check, arbitrary paths (e.g. "../../etc/passwd") would be
+          // persisted in the canvas JSON and surfaced back to clients.
+          try {
+            resolveVaultPath(vaultPath, content);
+          } catch {
+            return errorResult(
+              `Invalid file reference: "${content}" must be a relative path inside the vault.`,
+            );
+          }
           node.file = content;
         } else if (type === "link") {
           node.url = content;
