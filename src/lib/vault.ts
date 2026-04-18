@@ -7,9 +7,32 @@ const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
 
 function isExcluded(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
-  return EXCLUDED_DIRS.some(
-    (dir) => normalized.startsWith(`${dir}/`) || normalized === dir,
-  );
+  // Reject if ANY path segment is an excluded dir (not just root-level).
+  // Prevents nested dirs like `projects/.git/config` from being exposed.
+  return normalized.split("/").some((seg) => EXCLUDED_SET.has(seg));
+}
+
+// Per-file serialization for all mutating operations (write/append/prepend/
+// delete/move). Without this, concurrent MCP calls on the same file can race
+// and lose writes.
+const fileLocks = new Map<string, Promise<unknown>>();
+// Case-insensitive filesystems (Windows, default macOS) address the same
+// inode under different casings — normalize lock keys so `Note.md` and
+// `note.md` share one lock.
+const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
+function lockKey(fullPath: string): string {
+  return CASE_INSENSITIVE_FS ? fullPath.toLowerCase() : fullPath;
+}
+async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): Promise<T> {
+  const key = lockKey(fullPath);
+  const prev = fileLocks.get(key) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  fileLocks.set(key, next);
+  try {
+    return await next;
+  } finally {
+    if (fileLocks.get(key) === next) fileLocks.delete(key);
+  }
 }
 
 /**
@@ -35,8 +58,10 @@ async function walkVault(
     for (const entry of entries) {
       const name = entry.name;
       if (entry.isDirectory()) {
-        // Prune excluded directories only at the vault root level.
-        if (relPrefix === "" && EXCLUDED_SET.has(name.toLowerCase())) continue;
+        // Prune excluded directory names at ANY depth. Obsidian's own
+        // subfolders aside, nested `.git`/`.obsidian`/`.trash` directories
+        // should never be surfaced to clients.
+        if (EXCLUDED_SET.has(name.toLowerCase())) continue;
         const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
         await walk(path.join(dir, name), nextPrefix);
       } else if (entry.isFile()) {
@@ -53,6 +78,9 @@ async function walkVault(
 }
 
 export function resolveVaultPath(vaultPath: string, relativePath: string): string {
+  if (!vaultPath) {
+    throw new Error("Vault path is not configured");
+  }
   if (relativePath.includes('\0')) {
     throw new Error("Invalid path: contains null byte");
   }
@@ -60,6 +88,12 @@ export function resolveVaultPath(vaultPath: string, relativePath: string): strin
   const resolvedVault = path.resolve(vaultPath);
   if (!resolved.startsWith(resolvedVault + path.sep) && resolved !== resolvedVault) {
     throw new Error(`Path traversal detected: ${relativePath}`);
+  }
+  // Reject paths that traverse through excluded directories at any depth.
+  // `resolveVaultPath` is the single choke point for all file tool calls.
+  const rel = path.relative(resolvedVault, resolved).replace(/\\/g, "/");
+  if (rel && rel.split("/").some((seg) => EXCLUDED_SET.has(seg.toLowerCase()))) {
+    throw new Error(`Access to excluded directory denied: ${relativePath}`);
   }
   return resolved;
 }
@@ -103,10 +137,35 @@ export async function writeNote(
   vaultPath: string,
   relativePath: string,
   content: string,
+  options?: { exclusive?: boolean },
 ): Promise<void> {
   const fullPath = resolveVaultPath(vaultPath, relativePath);
-  await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  await fs.writeFile(fullPath, content, "utf-8");
+  await withFileLock(fullPath, async () => {
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    // `wx` fails if the file exists — atomic create, closes TOCTOU with any
+    // earlier `exists()` check by making the write itself the existence test.
+    const flag = options?.exclusive ? "wx" : "w";
+    await fs.writeFile(fullPath, content, { encoding: "utf-8", flag });
+  });
+}
+
+/**
+ * Atomic read-modify-write: reads existing content, applies `transform`, and
+ * writes the result while holding the per-file lock for the full sequence.
+ * Prevents lost updates when concurrent callers would otherwise read the same
+ * base and overwrite each other's changes.
+ */
+export async function updateNote(
+  vaultPath: string,
+  relativePath: string,
+  transform: (existing: string) => string | Promise<string>,
+): Promise<void> {
+  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  await withFileLock(fullPath, async () => {
+    const existing = await fs.readFile(fullPath, "utf-8");
+    const next = await transform(existing);
+    await fs.writeFile(fullPath, next, "utf-8");
+  });
 }
 
 export async function appendToNote(
@@ -115,9 +174,11 @@ export async function appendToNote(
   content: string,
 ): Promise<void> {
   const fullPath = resolveVaultPath(vaultPath, relativePath);
-  const existing = await fs.readFile(fullPath, "utf-8");
-  const separator = existing.endsWith("\n") ? "" : "\n";
-  await fs.writeFile(fullPath, existing + separator + content, "utf-8");
+  await withFileLock(fullPath, async () => {
+    const existing = await fs.readFile(fullPath, "utf-8");
+    const separator = existing.endsWith("\n") ? "" : "\n";
+    await fs.writeFile(fullPath, existing + separator + content, "utf-8");
+  });
 }
 
 export async function prependToNote(
@@ -126,22 +187,24 @@ export async function prependToNote(
   content: string,
 ): Promise<void> {
   const fullPath = resolveVaultPath(vaultPath, relativePath);
-  const existing = await fs.readFile(fullPath, "utf-8");
+  await withFileLock(fullPath, async () => {
+    const existing = await fs.readFile(fullPath, "utf-8");
 
-  // Detect frontmatter block (starts with --- on first line)
-  const frontmatterMatch = existing.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+    // Detect frontmatter block (starts with --- on first line)
+    const frontmatterMatch = existing.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
 
-  let result: string;
-  if (frontmatterMatch) {
-    const frontmatter = frontmatterMatch[0];
-    const rest = existing.slice(frontmatter.length);
-    const separator = frontmatter.endsWith("\n") ? "" : "\n";
-    result = frontmatter + separator + content + "\n" + rest;
-  } else {
-    result = content + "\n" + existing;
-  }
+    let result: string;
+    if (frontmatterMatch) {
+      const frontmatter = frontmatterMatch[0];
+      const rest = existing.slice(frontmatter.length);
+      const separator = frontmatter.endsWith("\n") ? "" : "\n";
+      result = frontmatter + separator + content + "\n" + rest;
+    } else {
+      result = content + "\n" + existing;
+    }
 
-  await fs.writeFile(fullPath, result, "utf-8");
+    await fs.writeFile(fullPath, result, "utf-8");
+  });
 }
 
 export async function deleteNote(
@@ -150,20 +213,21 @@ export async function deleteNote(
   useTrash = true,
 ): Promise<void> {
   const fullPath = resolveVaultPath(vaultPath, relativePath);
-
-  if (useTrash) {
-    const trashDir = path.join(vaultPath, ".trash");
-    const trashPath = path.join(trashDir, relativePath);
-    const resolvedTrash = path.resolve(trashPath);
-    const resolvedTrashDir = path.resolve(trashDir);
-    if (!resolvedTrash.startsWith(resolvedTrashDir + path.sep) && resolvedTrash !== resolvedTrashDir) {
-      throw new Error(`Invalid trash path: ${relativePath}`);
+  await withFileLock(fullPath, async () => {
+    if (useTrash) {
+      const trashDir = path.join(vaultPath, ".trash");
+      const trashPath = path.join(trashDir, relativePath);
+      const resolvedTrash = path.resolve(trashPath);
+      const resolvedTrashDir = path.resolve(trashDir);
+      if (!resolvedTrash.startsWith(resolvedTrashDir + path.sep) && resolvedTrash !== resolvedTrashDir) {
+        throw new Error(`Invalid trash path: ${relativePath}`);
+      }
+      await fs.mkdir(path.dirname(trashPath), { recursive: true });
+      await fs.rename(fullPath, trashPath);
+    } else {
+      await fs.unlink(fullPath);
     }
-    await fs.mkdir(path.dirname(trashPath), { recursive: true });
-    await fs.rename(fullPath, trashPath);
-  } else {
-    await fs.unlink(fullPath);
-  }
+  });
 }
 
 export async function moveNote(
@@ -173,14 +237,21 @@ export async function moveNote(
 ): Promise<void> {
   const fullOldPath = resolveVaultPath(vaultPath, oldPath);
   const fullNewPath = resolveVaultPath(vaultPath, newPath);
-  try {
-    await fs.access(fullNewPath);
-    throw new Error(`Destination already exists: ${newPath}`);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-  }
-  await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
-  await fs.rename(fullOldPath, fullNewPath);
+  // Lock in deterministic order to prevent deadlock when two concurrent
+  // moves cross-reference the same pair of paths.
+  const [first, second] = [fullOldPath, fullNewPath].sort();
+  await withFileLock(first, async () => {
+    await withFileLock(second, async () => {
+      try {
+        await fs.access(fullNewPath);
+        throw new Error(`Destination already exists: ${newPath}`);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+      await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
+      await fs.rename(fullOldPath, fullNewPath);
+    });
+  });
 }
 
 export async function searchNotes(
@@ -304,6 +375,37 @@ export async function writeCanvasFile(
   data: CanvasData,
 ): Promise<void> {
   const fullPath = resolveVaultPath(vaultPath, relativePath);
-  await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  await fs.writeFile(fullPath, JSON.stringify(data, null, 2), "utf-8");
+  await withFileLock(fullPath, async () => {
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, JSON.stringify(data, null, 2), "utf-8");
+  });
+}
+
+/**
+ * Atomic read-modify-write for canvas files. Locks across read, mutation, and
+ * write so concurrent node/edge additions can't lose each other's writes.
+ */
+export async function updateCanvasFile(
+  vaultPath: string,
+  relativePath: string,
+  transform: (data: CanvasData) => CanvasData | Promise<CanvasData>,
+): Promise<void> {
+  const fullPath = resolveVaultPath(vaultPath, relativePath);
+  await withFileLock(fullPath, async () => {
+    const raw = await fs.readFile(fullPath, "utf-8");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`Invalid canvas file (malformed JSON): ${relativePath}`);
+    }
+    const obj = parsed as Record<string, unknown>;
+    const current: CanvasData = {
+      nodes: Array.isArray(obj.nodes) ? (obj.nodes as CanvasData["nodes"]) : [],
+      edges: Array.isArray(obj.edges) ? (obj.edges as CanvasData["edges"]) : [],
+    };
+    const next = await transform(current);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, JSON.stringify(next, null, 2), "utf-8");
+  });
 }

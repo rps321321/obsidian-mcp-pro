@@ -8,11 +8,10 @@ import {
   deleteNote,
   moveNote,
   readNote,
-  resolveVaultPath,
+  updateNote,
 } from "../lib/vault.js";
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
-import fs from "fs/promises";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -39,16 +38,6 @@ function formatDate(date: Date, format: string): string {
 
 function buildFrontmatterContent(frontmatterObj: Record<string, unknown>, body: string): string {
   return matter.stringify(body, frontmatterObj);
-}
-
-async function noteExists(vaultPath: string, relativePath: string): Promise<boolean> {
-  try {
-    const resolved = resolveVaultPath(vaultPath, relativePath); // validates + returns safe path
-    await fs.access(resolved);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function registerWriteTools(server: McpServer, vaultPath: string): void {
@@ -83,10 +72,6 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
       try {
         const resolvedPath = ensureMdExtension(notePath);
 
-        if (await noteExists(vaultPath, resolvedPath)) {
-          return errorResult(`Error: Note already exists at '${resolvedPath}'. Use append or update tools instead.`);
-        }
-
         let finalContent: string;
 
         if (frontmatter) {
@@ -101,7 +86,14 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           finalContent = content;
         }
 
-        await writeNote(vaultPath, resolvedPath, finalContent);
+        try {
+          await writeNote(vaultPath, resolvedPath, finalContent, { exclusive: true });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+            return errorResult(`Error: Note already exists at '${resolvedPath}'. Use append or update tools instead.`);
+          }
+          throw err;
+        }
         return textResult(`Created note at '${resolvedPath}'.`);
       } catch (err) {
         console.error("create_note error:", err);
@@ -130,16 +122,10 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           .describe("Relative path from vault root to the target note (e.g., 'journal/2026-04-15.md'). Extension optional."),
         content: z
           .string()
-          .describe("Markdown text to append to the end of the note"),
-        ensureNewline: z
-          .boolean()
-          .optional()
-          .default(true)
-          .describe("If true, ensures appended content begins on a new line when the file does not already end in a newline (default: true)"),
+          .describe("Markdown text to append to the end of the note. A leading newline is auto-inserted when the file does not already end in one."),
       },
     },
     async ({ path: notePath, content }) => {
-      // ensureNewline is handled by vault.ts appendToNote
       try {
         const resolvedPath = ensureMdExtension(notePath);
         await appendToNote(vaultPath, resolvedPath, content);
@@ -220,9 +206,9 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           return errorResult("Error: Invalid JSON in properties parameter.");
         }
 
-        const existing = await readNote(vaultPath, resolvedPath);
-        const updated = updateFrontmatter(existing, parsed);
-        await writeNote(vaultPath, resolvedPath, updated);
+        await updateNote(vaultPath, resolvedPath, (existing) =>
+          updateFrontmatter(existing, parsed),
+        );
 
         return textResult(`Updated frontmatter of '${resolvedPath}' with ${Object.keys(parsed).length} properties.`);
       } catch (err) {
@@ -274,10 +260,6 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const folder = config.folder ? `${config.folder}/` : "";
         const notePath = ensureMdExtension(`${folder}${dateStr}`);
 
-        if (await noteExists(vaultPath, notePath)) {
-          return errorResult(`Error: Daily note already exists at '${notePath}'.`);
-        }
-
         let finalContent = content ?? "";
 
         if (templatePath) {
@@ -289,7 +271,14 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           }
         }
 
-        await writeNote(vaultPath, notePath, finalContent);
+        try {
+          await writeNote(vaultPath, notePath, finalContent, { exclusive: true });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+            return errorResult(`Error: Daily note already exists at '${notePath}'.`);
+          }
+          throw err;
+        }
         return textResult(`Created daily note at '${notePath}'.`);
       } catch (err) {
         console.error("create_daily_note error:", err);
