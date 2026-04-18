@@ -5,6 +5,39 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-04-18
+
+### Security
+
+- **Symlink escape from vault boundary**: `resolveVaultPath` relied on
+  `path.resolve` which strips `..` syntactically but does NOT follow
+  symlinks — a symlink inside the vault pointing outside could leak
+  arbitrary host files through `readFile`. New async
+  `resolveVaultPathSafe` calls `fs.realpath` on the deepest existing
+  ancestor and re-verifies the boundary against a cached realpath of
+  the vault root. Applied to every read/write/stat/rename entry point.
+- **Canvas `file` node accepted arbitrary path as reference**:
+  `add_canvas_node` with `type: "file"` stored the raw `content` string
+  as `node.file` with no boundary check. Traversal strings like
+  `../../etc/passwd` could be persisted in canvas JSON and surfaced
+  back to clients. Now validated via `resolveVaultPath`.
+- **`create_daily_note` template slot read non-markdown vault files**:
+  `templatePath` was passed unmodified to `readNote`. Excluded dirs
+  (`.obsidian`/`.trash`/`.git`) were already blocked, but `.canvas`,
+  `.json`, or other in-vault files were readable through this slot.
+  Now coerced to `.md` via `ensureMdExtension`.
+- **Absolute host path leak in search results**: `searchNotes` returned
+  the fully resolved filesystem path alongside `relativePath`,
+  disclosing host directory layout to MCP clients. Now returns the
+  relative path only.
+
+### Fixed
+
+- **Stale link-graph cache on mtime-preserving churn**: fingerprint was
+  `count:maxMtime`, which missed add+delete within the same second and
+  edits that restored a previous maximum mtime. Replaced with an
+  FNV-1a hash over sorted `path|mtime` entries.
+
 ## [1.1.3] - 2026-04-18
 
 ### Fixed
