@@ -5,6 +5,19 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-04-18
+
+### Added
+
+- **Programmatic API**: `buildMcpServer(vaultPath)` and `startHttpServer(opts)`
+  are now exported from the package for library use (e.g. embedding the
+  server inside an Obsidian plugin). CLI behavior is unchanged; `main()`
+  only auto-runs when the file is the process entrypoint.
+- `startHttpServer` now returns an `HttpServerHandle` with `{ host, port,
+  url, stop() }` and accepts `installSignalHandlers` (default `true`).
+  Embedders should pass `false` so stopping the server doesn't kill the
+  host process via SIGINT/SIGTERM handlers or `process.exit`.
+
 ## [1.2.0] - 2026-04-18
 
 ### Added

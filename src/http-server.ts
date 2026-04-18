@@ -9,6 +9,17 @@ export interface HttpServerOptions {
   port: number;
   bearerToken?: string;
   buildMcpServer: () => McpServer;
+  /** Install SIGINT/SIGTERM handlers + exit the process on shutdown. Default
+   *  `true` for CLI use. Set `false` when embedding (e.g. inside an Obsidian
+   *  plugin) so stopping the server doesn't kill the host process. */
+  installSignalHandlers?: boolean;
+}
+
+export interface HttpServerHandle {
+  host: string;
+  port: number;
+  url: string;
+  stop: () => Promise<void>;
 }
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -57,7 +68,7 @@ function setCors(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 }
 
-export async function startHttpServer(opts: HttpServerOptions): Promise<void> {
+export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServerHandle> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const mcpServer = opts.buildMcpServer();
 
@@ -162,14 +173,29 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<void> {
     console.error(`[obsidian-mcp-pro] Bearer auth required`);
   }
 
-  const shutdown = async (): Promise<void> => {
-    console.error(`[obsidian-mcp-pro] Shutting down...`);
+  const stop = async (): Promise<void> => {
+    console.error(`[obsidian-mcp-pro] Shutting down HTTP server...`);
     for (const t of transports.values()) {
       try { await t.close(); } catch { /* ignore */ }
     }
-    httpServer.close();
-    process.exit(0);
+    transports.clear();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+
+  const installSignals = opts.installSignalHandlers ?? true;
+  if (installSignals) {
+    const onSignal = async (): Promise<void> => {
+      await stop();
+      process.exit(0);
+    };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+  }
+
+  return {
+    host: opts.host,
+    port: opts.port,
+    url: `http://${opts.host}:${opts.port}/mcp`,
+    stop,
+  };
 }
