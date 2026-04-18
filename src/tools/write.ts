@@ -263,8 +263,12 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         let finalContent = content ?? "";
 
         if (templatePath) {
+          // Only allow markdown templates. Without this, `templatePath` could
+          // point at any readable non-excluded vault file (e.g. a `.canvas`
+          // or `.json`), turning the template slot into a generic file reader.
+          const resolvedTemplate = ensureMdExtension(templatePath);
           try {
-            const templateContent = await readNote(vaultPath, templatePath);
+            const templateContent = await readNote(vaultPath, resolvedTemplate);
             finalContent = templateContent.replace(/\{\{date\}\}/g, dateStr);
           } catch (err) {
             return errorResult(`Error reading template: ${err instanceof Error ? err.message : String(err)}`);
