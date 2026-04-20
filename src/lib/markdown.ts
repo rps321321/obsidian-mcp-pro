@@ -131,9 +131,12 @@ export function extractWikilinks(content: string): LinkInfo[] {
 export function extractTags(content: string): string[] {
   const tagSet = new Set<string>();
 
-  // Extract frontmatter tags
+  // Extract frontmatter tags. Obsidian's Properties editor writes lowercase
+  // `tags:`, but hand-edited vaults commonly have `Tags:` or `TAGS:`. YAML
+  // keys are case-sensitive, so probe common casings explicitly.
   const { data, content: body } = parseFrontmatter(content);
-  const tagFieldValue = data.tags ?? data.tag;
+  const tagFieldValue =
+    data.tags ?? data.Tags ?? data.TAGS ?? data.tag ?? data.Tag;
   if (tagFieldValue) {
     if (Array.isArray(tagFieldValue)) {
       for (const tag of tagFieldValue) {
@@ -176,7 +179,8 @@ export function extractTags(content: string): string[] {
  */
 export function extractAliases(content: string): string[] {
   const { data } = parseFrontmatter(content);
-  const aliasField = data.aliases ?? data.alias;
+  const aliasField =
+    data.aliases ?? data.Aliases ?? data.ALIASES ?? data.alias ?? data.Alias;
   if (!aliasField) return [];
 
   if (Array.isArray(aliasField)) {
@@ -220,31 +224,58 @@ export function buildNoteMetadata(
   };
 }
 
+/** Count the number of leading path segments shared between two paths. */
+function sharedPathDepth(a: string, b: string): number {
+  const as = a.toLowerCase().split("/");
+  const bs = b.toLowerCase().split("/");
+  let i = 0;
+  const max = Math.min(as.length, bs.length);
+  while (i < max && as[i] === bs[i]) i++;
+  return i;
+}
+
+export interface ResolveWikilinkOptions {
+  /** Map of lowercased alias → target note path. Used as a fallback when
+   *  filename/path matching finds no candidate. */
+  aliasMap?: Map<string, string>;
+}
+
 /**
- * Resolve a wikilink target to an actual file path using Obsidian's
- * shortest-path matching strategy.
- * Returns null if no match is found.
+ * Resolve a wikilink target to an actual file path.
+ *
+ * Resolution order matches Obsidian:
+ *   1. Exact relative-path match (case-insensitive)
+ *   2. Path-suffix match (case-insensitive)
+ *   3. Basename match — with proximity-based tie-break: prefer the
+ *      candidate that shares the deepest path prefix with the linking
+ *      note, falling back to shortest vault path on ties.
+ *   4. Alias match — frontmatter `aliases` on any other note.
+ *
+ * Returns null if nothing matches.
  */
 export function resolveWikilink(
   link: string,
-  _currentNotePath: string,
+  currentNotePath: string,
   allNotePaths: string[],
+  options: ResolveWikilinkOptions = {},
 ): string | null {
-  // Strip heading anchors and block refs before resolution
+  // Strip heading anchors (`#...`) AND bare block refs (`^...`). Obsidian's
+  // own block-ref syntax is `note#^id`, so `#` splits first and `^` is dead
+  // in that case — but callers sometimes pass bare `note^id` strings and we
+  // still handle them.
   const cleanLink = link.split("#")[0].split("^")[0].trim();
   if (!cleanLink) return null;
 
-  // Normalize: strip .md if present, we'll compare basenames
   const normalizedLink = cleanLink.replace(/\.md$/i, "");
-
-  // Exact relative path match (case-insensitive)
   const normalizedLinkLower = normalizedLink.toLowerCase();
+
+  // 1. Exact relative-path match
   for (const notePath of allNotePaths) {
     const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
     if (withoutExt === normalizedLinkLower) return notePath;
   }
 
-  // Match by path suffix (case-insensitive)
+  // 2. Path-suffix match
   if (normalizedLink.includes("/")) {
     for (const notePath of allNotePaths) {
       const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
@@ -255,24 +286,37 @@ export function resolveWikilink(
     }
   }
 
-  // Shortest-path: match by basename only
+  // 3. Basename match
   const linkBasename = path.basename(normalizedLink).toLowerCase();
   const candidates: string[] = [];
-
   for (const notePath of allNotePaths) {
     const noteBasename = path
       .basename(notePath, path.extname(notePath))
       .toLowerCase();
-    if (noteBasename === linkBasename) {
-      candidates.push(notePath);
-    }
+    if (noteBasename === linkBasename) candidates.push(notePath);
+  }
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) {
+    // Obsidian's actual rule is "nearest to the linking note" — the candidate
+    // that shares the deepest directory prefix with `currentNotePath` wins.
+    // Ties break on shortest overall path (closer to vault root).
+    const sourceDir = path.dirname(currentNotePath).replace(/\\/g, "/");
+    candidates.sort((a, b) => {
+      const da = sharedPathDepth(sourceDir, path.dirname(a).replace(/\\/g, "/"));
+      const db = sharedPathDepth(sourceDir, path.dirname(b).replace(/\\/g, "/"));
+      if (da !== db) return db - da;
+      return a.length - b.length;
+    });
+    return candidates[0];
   }
 
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0];
+  // 4. Alias fallback — Obsidian resolves `[[Display Name]]` to the note
+  // whose frontmatter declares that alias when no filename matches.
+  const aliasMap = options.aliasMap;
+  if (aliasMap) {
+    const hit = aliasMap.get(normalizedLinkLower);
+    if (hit) return hit;
+  }
 
-  // Multiple matches: pick the one closest to the current note
-  // Obsidian prefers the shortest path from the vault root
-  candidates.sort((a, b) => a.length - b.length);
-  return candidates[0];
+  return null;
 }

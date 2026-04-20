@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listNotes, readNote, getNoteStats } from "../lib/vault.js";
-import { extractWikilinks, resolveWikilink } from "../lib/markdown.js";
+import { extractWikilinks, resolveWikilink, extractAliases } from "../lib/markdown.js";
 import { sanitizeError } from "../lib/errors.js";
 import type { LinkInfo, BrokenLink, OrphanNote, GraphNeighbor } from "../types.js";
 
@@ -115,6 +115,24 @@ async function buildLinkGraph(
     }
   }
 
+  // Build alias map first so any note can link to any other by alias
+  // (e.g. `[[My Project]]` → note whose frontmatter has `aliases: [My Project]`).
+  // Last-writer-wins on collisions; logged via console.error to surface dup
+  // aliases during development.
+  const aliasMap = new Map<string, string>();
+  for (const notePath of allNotes) {
+    const content = noteContents.get(notePath);
+    if (content === undefined) continue;
+    for (const alias of extractAliases(content)) {
+      const key = alias.toLowerCase();
+      if (!key) continue;
+      if (aliasMap.has(key) && aliasMap.get(key) !== notePath) {
+        console.error(`Duplicate alias "${alias}" — used by both ${aliasMap.get(key)} and ${notePath}`);
+      }
+      aliasMap.set(key, notePath);
+    }
+  }
+
   for (const notePath of allNotes) {
     const content = noteContents.get(notePath);
     if (content === undefined) continue;
@@ -135,7 +153,7 @@ async function buildLinkGraph(
       const targetBase = link.target.split("#")[0].trim();
       if (!targetBase) continue;
 
-      const resolved = resolveWikilink(targetBase, notePath, allNotes);
+      const resolved = resolveWikilink(targetBase, notePath, allNotes, { aliasMap });
       if (resolved) {
         outSet.add(resolved);
 

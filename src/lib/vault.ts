@@ -507,6 +507,12 @@ export async function writeCanvasFile(
 /**
  * Atomic read-modify-write for canvas files. Locks across read, mutation, and
  * write so concurrent node/edge additions can't lose each other's writes.
+ *
+ * Preserves unknown top-level keys in the canvas JSON (e.g. `viewport`,
+ * future Obsidian metadata) — only `nodes` and `edges` are replaced by the
+ * transform's result. Extra fields on individual node/edge objects also
+ * survive because the transform typically mutates the array elements in
+ * place.
  */
 export async function updateCanvasFile(
   vaultPath: string,
@@ -522,13 +528,14 @@ export async function updateCanvasFile(
     } catch {
       throw new Error(`Invalid canvas file (malformed JSON): ${relativePath}`);
     }
-    const obj = parsed as Record<string, unknown>;
+    const obj = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
     const current: CanvasData = {
       nodes: Array.isArray(obj.nodes) ? (obj.nodes as CanvasData["nodes"]) : [],
       edges: Array.isArray(obj.edges) ? (obj.edges as CanvasData["edges"]) : [],
     };
     const next = await transform(current);
+    const out = { ...obj, nodes: next.nodes, edges: next.edges };
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, JSON.stringify(next, null, 2), "utf-8");
+    await fs.writeFile(fullPath, JSON.stringify(out, null, 2), "utf-8");
   });
 }
