@@ -249,7 +249,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     },
     async ({ date, content, templatePath }) => {
       try {
-        const config = getDailyNoteConfig(vaultPath);
+        const config = await getDailyNoteConfig(vaultPath);
         const targetDate = date ? new Date(date + "T00:00:00") : new Date();
 
         if (isNaN(targetDate.getTime())) {

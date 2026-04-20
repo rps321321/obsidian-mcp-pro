@@ -194,7 +194,7 @@ export function extractAliases(content: string): string[] {
  * Build a complete NoteMetadata object from a note's content and file stats.
  */
 export function buildNoteMetadata(
-  vaultPath: string,
+  _vaultPath: string,
   relativePath: string,
   content: string,
   stats: { size: number; created: Date | null; modified: Date | null },
@@ -203,7 +203,6 @@ export function buildNoteMetadata(
   const tags = extractTags(content);
   const aliases = extractAliases(content);
 
-  // Title: frontmatter title or filename without extension
   const title =
     typeof data.title === "string" && data.title.trim()
       ? data.title.trim()
@@ -211,7 +210,6 @@ export function buildNoteMetadata(
 
   return {
     title,
-    path: path.join(vaultPath, relativePath),
     relativePath,
     created: stats.created,
     modified: stats.modified,

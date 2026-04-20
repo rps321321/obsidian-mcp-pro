@@ -8,7 +8,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
-import { resolveVaultPath, listNotes, readNote } from "./lib/vault.js";
+import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
 import { extractTags } from "./lib/markdown.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
@@ -166,7 +166,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       }
 
       try {
-        const fullPath = resolveVaultPath(vaultPath, notePath);
+        const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
         const content = await fs.readFile(fullPath, "utf-8");
         return {
           contents: [
@@ -217,7 +217,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
 
   server.resource("daily", "obsidian://daily", async (uri) => {
     if (!vaultPath) throw new Error(noVaultError);
-    const dailyConfig = getDailyNoteConfig(vaultPath);
+    const dailyConfig = await getDailyNoteConfig(vaultPath);
     const today = new Date();
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, "0");
