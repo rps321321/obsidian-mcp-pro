@@ -5,6 +5,107 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-21
+
+### Changed (behavior — user-observable)
+
+- **Wikilink resolution** now falls back to frontmatter `aliases` when no
+  filename/path/basename match is found. `[[My Project]]` resolves to a
+  note whose frontmatter declares that alias. Fixes `find_orphans`
+  reporting alias-linked notes as orphans. `aliases`, `Aliases`, and
+  `ALIASES` keys are all recognized.
+- **Wikilink basename tie-break** now prefers the candidate closest (by
+  shared directory prefix) to the linking note, then falls back to
+  shortest vault path on ties. Previously picked the shortest path from
+  vault root unconditionally, which could resolve `[[foo]]` to an
+  unrelated same-name note.
+- **Daily-note filename format** supports the full moment.js token set
+  Obsidian uses: `YYYY/YY`, `MMMM/MMM/MM/M/Mo`, `DDDD/DDD/DD/D/Do`,
+  `dddd/ddd/dd`, `HH/H/hh/h`, `mm/m`, `ss/s`, `Q`, and `[literal]`
+  bracket escapes. Previous implementation only handled `YYYY/MM/DD` and
+  silently produced literal unresolved filenames for other formats.
+- **Frontmatter tag/alias extraction** probes common YAML key casings
+  (`tags`/`Tags`/`TAGS`, `tag`/`Tag`, `aliases`/`Aliases`/`ALIASES`).
+  Hand-edited vaults no longer silently lose metadata.
+- **`update_frontmatter` description** clarifies that YAML comments,
+  quoting, ordering, and blank lines are normalized on update (key
+  presence and values are preserved; formatting is not).
+
+### Fixed
+
+- **Canvas round-trip fidelity**: `updateCanvasFile` now preserves
+  unknown top-level keys (`viewport`, future metadata) instead of
+  narrowing to `{nodes, edges}` and dropping the rest on the first
+  `add_canvas_node` / `add_canvas_edge` call.
+
+### Tests / CI
+
+- New `security.test.ts`, `http-server.test.ts`, `semantics.test.ts`
+  (31 new tests). Coverage now includes symlink escape, case-only
+  rename deadlock, bearer auth paths, oversize body, alias/proximity
+  wikilink resolution, full moment-token date formatting, and canvas
+  round-trip.
+- CI matrix expanded to Ubuntu / macOS / Windows × Node 20 / 22, with
+  `CI_SYMLINKS=1` enabling symlink regression tests on Windows runners.
+
+## [1.3.3] - 2026-04-21
+
+### Security
+
+- **Central error sanitizer** (`lib/errors.ts`) — filesystem error
+  messages no longer leak absolute host paths to MCP clients. Errno
+  codes collapse to generic messages.
+- **HTTP 500 responses** return a generic body; full detail stays in
+  server logs (no SDK internals / file paths on the wire).
+
+### Reliability
+
+- **`moveNote` case-rename deadlock fixed** — when source/dest share
+  a lock key (`Note.md` → `note.md` on macOS/Windows), a single lock
+  is taken instead of nesting.
+- **`writeNote({ exclusive: true })`** does an explicit case-aware
+  collision probe on case-insensitive filesystems so `Note.md` cannot
+  silently overwrite `note.md`.
+- **`prependToNote` frontmatter scan** replaced with a bounded
+  line-walker (500 lines / 64 KB cap) — no more event-loop stall on
+  malformed or multi-MB notes.
+- **HTTP session sweeper** — 1 h idle TTL, 5 min interval, unref'd
+  timer; prevents transport/McpServer leaks from dropped clients.
+- **Oversize POST body** drains cleanly and returns a proper 413 (no
+  `req.destroy()` race against the response writer).
+
+### Performance
+
+- **Tag tools** (`get_tags`, `search_by_tag`) use a bounded-concurrency
+  pool (16) via new `lib/concurrency.ts` — previously serial reads.
+- **`install.ts` config write is atomic** — temp file + rename, so
+  Claude Desktop or a concurrent editor never observes a half-written
+  manifest.
+
+## [1.3.2] - 2026-04-20
+
+### Security
+
+- **Symlink escape closed** in the `note` MCP resource (previously
+  used the unchecked sync resolver). All tools already used the async
+  realpath-checked variant.
+- **Trash realpath check** in `deleteNote` — prevents a symlinked
+  `.trash` from escaping the vault.
+- **Absolute host path removed** from `NoteMetadata` struct (info
+  disclosure).
+- **`realVaultCache` dropped** — eliminates staleness when the library
+  API is re-used with different vault paths.
+- **Timing-safe Bearer compare** via `crypto.timingSafeEqual`.
+- **Async daily-notes config read** (was sync `fs` inside async
+  handlers).
+- **Canvas `color` validation** — regex enforces `'1'-'6'` or hex.
+
+### Fixed
+
+- **`withFileLock` error chaining** clarified — prior rejections no
+  longer masquerade as success.
+- Dead double-cap removed in `searchNotes`.
+
 ## [1.3.1] - 2026-04-18
 
 ### Fixed

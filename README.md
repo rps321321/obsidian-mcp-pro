@@ -13,7 +13,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-122_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tests](https://img.shields.io/badge/tests-153_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
 [![Tool Quality](https://img.shields.io/badge/Glama-all_23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
@@ -146,6 +146,47 @@ The server locates your vault using the following priority:
 
 Auto-detection works on **macOS**, **Windows**, and **Linux** by reading the platform-specific Obsidian configuration directory.
 
+### Daily-note filename format
+
+`get_daily_note`, `create_daily_note`, and the `obsidian://daily` resource render the note path using your vault's `.obsidian/daily-notes.json` `format` string. Moment.js-style tokens are supported:
+
+| Token | Example | | Token | Example |
+|-------|---------|-|-------|---------|
+| `YYYY` | `2026` | | `dddd` | `Thursday` |
+| `YY` | `26` | | `ddd` | `Thu` |
+| `MMMM` | `April` | | `dd` | `Th` |
+| `MMM` | `Apr` | | `HH` / `H` | `05` / `5` |
+| `MM` / `M` | `04` / `4` | | `hh` / `h` | `05` / `5` |
+| `DD` / `D` | `09` / `9` | | `mm` / `m` | `07` / `7` |
+| `Do` | `9th` | | `ss` / `s` | `03` / `3` |
+| `DDDD` / `DDD` | `099` / `99` | | `Q` | `2` |
+| `[literal]` | renders the bracket contents verbatim, e.g. `YYYY-[Q]Q` → `2026-Q2` |
+
+Unrecognized tokens pass through unchanged. Local time is used (matching Obsidian's rendering).
+
+---
+
+## Security
+
+- **Vault boundary** — every tool and resource routes through a single path resolver that rejects `..` traversal, null-byte injection, and symlinks pointing outside the vault (ancestor-realpath check).
+- **Excluded directories** — `.obsidian`, `.git`, and `.trash` are pruned at traversal time and at resolution time, so nested occurrences never leak back to clients.
+- **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time.
+- **Error sanitization** — filesystem error messages are stripped of absolute host paths before being returned to MCP clients. Uncaught HTTP errors respond with a generic `Internal server error` body; full detail stays in the server log.
+- **Atomic writes** — `install` subcommand writes the config via temp-file + rename, preserving a backup of the previous file. Note writes use per-path serialization to avoid lost-update races on concurrent MCP calls.
+
+---
+
+## Wikilink resolution
+
+`[[Target]]` resolves in the same order Obsidian does:
+
+1. Exact relative-path match (case-insensitive).
+2. Path-suffix match (e.g. `[[projects/foo]]` picks `work/projects/foo.md`).
+3. Basename match. When multiple notes share a basename, the one that shares the deepest directory prefix with the linking note wins; ties break on shortest overall path.
+4. Frontmatter `aliases` — `[[Display Name]]` resolves to a note whose frontmatter declares that alias. `aliases`, `Aliases`, and `ALIASES` are all recognized.
+
+Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `Tag` frontmatter keys are all read.
+
 ---
 
 ## Tool Reference
@@ -214,18 +255,27 @@ OBSIDIAN_VAULT_PATH=/path/to/vault npm start
 
 ```
 src/
-  index.ts          # Server entry point and resource registration
-  config.ts         # Vault detection and configuration
-  types.ts          # Shared TypeScript interfaces
+  index.ts           # Server entry, CLI parser, resource registration
+  config.ts          # Vault detection, daily-notes config loader
+  http-server.ts     # Streamable HTTP transport, Bearer auth, session TTL
+  install.ts         # `install` subcommand (Claude Desktop / Cursor)
+  types.ts           # Shared TypeScript interfaces
   lib/
-    vault.ts        # Core vault operations (read, search, list)
-    markdown.ts     # Frontmatter parsing and tag extraction
+    vault.ts         # Core vault ops (read, search, list, per-file locks,
+                     # symlink boundary, canvas round-trip)
+    markdown.ts      # Frontmatter, wikilinks, tags, alias-aware resolver
+    dates.ts         # Moment-style date format for daily-note filenames
+    errors.ts        # sanitizeError: strips absolute paths from fs errors
+    concurrency.ts   # Bounded-concurrency fan-out helper (tag/link scans)
   tools/
-    read.ts         # Search, get, list, daily note tools
-    write.ts        # Create, append, prepend, update, move, delete tools
-    tags.ts         # Tag index and tag search tools
-    links.ts        # Backlinks, outlinks, orphans, broken links, graph tools
-    canvas.ts       # Canvas read, node, edge, and list tools
+    read.ts          # search_notes, get_note, list_notes, daily, frontmatter
+    write.ts         # create, append, prepend, update_frontmatter, move, delete
+    tags.ts          # get_tags, search_by_tag
+    links.ts         # backlinks, outlinks, orphans, broken, graph_neighbors
+    canvas.ts        # list, read, add_node, add_edge
+  __tests__/
+    vault.test.ts       markdown.test.ts       tools.test.ts
+    security.test.ts    http-server.test.ts    semantics.test.ts
 ```
 
 ---
@@ -236,7 +286,7 @@ src/
 npm test
 ```
 
-122 tests covering vault operations, markdown parsing (frontmatter, wikilinks, tags, code block detection), and integration tests with a mock vault.
+153 tests covering vault operations, markdown parsing (frontmatter, wikilinks, tags, code-block detection), moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS), and security regression guards (symlink escape, case-only rename, path-leak sanitization). Runs against Node 20 + 22 on Ubuntu, macOS, and Windows in CI.
 
 ---
 
