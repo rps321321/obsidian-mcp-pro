@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { sanitizeError } from "./lib/errors.js";
 
 export type InstallClient = "claude" | "cursor";
 
@@ -51,7 +52,7 @@ function readConfig(configPath: string): McpConfigFile {
     return JSON.parse(raw) as McpConfigFile;
   } catch (err) {
     throw new Error(
-      `Existing config at ${configPath} is not valid JSON. Fix or delete it before re-running install. (${err instanceof Error ? err.message : String(err)})`,
+      `Existing config at ${configPath} is not valid JSON. Fix or delete it before re-running install. (${sanitizeError(err)})`,
     );
   }
 }
@@ -65,7 +66,18 @@ function backupConfig(configPath: string): string | null {
 
 function writeConfig(configPath: string, config: McpConfigFile): void {
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  // Atomic write: write to a sibling temp file and rename. On both POSIX and
+  // NTFS, rename-over-existing is atomic, so a concurrent reader (Claude
+  // Desktop) never observes a truncated or half-written config.
+  const tmp = `${configPath}.tmp-${process.pid}-${Date.now()}`;
+  const payload = JSON.stringify(config, null, 2) + "\n";
+  fs.writeFileSync(tmp, payload, "utf-8");
+  try {
+    fs.renameSync(tmp, configPath);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 export interface InstallOptions {

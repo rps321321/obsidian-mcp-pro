@@ -23,21 +23,36 @@ export interface HttpServerHandle {
 }
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
+const SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+class BodyTooLargeError extends Error {
+  constructor() {
+    super("Request body too large");
+    this.name = "BodyTooLargeError";
+  }
+}
 
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let exceeded = false;
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => {
+      if (exceeded) return;
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new Error("Request body too large"));
-        req.destroy();
-        return;
+        // Stop buffering but keep reading + discarding so the request stream
+        // drains cleanly. Destroying the socket here races with the 413
+        // response write and produces noisy `write after end` errors.
+        exceeded = true;
+        chunks.length = 0;
+      } else {
+        chunks.push(chunk);
       }
-      chunks.push(chunk);
     });
     req.on("end", () => {
+      if (exceeded) return reject(new BodyTooLargeError());
       const raw = Buffer.concat(chunks).toString("utf-8");
       if (!raw) return resolve(undefined);
       try {
@@ -85,7 +100,24 @@ function setCors(res: ServerResponse): void {
 
 export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServerHandle> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  const lastActivity = new Map<string, number>();
+  const touch = (sid: string): void => { lastActivity.set(sid, Date.now()); };
   const mcpServer = opts.buildMcpServer();
+
+  // Evict sessions that have been idle past the timeout so dropped clients
+  // (crash, network loss, no DELETE) don't leak transports forever.
+  const sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const [sid, ts] of lastActivity) {
+      if (now - ts > SESSION_IDLE_TIMEOUT_MS) {
+        const t = transports.get(sid);
+        if (t) { void t.close().catch(() => undefined); }
+        transports.delete(sid);
+        lastActivity.delete(sid);
+      }
+    }
+  }, SESSION_SWEEP_INTERVAL_MS);
+  sweeper.unref?.();
 
   // DNS rebinding protection: restrict Host header to the bound interface +
   // localhost aliases. Browsers attacking via dns-rebinding will present a
@@ -129,9 +161,19 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
       if (req.method === "POST") {
-        const body = await readBody(req);
+        let body: unknown;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          if (err instanceof BodyTooLargeError) {
+            sendJson(res, 413, { error: "Request body too large" });
+            return;
+          }
+          throw err;
+        }
 
         if (sessionId && transports.has(sessionId)) {
+          touch(sessionId);
           await transports.get(sessionId)!.handleRequest(req, res, body);
           return;
         }
@@ -141,12 +183,16 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sid) => {
               transports.set(sid, transport);
+              touch(sid);
             },
             allowedHosts,
             enableDnsRebindingProtection: true,
           });
           transport.onclose = () => {
-            if (transport.sessionId) transports.delete(transport.sessionId);
+            if (transport.sessionId) {
+              transports.delete(transport.sessionId);
+              lastActivity.delete(transport.sessionId);
+            }
           };
           await mcpServer.connect(transport);
           await transport.handleRequest(req, res, body);
@@ -166,6 +212,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           sendJson(res, 404, { error: "Session not found" });
           return;
         }
+        touch(sessionId);
         await transports.get(sessionId)!.handleRequest(req, res);
         return;
       }
@@ -174,7 +221,9 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     } catch (err) {
       console.error("[obsidian-mcp-pro] HTTP error:", err);
       if (!res.headersSent) {
-        sendJson(res, 500, { error: err instanceof Error ? err.message : "Internal error" });
+        // Do not forward internal error messages to HTTP clients — they may
+        // contain file paths or SDK internals. Full detail is logged above.
+        sendJson(res, 500, { error: "Internal server error" });
       }
     }
   });
@@ -190,10 +239,12 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
   const stop = async (): Promise<void> => {
     console.error(`[obsidian-mcp-pro] Shutting down HTTP server...`);
+    clearInterval(sweeper);
     for (const t of transports.values()) {
       try { await t.close(); } catch { /* ignore */ }
     }
     transports.clear();
+    lastActivity.clear();
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   };
 

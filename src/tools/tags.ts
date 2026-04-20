@@ -2,6 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listNotes, readNote } from "../lib/vault.js";
 import { extractTags } from "../lib/markdown.js";
+import { sanitizeError } from "../lib/errors.js";
+import { mapConcurrent } from "../lib/concurrency.js";
+
+const READ_CONCURRENCY = 16;
 import type { TagInfo } from "../types.js";
 
 function errorResult(text: string) {
@@ -33,15 +37,19 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         const notes = await listNotes(vaultPath);
         const tagMap = new Map<string, { tag: string; files: Set<string> }>();
 
-        for (const notePath of notes) {
-          let content: string;
-          try {
-            content = await readNote(vaultPath, notePath);
-          } catch (err) {
+        const contents = await mapConcurrent(
+          notes,
+          READ_CONCURRENCY,
+          (notePath) => readNote(vaultPath, notePath),
+          (err, notePath) => {
             console.error(`Failed to read note for tag extraction: ${notePath}`, err);
-            continue;
-          }
+          },
+        );
 
+        for (let i = 0; i < notes.length; i++) {
+          const content = contents[i];
+          if (content === undefined) continue;
+          const notePath = notes[i];
           const tags = extractTags(content);
           for (const tag of tags) {
             const normalizedTag = tag.toLowerCase();
@@ -82,7 +90,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("Error in get_tags:", err);
-        return errorResult(`Error listing tags: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error listing tags: ${sanitizeError(err)}`);
       }
     },
   );
@@ -122,25 +130,27 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
       try {
         const searchTag = tag.replace(/^#/, "").toLowerCase();
         const notes = await listNotes(vaultPath);
-        const matchingNotes: { path: string; preview?: string }[] = [];
 
-        for (const notePath of notes) {
-          if (matchingNotes.length >= maxResults) break;
-
-          let content: string;
-          try {
-            content = await readNote(vaultPath, notePath);
-          } catch (err) {
+        const contents = await mapConcurrent(
+          notes,
+          READ_CONCURRENCY,
+          (notePath) => readNote(vaultPath, notePath),
+          (err, notePath) => {
             console.error(`Failed to read note for tag search: ${notePath}`, err);
-            continue;
-          }
+          },
+        );
 
+        const matchingNotes: { path: string; preview?: string }[] = [];
+        for (let i = 0; i < notes.length; i++) {
+          if (matchingNotes.length >= maxResults) break;
+          const content = contents[i];
+          if (content === undefined) continue;
+          const notePath = notes[i];
           const tags = extractTags(content);
           const hasMatch = tags.some((t) => {
             const normalized = t.toLowerCase();
             return normalized === searchTag || normalized.startsWith(`${searchTag}/`);
           });
-
           if (hasMatch) {
             const entry: { path: string; preview?: string } = { path: notePath };
             if (includeContent) {
@@ -175,7 +185,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("Error in search_by_tag:", err);
-        return errorResult(`Error searching by tag: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error searching by tag: ${sanitizeError(err)}`);
       }
     },
   );
