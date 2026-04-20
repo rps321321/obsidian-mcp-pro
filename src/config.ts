@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as fsp from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import type { VaultConfig, DailyNoteConfig } from "./types.js";
@@ -170,7 +171,7 @@ export function getVaultConfig(): VaultConfig {
   );
 }
 
-export function getDailyNoteConfig(vaultPath?: string): DailyNoteConfig {
+export async function getDailyNoteConfig(vaultPath?: string): Promise<DailyNoteConfig> {
   const defaults: DailyNoteConfig = {
     folder: "",
     format: "YYYY-MM-DD",
@@ -183,14 +184,19 @@ export function getDailyNoteConfig(vaultPath?: string): DailyNoteConfig {
     "daily-notes.json"
   );
 
-  if (!fs.existsSync(dailyNotesConfigPath)) {
+  let raw: string;
+  try {
+    raw = await fsp.readFile(dailyNotesConfigPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return defaults;
+    console.error(
+      `Failed to read daily notes config at ${dailyNotesConfigPath}: ${err}`
+    );
     return defaults;
   }
 
   try {
-    const raw = fs.readFileSync(dailyNotesConfigPath, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-
     return {
       folder: typeof parsed.folder === "string" ? parsed.folder : defaults.folder,
       format: typeof parsed.format === "string" ? parsed.format : defaults.format,

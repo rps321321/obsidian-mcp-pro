@@ -168,6 +168,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           .describe("Node height in pixels (default: 60)"),
         color: z
           .string()
+          .regex(/^([1-6]|#[0-9a-fA-F]{3,8})$/, "color must be '1'-'6' or a hex code like '#ff5555'")
           .optional()
           .describe("Color: '1'-'6' for Obsidian's preset palette (red/orange/yellow/green/cyan/purple), or a hex code like '#ff5555'"),
       },

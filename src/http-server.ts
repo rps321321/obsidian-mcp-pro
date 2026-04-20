@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -55,6 +55,21 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Constant-time string compare. `timingSafeEqual` requires equal-length
+// buffers, so pad one side to the other's length — this still reveals the
+// expected token length, but not the byte content, and avoids the early-exit
+// behavior of `!==`.
+function constantTimeEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) {
+    // Still compare same-length buffers so the compare takes similar time.
+    timingSafeEqual(aBuf, Buffer.alloc(aBuf.length));
+    return false;
+  }
+  return timingSafeEqual(aBuf, bBuf);
+}
+
 function setCors(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader(
@@ -103,7 +118,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     if (opts.bearerToken) {
       const header = req.headers.authorization ?? "";
       const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-      if (token !== opts.bearerToken) {
+      if (!constantTimeEqual(token, opts.bearerToken)) {
         res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
         sendJson(res, 401, { error: "Unauthorized" });
         return;

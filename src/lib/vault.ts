@@ -26,7 +26,10 @@ function lockKey(fullPath: string): string {
 async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): Promise<T> {
   const key = lockKey(fullPath);
   const prev = fileLocks.get(key) ?? Promise.resolve();
-  const next = prev.then(fn, fn);
+  // Swallow the prior holder's rejection (so the chain continues) but still
+  // run `fn` exactly once via `.then()` — the previous form passed `fn` as
+  // both fulfillment and rejection handler, which obscured intent.
+  const next = prev.catch(() => undefined).then(fn);
   fileLocks.set(key, next);
   try {
     return await next;
@@ -102,19 +105,17 @@ export function resolveVaultPath(vaultPath: string, relativePath: string): strin
 // A symlink inside the vault pointing outside would pass the sync check and
 // then leak data through `readFile`. Realpath the deepest existing ancestor
 // and re-verify boundary.
-const realVaultCache = new Map<string, string>();
+// No cache: a single realpath syscall per call is cheap, and caching across
+// the process lifetime is unsafe when the library API re-uses the module
+// with different vault paths. Stale entries would compare against the wrong
+// real root and let symlink escapes through.
 async function getRealVaultRoot(vaultPath: string): Promise<string> {
   const key = path.resolve(vaultPath);
-  const cached = realVaultCache.get(key);
-  if (cached) return cached;
-  let real: string;
   try {
-    real = await fs.realpath(key);
+    return await fs.realpath(key);
   } catch {
-    real = key;
+    return key;
   }
-  realVaultCache.set(key, real);
-  return real;
 }
 
 async function assertRealPathWithinVault(
@@ -281,6 +282,9 @@ export async function deleteNote(
         throw new Error(`Invalid trash path: ${relativePath}`);
       }
       await fs.mkdir(path.dirname(trashPath), { recursive: true });
+      // Realpath-check the trash destination: guards against `.trash` itself
+      // (or an intermediate dir) being a symlink pointing outside the vault.
+      await assertRealPathWithinVault(resolvedTrash, vaultPath);
       await fs.rename(fullPath, trashPath);
     } else {
       await fs.unlink(fullPath);
@@ -372,10 +376,8 @@ export async function searchNotes(
     }
   }
 
-  // Sort by score descending
   results.sort((a, b) => b.score - a.score);
-
-  return results.slice(0, maxResults);
+  return results;
 }
 
 export async function getNoteStats(

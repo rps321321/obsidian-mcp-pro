@@ -1,6 +1,5 @@
 export interface NoteMetadata {
   title: string;
-  path: string;
   relativePath: string;
   created: Date | null;
   modified: Date | null;
