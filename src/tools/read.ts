@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { searchNotes, readNote, listNotes, getNoteStats } from "../lib/vault.js";
 import { sanitizeError } from "../lib/errors.js";
+import { formatMomentDate } from "../lib/dates.js";
 import { parseFrontmatter, extractTags } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 
@@ -223,14 +224,8 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           return errorResult(`Invalid date: "${targetDate}".`);
         }
 
-        // Build the filename from the configured format
-        // Replace common date tokens with actual date parts
-        const [year, month, day] = targetDate.split("-");
-        let filename = config.format
-          .replace("YYYY", year)
-          .replace("MM", month)
-          .replace("DD", day);
-
+        // Build the filename using moment-style tokens (YYYY, MMM, ddd, etc).
+        let filename = formatMomentDate(parsed, config.format);
         if (!filename.endsWith(".md")) {
           filename += ".md";
         }

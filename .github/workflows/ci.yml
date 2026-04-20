@@ -8,11 +8,12 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
-
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [18, 20, 22]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [20, 22]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +27,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npx vitest run
+        env:
+          # Enables symlink-based regression tests on Windows runners
+          # (GitHub Actions grants symlink-create privilege).
+          CI_SYMLINKS: "1"
+
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm test
-
-      - name: Audit dependencies
-        run: npm audit --audit-level=moderate
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm audit --audit-level=moderate

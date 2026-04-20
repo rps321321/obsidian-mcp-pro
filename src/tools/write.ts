@@ -13,6 +13,7 @@ import {
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 import { sanitizeError } from "../lib/errors.js";
+import { formatMomentDate } from "../lib/dates.js";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -27,14 +28,7 @@ function ensureMdExtension(filePath: string): string {
 }
 
 function formatDate(date: Date, format: string): string {
-  const yyyy = date.getFullYear().toString();
-  const mm = (date.getMonth() + 1).toString().padStart(2, "0");
-  const dd = date.getDate().toString().padStart(2, "0");
-
-  return format
-    .replace("YYYY", yyyy)
-    .replace("MM", mm)
-    .replace("DD", dd);
+  return formatMomentDate(date, format);
 }
 
 function buildFrontmatterContent(frontmatterObj: Record<string, unknown>, body: string): string {
@@ -179,7 +173,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       title: "Update Frontmatter",
       description:
-        "Merge new key-value pairs into a note's YAML frontmatter, preserving any keys not mentioned and leaving the body content untouched. Keys in the payload overwrite existing values. Creates a frontmatter block if the note has none. Returns a count of properties written. Use to set status fields, tags arrays, or other metadata without rewriting the body.",
+        "Merge new key-value pairs into a note's YAML frontmatter, preserving any keys not mentioned and leaving the body content untouched. Keys in the payload overwrite existing values. Creates a frontmatter block if the note has none. Returns a count of properties written. Use to set status fields, tags arrays, or other metadata without rewriting the body.\n\nNote: The YAML block is regenerated on each update — comments, custom quoting, multi-line scalar style, blank lines, and key ordering inside the block are normalized. Key *presence and values* are preserved; formatting is not.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,

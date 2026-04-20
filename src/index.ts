@@ -11,6 +11,7 @@ import { getVaultConfig, getDailyNoteConfig } from "./config.js";
 import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
 import { extractTags } from "./lib/markdown.js";
 import { sanitizeError } from "./lib/errors.js";
+import { formatMomentDate } from "./lib/dates.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
 import { registerTagTools } from "./tools/tags.js";
@@ -219,16 +220,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
   server.resource("daily", "obsidian://daily", async (uri) => {
     if (!vaultPath) throw new Error(noVaultError);
     const dailyConfig = await getDailyNoteConfig(vaultPath);
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
-
-    let filename = dailyConfig.format
-      .replace("YYYY", String(year))
-      .replace("MM", month)
-      .replace("DD", day);
-
+    let filename = formatMomentDate(new Date(), dailyConfig.format);
     if (!filename.endsWith(".md")) {
       filename += ".md";
     }
