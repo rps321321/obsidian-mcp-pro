@@ -4,6 +4,8 @@
 
 ⭐ **Please [star us on GitHub](https://github.com/rps321321/obsidian-mcp-pro) — it helps us reach more users!**
 
+💙 **Support this project** — obsidian-mcp-pro is free and open-source. If it saves you time, consider supporting continued development via the Sponsor button above.
+
 [![obsidian-mcp-pro MCP server](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro/badges/card.svg)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 [![npm version](https://img.shields.io/npm/v/obsidian-mcp-pro.svg)](https://www.npmjs.com/package/obsidian-mcp-pro)
