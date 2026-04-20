@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listNotes, readNote, getNoteStats } from "../lib/vault.js";
 import { extractWikilinks, resolveWikilink } from "../lib/markdown.js";
+import { sanitizeError } from "../lib/errors.js";
 import type { LinkInfo, BrokenLink, OrphanNote, GraphNeighbor } from "../types.js";
 
 interface LinkGraphData {
@@ -298,7 +299,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: output }] };
       } catch (err) {
         console.error("get_backlinks error:", err);
-        return errorResult(`Error finding backlinks: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error finding backlinks: ${sanitizeError(err)}`);
       }
     },
   );
@@ -381,7 +382,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("get_outlinks error:", err);
-        return errorResult(`Error getting outlinks: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error getting outlinks: ${sanitizeError(err)}`);
       }
     },
   );
@@ -480,7 +481,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("find_orphans error:", err);
-        return errorResult(`Error finding orphans: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error finding orphans: ${sanitizeError(err)}`);
       }
     },
   );
@@ -595,7 +596,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("find_broken_links error:", err);
-        return errorResult(`Error finding broken links: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error finding broken links: ${sanitizeError(err)}`);
       }
     },
   );
@@ -765,7 +766,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("get_graph_neighbors error:", err);
-        return errorResult(`Error getting graph neighbors: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error getting graph neighbors: ${sanitizeError(err)}`);
       }
     },
   );

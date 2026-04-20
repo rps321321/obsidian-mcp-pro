@@ -201,6 +201,23 @@ export async function writeNote(
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    // On case-insensitive filesystems (Windows, default macOS), the `wx`
+    // flag would silently overwrite `note.md` when the caller asks to create
+    // `Note.md`. Do an explicit case-aware collision check first.
+    if (options?.exclusive && CASE_INSENSITIVE_FS) {
+      const dir = path.dirname(fullPath);
+      const target = path.basename(fullPath).toLowerCase();
+      try {
+        const entries = await fs.readdir(dir);
+        if (entries.some((e) => e.toLowerCase() === target)) {
+          const err = new Error(`File already exists: ${relativePath}`) as NodeJS.ErrnoException;
+          err.code = "EEXIST";
+          throw err;
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+    }
     // `wx` fails if the file exists — atomic create, closes TOCTOU with any
     // earlier `exists()` check by making the write itself the existence test.
     const flag = options?.exclusive ? "wx" : "w";
@@ -240,6 +257,37 @@ export async function appendToNote(
   });
 }
 
+// Scan for an opening `---\n ... \n---` frontmatter block by walking lines
+// and bailing out after a bounded number of lines / bytes. Returns the full
+// frontmatter slice (including trailing newline) or null if none exists.
+const MAX_FRONTMATTER_LINES = 500;
+const MAX_FRONTMATTER_BYTES = 64 * 1024;
+function extractLeadingFrontmatter(content: string): string | null {
+  if (!content.startsWith("---")) return null;
+  const firstNewline = content.indexOf("\n");
+  if (firstNewline === -1) return null;
+  const afterOpenDelim = content.slice(0, firstNewline + 1);
+  // First line must be exactly `---` (allowing optional \r).
+  if (afterOpenDelim.replace(/\r?\n$/, "") !== "---") return null;
+
+  let offset = firstNewline + 1;
+  let lines = 0;
+  while (offset < content.length) {
+    if (lines >= MAX_FRONTMATTER_LINES || offset >= MAX_FRONTMATTER_BYTES) return null;
+    const nextNewline = content.indexOf("\n", offset);
+    const lineEnd = nextNewline === -1 ? content.length : nextNewline;
+    const line = content.slice(offset, lineEnd).replace(/\r$/, "");
+    if (line === "---") {
+      const end = nextNewline === -1 ? content.length : nextNewline + 1;
+      return content.slice(0, end);
+    }
+    if (nextNewline === -1) return null;
+    offset = nextNewline + 1;
+    lines++;
+  }
+  return null;
+}
+
 export async function prependToNote(
   vaultPath: string,
   relativePath: string,
@@ -249,12 +297,14 @@ export async function prependToNote(
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
 
-    // Detect frontmatter block (starts with --- on first line)
-    const frontmatterMatch = existing.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+    // Detect frontmatter by scanning only the first N lines instead of
+    // running a lazy-match regex across the full file. A malformed note with
+    // an opening `---` but no closing delimiter would otherwise scan the
+    // entire (potentially multi-MB) content and block the event loop.
+    const frontmatter = extractLeadingFrontmatter(existing);
 
     let result: string;
-    if (frontmatterMatch) {
-      const frontmatter = frontmatterMatch[0];
+    if (frontmatter) {
       const rest = existing.slice(frontmatter.length);
       const separator = frontmatter.endsWith("\n") ? "" : "\n";
       result = frontmatter + separator + content + "\n" + rest;
@@ -299,20 +349,32 @@ export async function moveNote(
 ): Promise<void> {
   const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath);
   const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath);
+  const doRename = async (): Promise<void> => {
+    try {
+      await fs.access(fullNewPath);
+      // A case-only rename (Note.md → note.md on a case-insensitive FS)
+      // resolves to the same inode, so `access` succeeds even though the
+      // caller intends to rename. Detect that case and allow the rename.
+      if (lockKey(fullOldPath) !== lockKey(fullNewPath)) {
+        throw new Error(`Destination already exists: ${newPath}`);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
+    await fs.rename(fullOldPath, fullNewPath);
+  };
   // Lock in deterministic order to prevent deadlock when two concurrent
-  // moves cross-reference the same pair of paths.
+  // moves cross-reference the same pair of paths. When both paths share
+  // the same lock key (case-only rename on case-insensitive FS), a single
+  // lock is sufficient — nesting the same key deadlocks.
+  if (lockKey(fullOldPath) === lockKey(fullNewPath)) {
+    await withFileLock(fullOldPath, doRename);
+    return;
+  }
   const [first, second] = [fullOldPath, fullNewPath].sort();
   await withFileLock(first, async () => {
-    await withFileLock(second, async () => {
-      try {
-        await fs.access(fullNewPath);
-        throw new Error(`Destination already exists: ${newPath}`);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      }
-      await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
-      await fs.rename(fullOldPath, fullNewPath);
-    });
+    await withFileLock(second, doRename);
   });
 }
 

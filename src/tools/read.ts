@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { searchNotes, readNote, listNotes, getNoteStats } from "../lib/vault.js";
+import { sanitizeError } from "../lib/errors.js";
 import { parseFrontmatter, extractTags } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 
@@ -81,7 +82,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("search_notes error:", err);
-        return errorResult(`Error searching notes: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error searching notes: ${sanitizeError(err)}`);
       }
     },
   );
@@ -137,7 +138,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("get_note error:", err);
-        return errorResult(`Error reading note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error reading note: ${sanitizeError(err)}`);
       }
     },
   );
@@ -185,7 +186,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("list_notes error:", err);
-        return errorResult(`Error listing notes: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error listing notes: ${sanitizeError(err)}`);
       }
     },
   );
@@ -268,7 +269,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("get_daily_note error:", err);
-        return errorResult(`Error reading daily note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error reading daily note: ${sanitizeError(err)}`);
       }
     },
   );
@@ -365,7 +366,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         };
       } catch (err) {
         console.error("search_by_frontmatter error:", err);
-        return errorResult(`Error searching by frontmatter: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error searching by frontmatter: ${sanitizeError(err)}`);
       }
     },
   );

@@ -10,6 +10,7 @@ import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js"
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
 import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
 import { extractTags } from "./lib/markdown.js";
+import { sanitizeError } from "./lib/errors.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
 import { registerTagTools } from "./tools/tags.js";
@@ -178,7 +179,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
           ],
         };
       } catch (err) {
-        throw new Error(`Failed to read note: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(`Failed to read note: ${sanitizeError(err)}`);
       }
     }
   );

@@ -12,6 +12,7 @@ import {
 } from "../lib/vault.js";
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
+import { sanitizeError } from "../lib/errors.js";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -97,7 +98,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Created note at '${resolvedPath}'.`);
       } catch (err) {
         console.error("create_note error:", err);
-        return errorResult(`Error creating note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error creating note: ${sanitizeError(err)}`);
       }
     },
   );
@@ -132,7 +133,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Appended content to '${resolvedPath}'.`);
       } catch (err) {
         console.error("append_to_note error:", err);
-        return errorResult(`Error appending to note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error appending to note: ${sanitizeError(err)}`);
       }
     },
   );
@@ -167,7 +168,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Prepended content to '${resolvedPath}'.`);
       } catch (err) {
         console.error("prepend_to_note error:", err);
-        return errorResult(`Error prepending to note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error prepending to note: ${sanitizeError(err)}`);
       }
     },
   );
@@ -213,7 +214,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Updated frontmatter of '${resolvedPath}' with ${Object.keys(parsed).length} properties.`);
       } catch (err) {
         console.error("update_frontmatter error:", err);
-        return errorResult(`Error updating frontmatter: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error updating frontmatter: ${sanitizeError(err)}`);
       }
     },
   );
@@ -271,7 +272,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             const templateContent = await readNote(vaultPath, resolvedTemplate);
             finalContent = templateContent.replace(/\{\{date\}\}/g, dateStr);
           } catch (err) {
-            return errorResult(`Error reading template: ${err instanceof Error ? err.message : String(err)}`);
+            return errorResult(`Error reading template: ${sanitizeError(err)}`);
           }
         }
 
@@ -286,7 +287,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Created daily note at '${notePath}'.`);
       } catch (err) {
         console.error("create_daily_note error:", err);
-        return errorResult(`Error creating daily note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error creating daily note: ${sanitizeError(err)}`);
       }
     },
   );
@@ -323,7 +324,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Moved note from '${resolvedOld}' to '${resolvedNew}'.`);
       } catch (err) {
         console.error("move_note error:", err);
-        return errorResult(`Error moving note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error moving note: ${sanitizeError(err)}`);
       }
     },
   );
@@ -362,7 +363,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         return textResult(`Note '${resolvedPath}' ${method}.`);
       } catch (err) {
         console.error("delete_note error:", err);
-        return errorResult(`Error deleting note: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error deleting note: ${sanitizeError(err)}`);
       }
     },
   );

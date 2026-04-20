@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPath } from "../lib/vault.js";
+import { sanitizeError } from "../lib/errors.js";
 import type { CanvasNode, CanvasData } from "../types.js";
 import { randomUUID } from "crypto";
 
@@ -36,7 +37,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         };
       } catch (err) {
         console.error("Failed to list canvas files:", err);
-        return errorResult(`Error listing canvas files: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error listing canvas files: ${sanitizeError(err)}`);
       }
     },
   );
@@ -114,7 +115,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         console.error("Failed to read canvas:", err);
-        return errorResult(`Error reading canvas: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error reading canvas: ${sanitizeError(err)}`);
       }
     },
   );
@@ -220,7 +221,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         };
       } catch (err) {
         console.error("Failed to add canvas node:", err);
-        return errorResult(`Error adding node: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error adding node: ${sanitizeError(err)}`);
       }
     },
   );
@@ -301,7 +302,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         };
       } catch (err) {
         console.error("Failed to add canvas edge:", err);
-        return errorResult(`Error adding edge: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Error adding edge: ${sanitizeError(err)}`);
       }
     },
   );
