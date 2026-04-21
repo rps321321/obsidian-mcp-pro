@@ -5,6 +5,18 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-04-21
+
+### Fixed
+
+- **Silent exit on startup under `npx`** (regression introduced in 1.3.0).
+  The CLI-entry guard compared `process.argv[1]` (not symlink-dereferenced)
+  against `import.meta.url` (which Node's ESM loader already dereferences).
+  When launched via `npx -y obsidian-mcp-pro`, the `.bin` symlink caused
+  the comparison to fail, so `main()` never ran and the process exited
+  with code 0 after receiving `initialize`. Both sides now compare real
+  paths via `fs.realpathSync`. Fixes #2.
+
 ## [1.4.0] - 2026-04-21
 
 ### Changed (behavior — user-observable)
