@@ -329,11 +329,11 @@ Resources provide a URI-based way to access vault data:
 
 ## Troubleshooting
 
-### Tools don't show up in Claude Desktop
+### Tools Don't Show Up in Claude Desktop
 
 MCP clients only re-read their config on startup. After editing `claude_desktop_config.json` (or running `npx obsidian-mcp-pro install`), fully quit Claude Desktop (⌘Q on macOS, tray → Quit on Windows) and relaunch. Hot-reloading the window is not enough.
 
-### "No Obsidian vault configured" on startup
+### "No Obsidian vault configured" on Startup
 
 The server couldn't locate a vault. Resolution order is:
 
@@ -343,27 +343,27 @@ The server couldn't locate a vault. Resolution order is:
 
 Fastest fix: set `OBSIDIAN_VAULT_PATH` in the `env` block of your MCP client's config. Auto-detection fails when Obsidian has never been launched, `obsidian.json` is missing/corrupt, or all registered vaults resolve to paths that no longer exist.
 
-### "Path traversal detected" error on tool calls
+### "Path traversal detected" Error on Tool Calls
 
 All tool paths must be **vault-relative** (e.g. `notes/hello.md`), never absolute (`/Users/me/vault/notes/hello.md`) or containing `..`. The agent normally gets this right — if you see this error, check whether a custom instruction is asking it to use absolute paths.
 
-### HTTP transport returns `401 Unauthorized`
+### HTTP Transport Returns `401 Unauthorized`
 
 The server was started with `--token=<secret>` (or `MCP_HTTP_TOKEN` is set in the environment) but the client isn't sending a matching `Authorization: Bearer <secret>` header. Verify the token value and that the header is present — comparison is case-sensitive and constant-time.
 
-### HTTP transport returns `429 Too Many Requests`
+### HTTP Transport Returns `429 Too Many Requests`
 
 `--rate-limit=<n>` is set and the client exceeded N requests in the last 60 seconds from that IP. Either raise the limit, drop it, or wait 60 seconds. `/health` and `/version` are exempt if you need to check liveness under load.
 
-### Daily-note path is wrong or unresolved
+### Daily-Note Path Is Wrong or Unresolved
 
 The server reads `.obsidian/daily-notes.json` from the vault for the filename format and folder. If that file doesn't exist (the Daily Notes core plugin has never been configured), the server falls back to `YYYY-MM-DD.md` in the vault root. Configure the plugin once inside Obsidian and the server picks it up automatically.
 
-### `npx obsidian-mcp-pro` silently exits with code 0
+### `npx obsidian-mcp-pro` Silently Exits With Code 0
 
 This was a bug in versions < 1.4.1 where the `npx`-symlinked CLI entry failed to detect itself as the entrypoint. Upgrade: `npx -y obsidian-mcp-pro@latest install`.
 
-### Windows: "EPERM: operation not permitted" during writes
+### Windows: "EPERM: operation not permitted" During Writes
 
 The server retries these transparently (Windows holds stricter file-sharing locks than POSIX) — if you still see the error, it usually means antivirus or a sync client (OneDrive, Dropbox) is holding the file. Exclude the vault folder from real-time antivirus scanning, or pause the sync client during heavy agent sessions.
 
