@@ -24,6 +24,25 @@ Every one of the 23 tools ships with rich descriptions, typed schemas, human-rea
 
 ---
 
+## Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Security](#security)
+- [Wikilink Resolution](#wikilink-resolution)
+- [Tool Reference](#tool-reference)
+- [MCP Resources](#mcp-resources)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Testing](#testing)
+- [What's New](#whats-new)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Features
 
 ### Read & Search
@@ -68,7 +87,7 @@ Every one of the 23 tools ships with rich descriptions, typed schemas, human-rea
 
 > **Using Obsidian?** There's also an [Obsidian plugin](https://github.com/rps321321/obsidian-mcp-pro-plugin) that runs this server inside the app with a ribbon toggle and settings UI — no config-file editing. Recommended for most users.
 
-### One-command install (Claude Desktop / Cursor)
+### One-Command Install (Claude Desktop / Cursor)
 
 ```bash
 npx -y obsidian-mcp-pro install
@@ -82,7 +101,7 @@ Pin a specific vault:
 npx -y obsidian-mcp-pro install --vault /path/to/your/vault
 ```
 
-### Manual Claude Desktop config
+### Manual Claude Desktop Config
 
 Add this to your Claude Desktop configuration file (`claude_desktop_config.json`):
 
@@ -119,7 +138,7 @@ If you have multiple vaults, specify which one:
 claude mcp add obsidian-mcp-pro -- npx -y obsidian-mcp-pro
 ```
 
-### HTTP transport (remote clients, Cursor, ChatGPT, web)
+### HTTP Transport (Remote Clients, Cursor, ChatGPT, Web)
 
 ```bash
 npx -y obsidian-mcp-pro --transport=http --port=3333
@@ -132,7 +151,16 @@ npx -y obsidian-mcp-pro --transport=http --token=your-secret
 # or: MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http
 ```
 
-The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled. Override with `--host=0.0.0.0` only when you know what you're doing.
+The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
+
+> [!WARNING]
+> **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. If you need remote access:
+> - Put the server behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS, **and**
+> - Require `--token=<secret>` (or `MCP_HTTP_TOKEN`), **and**
+> - Restrict `--allow-origin` to the specific origins you trust, **and**
+> - Set `--rate-limit` to cap request volume per IP.
+>
+> For local-only setups (same machine / VPN / SSH tunnel), keep the default `127.0.0.1` bind.
 
 Additional hardening flags:
 
@@ -152,6 +180,53 @@ Structured logging is controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`
 
 ---
 
+## Usage
+
+Once installed, the server exposes 23 tools and 3 resources to whichever MCP client you configured. Below is a transcript of a Claude Desktop conversation showing what day-to-day use looks like.
+
+> **You:** Find notes tagged `#project` I touched this week, then summarize the status of each and append today's date under a "Last reviewed" heading in each one.
+
+Claude picks the right tools in order, with no guidance beyond the prompt:
+
+```text
+🔧 search_by_tag(tag="project", includeContent=false)
+  → 7 notes: "Atlas/overview.md", "Atlas/milestones.md", "Beacon/spec.md", ...
+
+🔧 list_notes(folder="Atlas", limit=100)
+  → filters to recent modifications via get_note stats
+
+🔧 get_note(path="Atlas/overview.md")
+  → reads content + frontmatter + tags
+
+🔧 get_note(path="Atlas/milestones.md")
+  → ...
+
+🔧 append_to_note(
+    path="Atlas/overview.md",
+    content="\n## Last reviewed\n2026-04-21 — on track; waiting on design review."
+  )
+  → ok
+
+🔧 append_to_note(
+    path="Atlas/milestones.md",
+    content="\n## Last reviewed\n2026-04-21 — Q2 milestone at risk, see spec.md."
+  )
+  → ok
+```
+
+> **Claude:** I reviewed 7 project notes tagged `#project`. Atlas is on track pending design review; the Q2 milestone is at risk — details in `milestones.md`. Beacon's spec is complete but has 3 open questions in the frontmatter. I appended a "Last reviewed" section to each.
+
+Other things the tool set lets agents do without hand-holding:
+
+- **Research a topic across the vault.** `search_notes` → `get_outlinks` → `get_graph_neighbors` walks the graph to `depth=2` and surfaces related notes the user may have forgotten.
+- **Clean up dangling references after a rename.** `move_note` → `find_broken_links` returns every wikilink that now points nowhere, with source note and line number.
+- **Maintain a daily log.** `get_daily_note` reads today's note (using the vault's configured date format) and `append_to_note` adds the new entry — daily-note plugin config is honored, no manual date formatting.
+- **Canvas editing.** `read_canvas` → agent reasons about the node graph → `add_canvas_node` + `add_canvas_edge` lays out new ideas on an existing board.
+
+Tool descriptions + typed schemas + safety hints (`readOnlyHint`, `destructiveHint`) are what make this work reliably — the agent knows `delete_note` is destructive and asks first, knows `search_notes` is free to call speculatively, and knows the expected shape of every argument.
+
+---
+
 ## Configuration
 
 The server locates your vault using the following priority:
@@ -164,7 +239,7 @@ The server locates your vault using the following priority:
 
 Auto-detection works on **macOS**, **Windows**, and **Linux** by reading the platform-specific Obsidian configuration directory.
 
-### Daily-note filename format
+### Daily-Note Filename Format
 
 `get_daily_note`, `create_daily_note`, and the `obsidian://daily` resource render the note path using your vault's `.obsidian/daily-notes.json` `format` string. Moment.js-style tokens are supported:
 
@@ -197,7 +272,7 @@ Unrecognized tokens pass through unchanged. Local time is used (matching Obsidia
 
 ---
 
-## Wikilink resolution
+## Wikilink Resolution
 
 `[[Target]]` resolves in the same order Obsidian does:
 
@@ -249,6 +324,48 @@ Resources provide a URI-based way to access vault data:
 | `obsidian://note/{path}` | Read any note by its vault-relative path |
 | `obsidian://tags` | Full tag index with file lists (JSON) |
 | `obsidian://daily` | Today's daily note content |
+
+---
+
+## Troubleshooting
+
+### Tools don't show up in Claude Desktop
+
+MCP clients only re-read their config on startup. After editing `claude_desktop_config.json` (or running `npx obsidian-mcp-pro install`), fully quit Claude Desktop (⌘Q on macOS, tray → Quit on Windows) and relaunch. Hot-reloading the window is not enough.
+
+### "No Obsidian vault configured" on startup
+
+The server couldn't locate a vault. Resolution order is:
+
+1. `OBSIDIAN_VAULT_PATH` env var (absolute path) — always wins if set.
+2. `OBSIDIAN_VAULT_NAME` env var — picks a named vault from Obsidian's global config.
+3. Auto-detection — reads `obsidian.json` (platform-specific) and uses the first valid vault found.
+
+Fastest fix: set `OBSIDIAN_VAULT_PATH` in the `env` block of your MCP client's config. Auto-detection fails when Obsidian has never been launched, `obsidian.json` is missing/corrupt, or all registered vaults resolve to paths that no longer exist.
+
+### "Path traversal detected" error on tool calls
+
+All tool paths must be **vault-relative** (e.g. `notes/hello.md`), never absolute (`/Users/me/vault/notes/hello.md`) or containing `..`. The agent normally gets this right — if you see this error, check whether a custom instruction is asking it to use absolute paths.
+
+### HTTP transport returns `401 Unauthorized`
+
+The server was started with `--token=<secret>` (or `MCP_HTTP_TOKEN` is set in the environment) but the client isn't sending a matching `Authorization: Bearer <secret>` header. Verify the token value and that the header is present — comparison is case-sensitive and constant-time.
+
+### HTTP transport returns `429 Too Many Requests`
+
+`--rate-limit=<n>` is set and the client exceeded N requests in the last 60 seconds from that IP. Either raise the limit, drop it, or wait 60 seconds. `/health` and `/version` are exempt if you need to check liveness under load.
+
+### Daily-note path is wrong or unresolved
+
+The server reads `.obsidian/daily-notes.json` from the vault for the filename format and folder. If that file doesn't exist (the Daily Notes core plugin has never been configured), the server falls back to `YYYY-MM-DD.md` in the vault root. Configure the plugin once inside Obsidian and the server picks it up automatically.
+
+### `npx obsidian-mcp-pro` silently exits with code 0
+
+This was a bug in versions < 1.4.1 where the `npx`-symlinked CLI entry failed to detect itself as the entrypoint. Upgrade: `npx -y obsidian-mcp-pro@latest install`.
+
+### Windows: "EPERM: operation not permitted" during writes
+
+The server retries these transparently (Windows holds stricter file-sharing locks than POSIX) — if you still see the error, it usually means antivirus or a sync client (OneDrive, Dropbox) is holding the file. Exclude the vault folder from real-time antivirus scanning, or pause the sync client during heavy agent sessions.
 
 ---
 
@@ -313,9 +430,20 @@ npm test
 
 ---
 
-## Changelog
+## What's New
 
-See [CHANGELOG.md](./CHANGELOG.md) for version history and release notes.
+**v1.5.0** — production hardening pass:
+
+- **Atomic writes** on every mutating tool (temp file + rename). Crashes, kills, or OOMs mid-write can no longer leave a truncated note.
+- **`create_note` exclusive mode uses OS-level `wx`** so an out-of-process writer (Obsidian itself, a sync client) can't slip between the check and the write.
+- **Parallel vault scans** — `search_notes` and the `obsidian://tags` resource fan out 8-way. Order-of-magnitude latency drop on 10K+ note vaults.
+- **HTTP hardening** — per-IP `--rate-limit`, `--allow-origin` CORS allowlist (with `Vary: Origin`), POST request timeout, `GET /version` endpoint.
+- **Structured logger** with `LOG_LEVEL` / `LOG_FORMAT` env vars (text or JSON, stderr-only).
+- **Process supervision** — `uncaughtException` exits cleanly for systemd/Docker; `unhandledRejection` logs without killing the process.
+
+Full version history in [CHANGELOG.md](./CHANGELOG.md).
+
+---
 
 ## License
 
