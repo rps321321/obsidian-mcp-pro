@@ -5,6 +5,64 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-04-21
+
+### Added
+
+- **Atomic note writes.** Every mutating operation (`create_note`, `append`,
+  `prepend`, `update_frontmatter`, canvas add-node/add-edge) now stages
+  content to a sibling temp file and renames onto the target. A crash or
+  `SIGKILL` mid-write can no longer leave a truncated file — readers see
+  either the prior version or the full new one. Windows `EPERM`/`EBUSY`/
+  `EACCES` from briefly-locked targets are retried with linear backoff (up
+  to ~315ms).
+- **`create_note` exclusive mode uses OS-level `wx`** so an out-of-process
+  writer (Obsidian itself, a sync client, a second MCP server) can no
+  longer slip between the existence check and the write and get silently
+  overwritten.
+- **Parallel vault scans.** `search_notes` and the `obsidian://tags`
+  resource now fan out reads with bounded concurrency (8-way). Large
+  vaults (10K+ notes) see order-of-magnitude latency drops. `search_notes`
+  tie-breaks equal-score results by relative path for deterministic output.
+- **Leveled logger** (`src/lib/logger.ts`) with `debug`/`info`/`warn`/
+  `error`/`silent` levels and `text`/`json` modes, configurable via
+  `LOG_LEVEL` and `LOG_FORMAT` env vars. All logs go to stderr — stdio
+  transport on stdout is never polluted.
+- **HTTP rate limiting.** New `--rate-limit=<n>` flag caps requests per
+  minute per client IP (IPv4-mapped IPv6 normalized to share a bucket).
+  Returns `429 Too Many Requests` with `Retry-After: 60`. `/health` and
+  `/version` are exempt.
+- **CORS allowlist.** New `--allow-origin=<csv>` flag restricts browser
+  origins. `Vary: Origin` is always set when an allowlist is configured so
+  shared caches never pin one origin's response to another's request.
+  Defaults to `*` for back-compat.
+- **`GET /version` endpoint** returning `{ version }` for rollout auditing.
+  `/health` now also includes the package version.
+- **HTTP request timeout** of 2 minutes for POST requests. GET (long-lived
+  SSE streams) and DELETE are exempt so valid idle clients aren't reaped.
+- **Process-level error backstops.** `uncaughtException` logs + exits 1
+  (so supervisors restart cleanly); `unhandledRejection` logs without
+  killing the process. CLI-only — library embedders aren't affected.
+
+### Fixed
+
+- **Data-loss race on concurrent writes.** `fs.writeFile` truncates then
+  writes; under a crash/OOM/kill mid-flight this left notes partially
+  written or zero-byte. Atomic tmp+rename now rules this out.
+- **Windows `fs.rename` EPERM** when another handle has the target open
+  for read — previously surfaced to callers, now retried transparently.
+- **`search_notes` leaked relative note paths** to stderr on read failure.
+  Removed; per-item errors are swallowed by `mapConcurrent` without
+  emitting paths.
+- **`search_notes` tie-break was non-deterministic** (depended on fan-out
+  completion timing under parallel scan). Stable secondary sort by path.
+
+### Changed
+
+- **`search_notes` no longer stops at the first N matching notes.** Old
+  behavior produced non-deterministic top-N under walk order; new
+  behavior scans all, ranks by score with path tiebreaker, then slices.
+
 ## [1.4.1] - 2026-04-21
 
 ### Fixed

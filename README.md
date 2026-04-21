@@ -15,7 +15,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-153_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tests](https://img.shields.io/badge/tests-173_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
 [![Tool Quality](https://img.shields.io/badge/Glama-all_23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
@@ -134,6 +134,22 @@ npx -y obsidian-mcp-pro --transport=http --token=your-secret
 
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled. Override with `--host=0.0.0.0` only when you know what you're doing.
 
+Additional hardening flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--allow-origin=<csv>` | Restrict CORS to an allowlist (e.g. `https://claude.ai,https://chat.openai.com`). Default is `*`. |
+| `--rate-limit=<n>` | Cap requests per minute per client IP. `/health` and `/version` are exempt. Default is unlimited. |
+
+Operational endpoints (no auth required):
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /health` | `{ status: "ok", sessions: <n>, version: <string> }` — liveness + session count. |
+| `GET /version` | `{ version: <string> }` — package version, for rollout auditing. |
+
+Structured logging is controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`, default `info`) and `LOG_FORMAT` (`text`/`json`, default `text`). All logs go to stderr so the stdio transport on stdout is never polluted.
+
 ---
 
 ## Configuration
@@ -174,7 +190,10 @@ Unrecognized tokens pass through unchanged. Local time is used (matching Obsidia
 - **Excluded directories** — `.obsidian`, `.git`, and `.trash` are pruned at traversal time and at resolution time, so nested occurrences never leak back to clients.
 - **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time.
 - **Error sanitization** — filesystem error messages are stripped of absolute host paths before being returned to MCP clients. Uncaught HTTP errors respond with a generic `Internal server error` body; full detail stays in the server log.
-- **Atomic writes** — `install` subcommand writes the config via temp-file + rename, preserving a backup of the previous file. Note writes use per-path serialization to avoid lost-update races on concurrent MCP calls.
+- **Atomic writes** — every note write (`create_note`, `append`, `prepend`, `update_frontmatter`, canvas mutations) stages content to a sibling temp file then renames onto the target, so a crash or kill mid-write never leaves a truncated file. Combined with per-path locks for the full read-modify-write cycle, concurrent callers can't lose each other's updates. The `install` subcommand uses the same pattern and keeps a backup of the previous config.
+- **Rate limiting + CORS allowlist** — optional `--rate-limit` caps per-IP request volume; `--allow-origin` restricts browser-facing CORS. `/health` and `/version` stay reachable under load for monitoring.
+- **Request timeout** — HTTP POST requests are capped at 2 minutes of wall-clock time. Long-lived SSE GET streams are exempt so idle clients aren't reaped.
+- **Process supervision** — `uncaughtException` exits cleanly so systemd/Docker/npx supervisors can restart; `unhandledRejection` logs but doesn't kill the process.
 
 ---
 
@@ -269,6 +288,7 @@ src/
     dates.ts         # Moment-style date format for daily-note filenames
     errors.ts        # sanitizeError: strips absolute paths from fs errors
     concurrency.ts   # Bounded-concurrency fan-out helper (tag/link scans)
+    logger.ts        # Leveled stderr logger (text + JSON modes)
   tools/
     read.ts          # search_notes, get_note, list_notes, daily, frontmatter
     write.ts         # create, append, prepend, update_frontmatter, move, delete
@@ -278,6 +298,7 @@ src/
   __tests__/
     vault.test.ts       markdown.test.ts       tools.test.ts
     security.test.ts    http-server.test.ts    semantics.test.ts
+    logger.test.ts
 ```
 
 ---
@@ -288,7 +309,7 @@ src/
 npm test
 ```
 
-153 tests covering vault operations, markdown parsing (frontmatter, wikilinks, tags, code-block detection), moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS), and security regression guards (symlink escape, case-only rename, path-leak sanitization). Runs against Node 20 + 22 on Ubuntu, macOS, and Windows in CI.
+173 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, code-block detection), moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Runs against Node 20 + 22 on Ubuntu, macOS, and Windows in CI.
 
 ---
 
