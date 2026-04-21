@@ -496,3 +496,141 @@ describe("readCanvasFile", () => {
     ).rejects.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Atomicity + concurrency
+// ---------------------------------------------------------------------------
+describe("writeNote exclusive mode", () => {
+  it("rejects a create that collides with a file materialized out-of-process (OS-level wx)", async () => {
+    // Simulate a separate process / Obsidian app creating the file after our
+    // lock is acquired but before our write lands: we simply pre-create it
+    // here with `fs.writeFile` (bypassing the vault lock entirely).
+    await fs.writeFile(path.join(vaultDir, "shared.md"), "already-there", "utf-8");
+    await expect(
+      writeNote(vaultDir, "shared.md", "ours", { exclusive: true }),
+    ).rejects.toMatchObject({ code: "EEXIST" });
+    // The out-of-process content must survive — no silent overwrite.
+    const content = await fs.readFile(path.join(vaultDir, "shared.md"), "utf-8");
+    expect(content).toBe("already-there");
+  });
+
+  it("allows exclusive create when the file does not exist", async () => {
+    await writeNote(vaultDir, "fresh.md", "hello", { exclusive: true });
+    const content = await fs.readFile(path.join(vaultDir, "fresh.md"), "utf-8");
+    expect(content).toBe("hello");
+  });
+});
+
+describe("atomic writes", () => {
+  it("leaves no tmp sibling files after a successful write", async () => {
+    await writeNote(vaultDir, "atomic.md", "v1");
+    await writeNote(vaultDir, "atomic.md", "v2");
+    await appendToNote(vaultDir, "atomic.md", "more");
+    const entries = await fs.readdir(vaultDir);
+    // Only the target file should remain — no `.atomic.md.<pid>.<rand>.tmp`.
+    expect(entries.filter((e) => e.endsWith(".tmp"))).toEqual([]);
+    expect(entries).toContain("atomic.md");
+  });
+
+  it("never leaves a truncated file: readers always see a complete prior or next version", async () => {
+    // Seed with a large blob so a non-atomic truncate-then-write would be
+    // observable mid-flight. Atomic writes should make every interleaved
+    // read see either the seed or the full new payload.
+    const seed = "A".repeat(64 * 1024);
+    const next = "B".repeat(64 * 1024);
+    await writeNote(vaultDir, "big.md", seed);
+
+    const writers = Array.from({ length: 10 }, () =>
+      writeNote(vaultDir, "big.md", next),
+    );
+    const readers = Array.from({ length: 50 }, async () => {
+      // Interleave reads while the writers race.
+      await new Promise((r) => setTimeout(r, Math.random() * 5));
+      return readNote(vaultDir, "big.md");
+    });
+
+    const [, ...contents] = await Promise.all([
+      Promise.all(writers),
+      ...readers,
+    ] as const);
+    for (const content of contents) {
+      expect(typeof content).toBe("string");
+      expect([seed.length, next.length]).toContain((content as string).length);
+    }
+  });
+});
+
+describe("searchNotes tie-break ordering", () => {
+  it("breaks score ties by relative path ascending for deterministic output", async () => {
+    // Ten notes all containing exactly one match — they all tie at score 1.
+    // With the old code the final order depended on mapConcurrent completion
+    // scheduling; the new code sorts ties by path so repeated runs agree.
+    const names = ["z.md", "a.md", "m.md", "b.md", "y.md"];
+    for (const n of names) await writeNote(vaultDir, n, "needle");
+    const results = await searchNotes(vaultDir, "needle");
+    const paths = results.map((r) => r.relativePath);
+    expect(paths).toEqual([...names].sort());
+  });
+});
+
+describe("concurrent mutation races", () => {
+  it("serializes concurrent appends so no update is lost", async () => {
+    await writeNote(vaultDir, "counter.md", "");
+    const N = 50;
+    await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        appendToNote(vaultDir, "counter.md", `line-${i}`),
+      ),
+    );
+    const content = await readNote(vaultDir, "counter.md");
+    // Each append adds `line-<i>\n` (the first append sees empty content and
+    // inserts no leading separator). All N lines must be present.
+    for (let i = 0; i < N; i++) {
+      expect(content).toContain(`line-${i}`);
+    }
+    const lines = content.split("\n").filter((l) => l.startsWith("line-"));
+    expect(lines).toHaveLength(N);
+  });
+
+  it("serializes append vs prepend — all fragments survive", async () => {
+    await writeNote(vaultDir, "mixed.md", "---\ntitle: t\n---\nbody\n");
+    const ops: Promise<unknown>[] = [];
+    for (let i = 0; i < 10; i++) {
+      ops.push(appendToNote(vaultDir, "mixed.md", `A${i}`));
+      ops.push(prependToNote(vaultDir, "mixed.md", `P${i}`));
+    }
+    await Promise.all(ops);
+    const content = await readNote(vaultDir, "mixed.md");
+    for (let i = 0; i < 10; i++) {
+      expect(content).toContain(`A${i}`);
+      expect(content).toContain(`P${i}`);
+    }
+    // Frontmatter block must still be intact and in leading position.
+    expect(content.startsWith("---\n")).toBe(true);
+    expect(content).toContain("title: t");
+  });
+
+  it("does not let a concurrent delete race a pending append into ghost content", async () => {
+    await writeNote(vaultDir, "raced.md", "seed\n");
+    const appends = Array.from({ length: 5 }, (_, i) =>
+      appendToNote(vaultDir, "raced.md", `x${i}`).catch(() => undefined),
+    );
+    // Kick off a delete mid-appends. Either (a) all appends land then delete
+    // removes the file, or (b) delete lands then later appends fail with
+    // ENOENT — both are acceptable outcomes. The invariant is that the
+    // filesystem never ends up with a partial/corrupt file.
+    const del = deleteNote(vaultDir, "raced.md", false).catch(() => undefined);
+    await Promise.all([...appends, del]);
+
+    const exists = await fs
+      .access(path.join(vaultDir, "raced.md"))
+      .then(() => true)
+      .catch(() => false);
+    if (exists) {
+      const content = await readNote(vaultDir, "raced.md");
+      // If the file survived, it must still parse as UTF-8 text (no
+      // zero-byte truncation) and begin with the seed.
+      expect(content.startsWith("seed")).toBe(true);
+    }
+  });
+});

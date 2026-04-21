@@ -1,6 +1,13 @@
 import fs from "fs/promises";
 import path from "path";
+import { randomBytes } from "crypto";
+import { mapConcurrent } from "./concurrency.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
+
+// Bounded fan-out for vault-wide scans. Higher values saturate the event loop
+// on spinning disks; lower values leave SSD throughput on the table. 8 is the
+// sweet spot on a typical developer workstation.
+const SCAN_CONCURRENCY = 8;
 
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
@@ -23,6 +30,65 @@ const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform ===
 function lockKey(fullPath: string): string {
   return CASE_INSENSITIVE_FS ? fullPath.toLowerCase() : fullPath;
 }
+/**
+ * Crash-atomic file write: stages content to a sibling temp file, then renames
+ * onto the target. `fs.rename` is atomic on the same filesystem (POSIX
+ * `rename(2)` + Win32 `MoveFileEx` with REPLACE_EXISTING on Node), so readers
+ * see either the old content or the new content — never a truncated or
+ * partially-written file.
+ *
+ * Same-directory staging is required: cross-device renames fall back to
+ * copy+unlink and lose atomicity. All current callers write inside the vault,
+ * so this invariant holds.
+ *
+ * Callers must serialize themselves via `withFileLock` — the temp-file suffix
+ * is random enough to avoid collisions between processes, but atomicity
+ * against concurrent writers to the *same* target path still requires the
+ * per-path lock (otherwise two concurrent renames race on the final name).
+ */
+// Windows raises EPERM/EBUSY/EACCES from `fs.rename` when another handle has
+// the target open for read (Win32's default share mode is stricter than
+// POSIX). Readers typically release within a few ms — retry with linear
+// backoff before surfacing the error. POSIX renames never hit this transient
+// class: on POSIX, EACCES from rename(2) means the caller structurally lacks
+// write permission on a containing directory, which will not clear by
+// waiting — so we only retry these codes on Windows.
+const RENAME_RETRY_CODES: ReadonlySet<string> = process.platform === "win32"
+  ? new Set(["EPERM", "EBUSY", "EACCES"])
+  : new Set();
+const RENAME_RETRY_DELAYS_MS = [5, 10, 20, 40, 80, 160];
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? "";
+      if (!RENAME_RETRY_CODES.has(code) || attempt >= RENAME_RETRY_DELAYS_MS.length) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, RENAME_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
+async function atomicWriteFile(fullPath: string, content: string): Promise<void> {
+  const dir = path.dirname(fullPath);
+  const base = path.basename(fullPath);
+  const tmp = path.join(dir, `.${base}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
+  try {
+    // `wx` on the temp file guards against the astronomically unlikely case
+    // of a collision with a leftover tmp from a crashed run.
+    await fs.writeFile(tmp, content, { encoding: "utf-8", flag: "wx" });
+    await renameWithRetry(tmp, fullPath);
+  } catch (err) {
+    // Best-effort cleanup: the rename failed (or writeFile did), so the tmp
+    // is still on disk. Ignore ENOENT in case writeFile never created it.
+    try { await fs.unlink(tmp); } catch { /* ignore */ }
+    throw err;
+  }
+}
+
 async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): Promise<T> {
   const key = lockKey(fullPath);
   const prev = fileLocks.get(key) ?? Promise.resolve();
@@ -201,27 +267,48 @@ export async function writeNote(
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    // On case-insensitive filesystems (Windows, default macOS), the `wx`
-    // flag would silently overwrite `note.md` when the caller asks to create
-    // `Note.md`. Do an explicit case-aware collision check first.
-    if (options?.exclusive && CASE_INSENSITIVE_FS) {
-      const dir = path.dirname(fullPath);
-      const target = path.basename(fullPath).toLowerCase();
-      try {
-        const entries = await fs.readdir(dir);
-        if (entries.some((e) => e.toLowerCase() === target)) {
-          const err = new Error(`File already exists: ${relativePath}`) as NodeJS.ErrnoException;
-          err.code = "EEXIST";
-          throw err;
+    if (options?.exclusive) {
+      // Exclusivity must survive concurrent writes from *other processes*
+      // (Obsidian itself, a second MCP server, a sync client). The in-process
+      // lock cannot see them, so rely on the OS: `fs.open` with `wx` is an
+      // atomic create-or-fail at the syscall layer. We immediately close the
+      // fd — it's a placeholder that reserves the name, and `atomicWriteFile`
+      // below replaces the zero-byte file via rename.
+      //
+      // On case-insensitive filesystems (Windows, default macOS), `wx` on
+      // `Note.md` does NOT fail if `note.md` already exists — same inode,
+      // different casing. Do an additional case-aware `readdir` check under
+      // the per-path lock to cover that specific gap.
+      if (CASE_INSENSITIVE_FS) {
+        const dir = path.dirname(fullPath);
+        const target = path.basename(fullPath).toLowerCase();
+        try {
+          const entries = await fs.readdir(dir);
+          if (entries.some((e) => e.toLowerCase() === target)) {
+            const err = new Error(`File already exists: ${relativePath}`) as NodeJS.ErrnoException;
+            err.code = "EEXIST";
+            throw err;
+          }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         }
+      }
+      let handle: import("fs/promises").FileHandle | undefined;
+      try {
+        handle = await fs.open(fullPath, "wx");
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "EEXIST") {
+          const e = new Error(`File already exists: ${relativePath}`) as NodeJS.ErrnoException;
+          e.code = "EEXIST";
+          throw e;
+        }
+        throw err;
+      } finally {
+        await handle?.close();
       }
     }
-    // `wx` fails if the file exists — atomic create, closes TOCTOU with any
-    // earlier `exists()` check by making the write itself the existence test.
-    const flag = options?.exclusive ? "wx" : "w";
-    await fs.writeFile(fullPath, content, { encoding: "utf-8", flag });
+    await atomicWriteFile(fullPath, content);
   });
 }
 
@@ -240,7 +327,7 @@ export async function updateNote(
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
     const next = await transform(existing);
-    await fs.writeFile(fullPath, next, "utf-8");
+    await atomicWriteFile(fullPath, next);
   });
 }
 
@@ -253,7 +340,7 @@ export async function appendToNote(
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
     const separator = existing.endsWith("\n") ? "" : "\n";
-    await fs.writeFile(fullPath, existing + separator + content, "utf-8");
+    await atomicWriteFile(fullPath, existing + separator + content);
   });
 }
 
@@ -312,7 +399,7 @@ export async function prependToNote(
       result = content + "\n" + existing;
     }
 
-    await fs.writeFile(fullPath, result, "utf-8");
+    await atomicWriteFile(fullPath, result);
   });
 }
 
@@ -391,55 +478,64 @@ export async function searchNotes(
   const maxResults = options?.maxResults ?? 100;
 
   const notes = await listNotes(vaultPath, options?.folder);
-  const results: SearchResult[] = [];
-
   const searchQuery = caseSensitive ? query : query.toLowerCase();
 
-  for (const notePath of notes) {
-    if (results.length >= maxResults) break;
+  // Scan notes in parallel with bounded concurrency. Sequential iteration
+  // would pay one realpath syscall per note on every query — unusable on
+  // 10k+ note vaults. `mapConcurrent` preserves ordering so we can still
+  // stop early once `maxResults` is satisfied deterministically.
+  //
+  // Note: errors are swallowed per-item (documented `mapConcurrent` contract)
+  // so one unreadable note doesn't abort the search. We intentionally do NOT
+  // log the relative note path here — it used to go to stderr and could leak
+  // vault layout into shared logs.
+  const perNote = await mapConcurrent(
+    notes,
+    SCAN_CONCURRENCY,
+    async (notePath) => {
+      const content = await readNote(vaultPath, notePath);
+      const lines = content.split("\n");
+      const matches: SearchMatch[] = [];
 
-    let content: string;
-    try {
-      content = await readNote(vaultPath, notePath);
-    } catch {
-      console.error(`Failed to read note during search: ${notePath}`);
-      continue;
-    }
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const compareLine = caseSensitive ? line : line.toLowerCase();
+        let startIndex = 0;
 
-    const lines = content.split("\n");
-    const matches: SearchMatch[] = [];
+        while (true) {
+          const col = compareLine.indexOf(searchQuery, startIndex);
+          if (col === -1) break;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const compareLine = caseSensitive ? line : line.toLowerCase();
-      let startIndex = 0;
-
-      while (true) {
-        const col = compareLine.indexOf(searchQuery, startIndex);
-        if (col === -1) break;
-
-        matches.push({
-          line: i + 1,
-          content: line.trim(),
-          column: col,
-        });
-        startIndex = col + searchQuery.length;
+          matches.push({
+            line: i + 1,
+            content: line.trim(),
+            column: col,
+          });
+          startIndex = col + searchQuery.length;
+        }
       }
-    }
 
-    if (matches.length > 0) {
+      if (matches.length === 0) return undefined;
       // Don't leak absolute host path to MCP clients — relative is sufficient.
-      results.push({
+      const result: SearchResult = {
         path: notePath,
         relativePath: notePath,
         matches,
         score: matches.length,
-      });
-    }
-  }
+      };
+      return result;
+    },
+  );
 
-  results.sort((a, b) => b.score - a.score);
-  return results;
+  const results: SearchResult[] = [];
+  for (const r of perNote) {
+    if (r) results.push(r);
+  }
+  // Primary: match count (desc). Secondary: relative path (asc) — otherwise
+  // tie-breaking order depends on `mapConcurrent` completion timing, which
+  // makes results for equal-score queries non-deterministic between runs.
+  results.sort((a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath));
+  return results.slice(0, maxResults);
 }
 
 export async function getNoteStats(
@@ -500,7 +596,7 @@ export async function writeCanvasFile(
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, JSON.stringify(data, null, 2), "utf-8");
+    await atomicWriteFile(fullPath, JSON.stringify(data, null, 2));
   });
 }
 
@@ -536,6 +632,6 @@ export async function updateCanvasFile(
     const next = await transform(current);
     const out = { ...obj, nodes: next.nodes, edges: next.edges };
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, JSON.stringify(out, null, 2), "utf-8");
+    await atomicWriteFile(fullPath, JSON.stringify(out, null, 2));
   });
 }

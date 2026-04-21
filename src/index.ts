@@ -9,7 +9,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
 import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
+import { mapConcurrent } from "./lib/concurrency.js";
 import { extractTags } from "./lib/markdown.js";
+import { log } from "./lib/logger.js";
 import { sanitizeError } from "./lib/errors.js";
 import { formatMomentDate } from "./lib/dates.js";
 import { registerReadTools } from "./tools/read.js";
@@ -26,6 +28,8 @@ interface CliOptions {
   host: string;
   port: number;
   bearerToken?: string;
+  allowedOrigins?: string[];
+  rateLimitPerMinute?: number;
   installClient: InstallClient;
   installVaultPath?: string;
   installVaultName?: string;
@@ -69,6 +73,14 @@ function parseArgs(argv: string[]): CliOptions {
       opts.bearerToken = argv[++i];
     } else if (a.startsWith("--token=")) {
       opts.bearerToken = a.slice("--token=".length);
+    } else if (a === "--allow-origin" && argv[i + 1]) {
+      opts.allowedOrigins = argv[++i].split(",").map((s) => s.trim()).filter(Boolean);
+    } else if (a.startsWith("--allow-origin=")) {
+      opts.allowedOrigins = a.slice("--allow-origin=".length).split(",").map((s) => s.trim()).filter(Boolean);
+    } else if (a === "--rate-limit" && argv[i + 1]) {
+      opts.rateLimitPerMinute = Number(argv[++i]);
+    } else if (a.startsWith("--rate-limit=")) {
+      opts.rateLimitPerMinute = Number(a.slice("--rate-limit=".length));
     } else if (a === "--client" && argv[i + 1]) {
       const v = argv[++i];
       if (v !== "claude" && v !== "cursor") throw new Error(`--client must be claude or cursor`);
@@ -100,6 +112,12 @@ function parseArgs(argv: string[]): CliOptions {
   if (!Number.isFinite(opts.port) || opts.port < 1 || opts.port > 65535) {
     throw new Error(`Invalid port: ${opts.port}`);
   }
+  if (
+    opts.rateLimitPerMinute !== undefined &&
+    (!Number.isFinite(opts.rateLimitPerMinute) || opts.rateLimitPerMinute < 0)
+  ) {
+    throw new Error(`Invalid --rate-limit: ${opts.rateLimitPerMinute}`);
+  }
   return opts;
 }
 
@@ -117,6 +135,8 @@ Serve options:
   --host=<addr>                             HTTP bind host (default: 127.0.0.1)
   --port=<n>                                HTTP port (default: 3333)
   --token=<secret>                          Require Bearer <secret> (or env MCP_HTTP_TOKEN)
+  --allow-origin=<origins>                  Comma-separated CORS allowlist (default: *)
+  --rate-limit=<n>                          Max requests per minute per IP (default: unlimited)
 
 Install options:
   --client=<claude|cursor>                  Target client (default: claude)
@@ -128,6 +148,8 @@ Env vars:
   OBSIDIAN_VAULT_PATH     Vault to serve (else auto-detected from Obsidian config)
   OBSIDIAN_VAULT_NAME     Select a named vault when multiple exist
   MCP_HTTP_TOKEN          Default bearer token for --transport=http
+  LOG_LEVEL               debug|info|warn|error|silent (default: info)
+  LOG_FORMAT              text|json (default: text)
 `);
 }
 
@@ -190,19 +212,20 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
     const tagIndex: Record<string, string[]> = {};
     const notes = await listNotes(vaultPath);
 
-    for (const notePath of notes) {
-      try {
-        const content = await readNote(vaultPath, notePath);
-        const tags = extractTags(content);
-        for (const tag of tags) {
-          const normalizedTag = `#${tag}`;
-          if (!tagIndex[normalizedTag]) {
-            tagIndex[normalizedTag] = [];
-          }
-          tagIndex[normalizedTag].push(notePath);
-        }
-      } catch {
-        // Skip unreadable notes
+    // Parallel fan-out — sequential reads would spend most of the time
+    // blocked on fs I/O (one `realpath` syscall per note via
+    // `resolveVaultPathSafe` inside `readNote`). Errors per note are
+    // swallowed by `mapConcurrent` so one corrupt file can't poison the
+    // entire index.
+    const perNote = await mapConcurrent(notes, 8, async (notePath) => {
+      const content = await readNote(vaultPath, notePath);
+      return { notePath, tags: extractTags(content) };
+    });
+    for (const entry of perNote) {
+      if (!entry) continue;
+      for (const tag of entry.tags) {
+        const normalizedTag = `#${tag}`;
+        (tagIndex[normalizedTag] ??= []).push(entry.notePath);
       }
     }
 
@@ -267,7 +290,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
   registerLinkTools(server, vaultForTools);
   registerCanvasTools(server, vaultForTools);
   if (!vaultPath) {
-    console.error(`[obsidian-mcp-pro] Tools registered but vault unconfigured — calls will return errors.`);
+    log.warn(`Tools registered but vault unconfigured — calls will return errors`);
   }
 
   return server;
@@ -277,9 +300,10 @@ function resolveVaultPathOrWarn(): string | undefined {
   try {
     return getVaultConfig().vaultPath;
   } catch (err) {
-    console.error(`[obsidian-mcp-pro] Warning: ${err}`);
-    console.error(`[obsidian-mcp-pro] Server will start but tools will return errors until a vault is configured.`);
-    console.error(`[obsidian-mcp-pro] Set OBSIDIAN_VAULT_PATH environment variable to fix this.`);
+    log.warn(`Vault not configured — tools will return errors`, {
+      err: err as Error,
+      hint: "Set OBSIDIAN_VAULT_PATH environment variable to fix this.",
+    });
     return undefined;
   }
 }
@@ -289,8 +313,9 @@ async function main(): Promise<void> {
   try {
     opts = parseArgs(process.argv.slice(2));
   } catch (err) {
-    console.error(`[obsidian-mcp-pro] ${err instanceof Error ? err.message : err}`);
-    console.error(`Run with --help for usage.`);
+    log.error(err instanceof Error ? err.message : String(err), {
+      hint: "Run with --help for usage.",
+    });
     process.exit(2);
   }
 
@@ -322,17 +347,19 @@ async function main(): Promise<void> {
       host: opts.host,
       port: opts.port,
       bearerToken: opts.bearerToken,
+      allowedOrigins: opts.allowedOrigins,
+      rateLimitPerMinute: opts.rateLimitPerMinute,
       buildMcpServer: () => buildMcpServer(vaultPath),
+      version: readPackageVersion(),
     });
-    console.error(`[obsidian-mcp-pro] Vault: ${vaultPath ?? "(not configured)"}`);
+    log.info(`Vault configured`, { vault: vaultPath ?? "(not configured)" });
     return;
   }
 
   const server = buildMcpServer(vaultPath);
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`[obsidian-mcp-pro] Server started (stdio)`);
-  console.error(`[obsidian-mcp-pro] Vault: ${vaultPath ?? "(not configured)"}`);
+  log.info(`Server started (stdio)`, { vault: vaultPath ?? "(not configured)" });
 }
 
 export { startHttpServer, type HttpServerHandle, type HttpServerOptions } from "./http-server.js";
@@ -355,9 +382,30 @@ function isCliEntry(): boolean {
   }
 }
 
+// Backstop for stray errors that would otherwise crash the whole process and
+// drop every connected MCP client. A tool handler rejection, a late timer
+// callback throwing, or an SDK internal slip should be logged — not fatal.
+// Library embedders (Obsidian plugin) install their own handlers, so we only
+// attach these when running as the CLI.
+function installProcessErrorHandlers(): void {
+  process.on("unhandledRejection", (reason) => {
+    log.error("Unhandled promise rejection", {
+      err: reason instanceof Error ? reason : new Error(String(reason)),
+    });
+  });
+  process.on("uncaughtException", (err) => {
+    // Uncaught exceptions leave the process in an undefined state per Node's
+    // docs. Log loudly and exit so a supervisor (systemd, Docker, npx shell)
+    // can restart cleanly rather than limp along with corrupted invariants.
+    log.error("Uncaught exception", { err });
+    process.exit(1);
+  });
+}
+
 if (isCliEntry()) {
+  installProcessErrorHandlers();
   main().catch((err) => {
-    console.error(`[obsidian-mcp-pro] Fatal error: ${err}`);
+    log.error("Fatal error", { err: err as Error });
     process.exit(1);
   });
 }
