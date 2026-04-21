@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import * as fs from "fs/promises";
-import { readFileSync } from "fs";
+import { readFileSync, realpathSync } from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -344,9 +344,12 @@ function isCliEntry(): boolean {
   const argv1 = process.argv[1];
   if (!argv1) return false;
   try {
-    const thisUrl = new URL(import.meta.url);
-    const argvUrl = new URL(`file://${path.resolve(argv1).replace(/\\/g, "/")}`);
-    return thisUrl.pathname.toLowerCase() === argvUrl.pathname.toLowerCase();
+    // Node's ESM loader follows symlinks for import.meta.url, but process.argv[1]
+    // can still be a symlink (e.g. node_modules/.bin/obsidian-mcp-pro → build/index.js
+    // under `npx`). path.resolve does NOT dereference symlinks, so compare real paths.
+    const thisPath = realpathSync(fileURLToPath(import.meta.url));
+    const argvPath = realpathSync(path.resolve(argv1));
+    return thisPath.toLowerCase() === argvPath.toLowerCase();
   } catch {
     return false;
   }
