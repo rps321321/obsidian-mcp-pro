@@ -5,6 +5,29 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-04-25
+
+### Security / Fixed
+
+- **MCP log-forward no longer leaks absolute host paths to clients.**
+  `notifications/message` payloads pass through `stripPaths` so remote
+  clients never see the operator's host filesystem layout (`vault`,
+  `configPath`, and serialized-error stack traces are all covered).
+  Stderr keeps full detail for operator debugging. Regression introduced
+  by the logging capability in 1.5.1.
+- **`add_canvas_node` file reference now realpath-checked.** Swapped the
+  sync `resolveVaultPath` for `resolveVaultPathSafe` so a symlinked path
+  that escapes the vault is rejected at the same gate as every other
+  write tool.
+- **Reject Windows DOS device names** (`CON`, `PRN`, `AUX`, `NUL`,
+  `COM0-9`, `LPT0-9`) at the path resolver on win32. Previously
+  `create_note path="NUL.md"` on Windows silently bound to the null
+  device and discarded the write. No-op on POSIX.
+
+### Tests
+
+- +6 tests covering the three fixes (182 pass, up from 176).
+
 ## [1.5.1] - 2026-04-25
 
 ### Added
