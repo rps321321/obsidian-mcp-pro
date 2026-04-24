@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPath } from "../lib/vault.js";
 import { sanitizeError } from "../lib/errors.js";
+import { log } from "../lib/logger.js";
 import type { CanvasNode, CanvasData } from "../types.js";
 import { randomUUID } from "crypto";
 
@@ -36,7 +37,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           content: [{ type: "text" as const, text: `Found ${files.length} canvas file(s):\n\n${formatted}` }],
         };
       } catch (err) {
-        console.error("Failed to list canvas files:", err);
+        log.error("list_canvases failed", { tool: "list_canvases", err: err as Error });
         return errorResult(`Error listing canvas files: ${sanitizeError(err)}`);
       }
     },
@@ -114,7 +115,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
-        console.error("Failed to read canvas:", err);
+        log.error("read_canvas failed", { tool: "read_canvas", err: err as Error });
         return errorResult(`Error reading canvas: ${sanitizeError(err)}`);
       }
     },
@@ -220,7 +221,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           content: [{ type: "text" as const, text: `Node added successfully.\nID: ${id}\nType: ${type}\nPosition: (${x}, ${y})` }],
         };
       } catch (err) {
-        console.error("Failed to add canvas node:", err);
+        log.error("add_canvas_node failed", { tool: "add_canvas_node", err: err as Error });
         return errorResult(`Error adding node: ${sanitizeError(err)}`);
       }
     },
@@ -301,7 +302,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           content: [{ type: "text" as const, text: `Edge added successfully.\nID: ${id}\nFrom: ${fromNode} -> To: ${toNode}${label ? `\nLabel: ${label}` : ""}` }],
         };
       } catch (err) {
-        console.error("Failed to add canvas edge:", err);
+        log.error("add_canvas_edge failed", { tool: "add_canvas_edge", err: err as Error });
         return errorResult(`Error adding edge: ${sanitizeError(err)}`);
       }
     },

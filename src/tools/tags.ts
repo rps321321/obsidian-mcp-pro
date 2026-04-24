@@ -4,6 +4,7 @@ import { listNotes, readNote } from "../lib/vault.js";
 import { extractTags } from "../lib/markdown.js";
 import { sanitizeError } from "../lib/errors.js";
 import { mapConcurrent } from "../lib/concurrency.js";
+import { log } from "../lib/logger.js";
 
 const READ_CONCURRENCY = 16;
 import type { TagInfo } from "../types.js";
@@ -42,7 +43,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           READ_CONCURRENCY,
           (notePath) => readNote(vaultPath, notePath),
           (err, notePath) => {
-            console.error(`Failed to read note for tag extraction: ${notePath}`, err);
+            log.warn("get_tags: note read failed", { note: notePath, err: err as Error });
           },
         );
 
@@ -89,7 +90,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           content: [{ type: "text" as const, text: lines.join("\n") }],
         };
       } catch (err) {
-        console.error("Error in get_tags:", err);
+        log.error("get_tags failed", { tool: "get_tags", err: err as Error });
         return errorResult(`Error listing tags: ${sanitizeError(err)}`);
       }
     },
@@ -136,7 +137,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           READ_CONCURRENCY,
           (notePath) => readNote(vaultPath, notePath),
           (err, notePath) => {
-            console.error(`Failed to read note for tag search: ${notePath}`, err);
+            log.warn("search_by_tag: note read failed", { note: notePath, err: err as Error });
           },
         );
 
@@ -184,7 +185,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           content: [{ type: "text" as const, text: lines.join("\n") }],
         };
       } catch (err) {
-        console.error("Error in search_by_tag:", err);
+        log.error("search_by_tag failed", { tool: "search_by_tag", err: err as Error });
         return errorResult(`Error searching by tag: ${sanitizeError(err)}`);
       }
     },

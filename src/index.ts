@@ -11,7 +11,7 @@ import { getVaultConfig, getDailyNoteConfig } from "./config.js";
 import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
 import { mapConcurrent } from "./lib/concurrency.js";
 import { extractTags } from "./lib/markdown.js";
-import { log } from "./lib/logger.js";
+import { log, configureLogger } from "./lib/logger.js";
 import { sanitizeError } from "./lib/errors.js";
 import { formatMomentDate } from "./lib/dates.js";
 import { registerReadTools } from "./tools/read.js";
@@ -168,10 +168,20 @@ function readPackageVersion(): string {
 }
 
 export function buildMcpServer(vaultPath: string | undefined): McpServer {
-  const server = new McpServer({
-    name: "obsidian-mcp-pro",
-    version: readPackageVersion(),
-  });
+  const server = new McpServer(
+    {
+      name: "obsidian-mcp-pro",
+      version: readPackageVersion(),
+    },
+    {
+      // Declaring the `logging` capability lets clients call `logging/setLevel`
+      // to filter server-side logs at runtime, and lets the server push
+      // structured `notifications/message` events alongside tool responses.
+      // Logger forwarding is wired up by callers via `configureLogger` once
+      // the server instance is available.
+      capabilities: { logging: {} },
+    },
+  );
 
   const noVaultError = "No Obsidian vault configured. Set OBSIDIAN_VAULT_PATH environment variable.";
 
@@ -341,8 +351,10 @@ async function main(): Promise<void> {
   const vaultPath = resolveVaultPathOrWarn();
 
   if (opts.transport === "http") {
-    // Per-session McpServer so tool state (if added later) doesn't bleed
-    // across clients. Vault resolution happens once at startup.
+    // Single McpServer instance shared across sessions — the canonical SDK
+    // pattern (one server, one transport per session, transports share the
+    // server's tool/resource registry). Tools here are stateless, so nothing
+    // bleeds between clients. Vault resolution happens once at startup.
     await startHttpServer({
       host: opts.host,
       port: opts.port,
@@ -357,6 +369,11 @@ async function main(): Promise<void> {
   }
 
   const server = buildMcpServer(vaultPath);
+  // Route subsequent log lines through the MCP `notifications/message`
+  // channel as well as stderr. Wire it up BEFORE `connect` so any startup
+  // log that fires during/after connect reaches a client that's already
+  // subscribed (the SDK drops sends until a transport attaches anyway).
+  configureLogger({ mcpServer: server });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   log.info(`Server started (stdio)`, { vault: vaultPath ?? "(not configured)" });
