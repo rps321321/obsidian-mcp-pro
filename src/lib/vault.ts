@@ -12,6 +12,19 @@ const SCAN_CONCURRENCY = 8;
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
 
+// Legacy DOS device names reserved by the Windows filesystem at any depth.
+// Opening one of these as a file quietly binds to the device (e.g. NUL
+// discards writes) rather than creating a real file, which surprises users
+// and produces silent data loss. Match case-insensitively against the
+// basename WITHOUT extension, since `CON.md`, `con.TXT`, and `LPT1.anything`
+// are all reserved on Windows.
+const WIN_RESERVED_BASENAMES: ReadonlySet<string> = new Set([
+  "con", "prn", "aux", "nul",
+  "com0", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+  "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+]);
+const IS_WIN32 = process.platform === "win32";
+
 function isExcluded(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
   // Reject if ANY path segment is an excluded dir (not just root-level).
@@ -161,8 +174,20 @@ export function resolveVaultPath(vaultPath: string, relativePath: string): strin
   // Reject paths that traverse through excluded directories at any depth.
   // `resolveVaultPath` is the single choke point for all file tool calls.
   const rel = path.relative(resolvedVault, resolved).replace(/\\/g, "/");
-  if (rel && rel.split("/").some((seg) => EXCLUDED_SET.has(seg.toLowerCase()))) {
+  const segments = rel ? rel.split("/") : [];
+  if (segments.some((seg) => EXCLUDED_SET.has(seg.toLowerCase()))) {
     throw new Error(`Access to excluded directory denied: ${relativePath}`);
+  }
+  // Reject Windows DOS device names at any segment. Opening `CON.md` / `NUL`
+  // on Windows binds to the device and silently discards writes — we fail
+  // fast instead so callers see the mistake. Harmless no-op on POSIX.
+  if (IS_WIN32) {
+    for (const seg of segments) {
+      const stem = seg.replace(/\.[^.]*$/, "").toLowerCase();
+      if (WIN_RESERVED_BASENAMES.has(stem)) {
+        throw new Error(`Invalid path: "${seg}" is a reserved Windows device name`);
+      }
+    }
   }
   return resolved;
 }

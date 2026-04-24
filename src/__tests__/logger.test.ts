@@ -94,6 +94,41 @@ describe("logger", () => {
     expect(sendLoggingMessage).not.toHaveBeenCalled();
   });
 
+  it("strips absolute paths from forwarded MCP payload but keeps them in stderr", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    log.info("vault configured", { vault: "/Users/alice/Documents/MyVault", configPath: "C:\\Users\\bob\\.obsidian" });
+
+    // Local stderr keeps the full path for operator diagnostics.
+    const stderrOut = captured.join("");
+    expect(stderrOut).toContain("/Users/alice/Documents/MyVault");
+    expect(stderrOut).toContain("C:\\Users\\bob");
+
+    // MCP-forwarded payload MUST NOT contain the absolute host paths.
+    expect(sendLoggingMessage).toHaveBeenCalledTimes(1);
+    const [params] = sendLoggingMessage.mock.calls[0];
+    const dataStr = JSON.stringify(params.data);
+    expect(dataStr).not.toContain("alice");
+    expect(dataStr).not.toContain("bob");
+    expect(dataStr).toContain("<path>");
+  });
+
+  it("strips paths recursively from nested objects (e.g. serialized errors)", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "json", mcpServer: fakeServer });
+
+    const err = new Error("ENOENT: no such file '/Users/alice/vault/secret.md'");
+    log.error("tool failed", { err });
+
+    const [params] = sendLoggingMessage.mock.calls[0];
+    const dataStr = JSON.stringify(params.data);
+    expect(dataStr).not.toContain("alice");
+    expect(dataStr).not.toContain("secret.md");
+  });
+
   it("swallows sendLoggingMessage rejections (logging must never fail a call)", async () => {
     const sendLoggingMessage = vi.fn().mockRejectedValue(new Error("not connected"));
     const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPath } from "../lib/vault.js";
+import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPathSafe } from "../lib/vault.js";
 import { sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import type { CanvasNode, CanvasData } from "../types.js";
@@ -194,8 +194,13 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           // Validate the file reference stays inside the vault. Without this
           // check, arbitrary paths (e.g. "../../etc/passwd") would be
           // persisted in the canvas JSON and surfaced back to clients.
+          // Use the async variant so symlinked paths that escape the vault
+          // (via realpath) are also rejected — matches the defense-in-depth
+          // used by every other path-accepting tool. The referenced file
+          // need not exist yet; `resolveVaultPathSafe` walks up to the
+          // deepest existing ancestor and realpath-checks that.
           try {
-            resolveVaultPath(vaultPath, content);
+            await resolveVaultPathSafe(vaultPath, content);
           } catch {
             return errorResult(
               `Invalid file reference: "${content}" must be a relative path inside the vault.`,
