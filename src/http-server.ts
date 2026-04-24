@@ -3,7 +3,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { log } from "./lib/logger.js";
+import { log, configureLogger } from "./lib/logger.js";
 
 export interface HttpServerOptions {
   host: string;
@@ -186,6 +186,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   const lastActivity = new Map<string, number>();
   const touch = (sid: string): void => { lastActivity.set(sid, Date.now()); };
   const mcpServer = opts.buildMcpServer();
+  // Route logger output through the MCP client via `notifications/message`
+  // (in addition to stderr). Harmless before any session connects — the SDK
+  // silently drops sends with no connected transport.
+  configureLogger({ mcpServer });
   const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
     ? opts.allowedOrigins
     : ["*"];

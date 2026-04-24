@@ -3,6 +3,7 @@ import * as fsp from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import type { VaultConfig, DailyNoteConfig } from "./types.js";
+import { log } from "./lib/logger.js";
 
 interface ObsidianVaultEntry {
   path: string;
@@ -62,9 +63,12 @@ function resolveVaultFromEnv(): string | null {
 
   const resolved = path.resolve(envPath);
   if (!isValidVaultPath(resolved)) {
-    console.error(
-      `OBSIDIAN_VAULT_PATH is set to "${resolved}" but it does not contain a valid Obsidian vault (.obsidian directory missing)`
-    );
+    // Log the configured path (not sanitized) because this is an operator-
+    // facing diagnostic — they already know the path, and hiding it would
+    // make the error useless. This never goes into a tool response.
+    log.warn("OBSIDIAN_VAULT_PATH is not a valid vault (missing .obsidian dir)", {
+      vaultPath: resolved,
+    });
     return null;
   }
 
@@ -76,12 +80,12 @@ function resolveVaultFromObsidianConfig(): string | null {
   try {
     configPath = getObsidianConfigPath();
   } catch (err) {
-    console.error(`Failed to determine Obsidian config path: ${err}`);
+    log.warn("Failed to determine Obsidian config path", { err: err as Error });
     return null;
   }
 
   if (!fs.existsSync(configPath)) {
-    console.error(`Obsidian config not found at ${configPath}`);
+    log.warn("Obsidian config not found", { configPath });
     return null;
   }
 
@@ -90,18 +94,18 @@ function resolveVaultFromObsidianConfig(): string | null {
     const raw = fs.readFileSync(configPath, "utf-8");
     config = JSON.parse(raw) as ObsidianConfig;
   } catch (err) {
-    console.error(`Failed to parse Obsidian config at ${configPath}: ${err}`);
+    log.warn("Failed to parse Obsidian config", { configPath, err: err as Error });
     return null;
   }
 
   if (!config.vaults || typeof config.vaults !== "object") {
-    console.error("No vaults found in Obsidian config");
+    log.warn("No vaults found in Obsidian config");
     return null;
   }
 
   const vaultEntries = Object.values(config.vaults);
   if (vaultEntries.length === 0) {
-    console.error("Obsidian config contains no vault entries");
+    log.warn("Obsidian config contains no vault entries");
     return null;
   }
 
@@ -118,15 +122,16 @@ function resolveVaultFromObsidianConfig(): string | null {
       if (isValidVaultPath(resolved)) {
         return resolved;
       }
-      console.error(
-        `Vault "${desiredName}" found in config but path "${resolved}" is not a valid vault`
-      );
+      log.warn("Vault listed in Obsidian config but path is not a valid vault", {
+        vaultName: desiredName,
+        vaultPath: resolved,
+      });
       return null;
     }
 
-    console.error(
-      `OBSIDIAN_VAULT_NAME is set to "${desiredName}" but no matching vault was found in Obsidian config`
-    );
+    log.warn("OBSIDIAN_VAULT_NAME has no matching vault in Obsidian config", {
+      vaultName: desiredName,
+    });
     return null;
   }
 
@@ -135,15 +140,15 @@ function resolveVaultFromObsidianConfig(): string | null {
     const resolved = path.resolve(entry.path);
     if (isValidVaultPath(resolved)) {
       if (vaultEntries.length > 1) {
-        console.error(
-          `Multiple vaults found. Using "${path.basename(resolved)}". Set OBSIDIAN_VAULT_NAME to select a specific vault.`
-        );
+        log.info("Multiple vaults found; defaulting to first valid one. Set OBSIDIAN_VAULT_NAME to select a specific vault.", {
+          selected: path.basename(resolved),
+        });
       }
       return resolved;
     }
   }
 
-  console.error("No valid vault paths found in Obsidian config");
+  log.warn("No valid vault paths found in Obsidian config");
   return null;
 }
 
@@ -189,9 +194,10 @@ export async function getDailyNoteConfig(vaultPath?: string): Promise<DailyNoteC
     raw = await fsp.readFile(dailyNotesConfigPath, "utf-8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return defaults;
-    console.error(
-      `Failed to read daily notes config at ${dailyNotesConfigPath}: ${err}`
-    );
+    log.warn("Failed to read daily notes config", {
+      configPath: dailyNotesConfigPath,
+      err: err as Error,
+    });
     return defaults;
   }
 
@@ -204,9 +210,10 @@ export async function getDailyNoteConfig(vaultPath?: string): Promise<DailyNoteC
         typeof parsed.template === "string" ? parsed.template : undefined,
     };
   } catch (err) {
-    console.error(
-      `Failed to parse daily notes config at ${dailyNotesConfigPath}: ${err}`
-    );
+    log.warn("Failed to parse daily notes config", {
+      configPath: dailyNotesConfigPath,
+      err: err as Error,
+    });
     return defaults;
   }
 }

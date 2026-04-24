@@ -5,6 +5,38 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **MCP `logging` capability.** The server now declares the `logging`
+  capability and forwards every log line to connected clients via
+  `notifications/message`, alongside the existing stderr output. Levels
+  map to RFC 5424 syslog (internal `warn` → wire `warning`). Clients that
+  honor `logging/setLevel` can filter server-side logs at runtime without
+  restarting. Forwarding is best-effort: if the transport is disconnected
+  or the send rejects, the error is swallowed so logging can never be the
+  failure mode of a tool call.
+
+### Changed
+
+- **Consistent structured logging across all tool handlers.** Replaced
+  ~40 `console.error` / `console.warn` sites across `src/tools/*.ts` and
+  `src/config.ts` with the leveled `log` helper. `LOG_FORMAT=json` now
+  emits homogeneous JSON lines with no unstructured stderr interleaved
+  from tool error paths.
+- **Parallelized `search_by_frontmatter`.** Note reads now fan out with
+  concurrency 16 via `mapConcurrent`, matching peer scan tools. On 10k+
+  note vaults this cuts tool latency by roughly an order of magnitude
+  versus the prior sequential loop.
+
+### Fixed
+
+- **Misleading "per-session McpServer" comment** in `src/index.ts` that
+  claimed the HTTP path builds one server per session. The code actually
+  matches the canonical MCP SDK pattern (one `McpServer`, one transport
+  per session). Comment corrected; behavior unchanged.
+
 ## [1.5.0] - 2026-04-21
 
 ### Added

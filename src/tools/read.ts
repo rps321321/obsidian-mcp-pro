@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { searchNotes, readNote, listNotes, getNoteStats } from "../lib/vault.js";
 import { sanitizeError } from "../lib/errors.js";
+import { log } from "../lib/logger.js";
+import { mapConcurrent } from "../lib/concurrency.js";
 import { formatMomentDate } from "../lib/dates.js";
 import { parseFrontmatter, extractTags } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
@@ -82,7 +84,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           content: [{ type: "text" as const, text: lines.join("\n") }],
         };
       } catch (err) {
-        console.error("search_notes error:", err);
+        log.error("search_notes failed", { tool: "search_notes", err: err as Error });
         return errorResult(`Error searching notes: ${sanitizeError(err)}`);
       }
     },
@@ -138,7 +140,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           ],
         };
       } catch (err) {
-        console.error("get_note error:", err);
+        log.error("get_note failed", { tool: "get_note", err: err as Error });
         return errorResult(`Error reading note: ${sanitizeError(err)}`);
       }
     },
@@ -186,7 +188,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           content: [{ type: "text" as const, text: lines.join("\n") }],
         };
       } catch (err) {
-        console.error("list_notes error:", err);
+        log.error("list_notes failed", { tool: "list_notes", err: err as Error });
         return errorResult(`Error listing notes: ${sanitizeError(err)}`);
       }
     },
@@ -263,7 +265,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           ],
         };
       } catch (err) {
-        console.error("get_daily_note error:", err);
+        log.error("get_daily_note failed", { tool: "get_daily_note", err: err as Error });
         return errorResult(`Error reading daily note: ${sanitizeError(err)}`);
       }
     },
@@ -298,38 +300,40 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     async ({ property, value, folder }) => {
       try {
         const notes = await listNotes(vaultPath, folder);
-        const matches: Array<{
-          path: string;
-          frontmatter: Record<string, unknown>;
-        }> = [];
+        const valueLower = value.toLowerCase();
 
-        for (const notePath of notes) {
-          let content: string;
-          try {
-            content = await readNote(vaultPath, notePath);
-          } catch {
-            console.error(
-              `Failed to read note during frontmatter search: ${notePath}`,
-            );
-            continue;
-          }
+        // Fan out reads at the same concurrency used by `search_notes` and
+        // tag scans. The previous sequential loop paid one `realpath` syscall
+        // per note per query — unworkable on 10k+ note vaults. Per-note
+        // failures are logged and dropped so one unreadable file can't abort
+        // the whole scan.
+        type Hit = { path: string; frontmatter: Record<string, unknown> };
+        const perNote = await mapConcurrent<string, Hit | undefined>(
+          notes,
+          16,
+          async (notePath) => {
+            const content = await readNote(vaultPath, notePath);
+            const { data: frontmatterData } = parseFrontmatter(content);
+            const propValue = frontmatterData[property];
+            if (propValue === undefined) return undefined;
 
-          const { data: frontmatterData } = parseFrontmatter(content);
-          const propValue = frontmatterData[property];
+            const stringified = Array.isArray(propValue)
+              ? propValue.map(String)
+              : [String(propValue)];
+            const isMatch = stringified.some((v) => v.toLowerCase() === valueLower);
+            return isMatch ? { path: notePath, frontmatter: frontmatterData } : undefined;
+          },
+          (err, notePath) => {
+            log.warn("search_by_frontmatter: note read failed", {
+              note: notePath,
+              err: err as Error,
+            });
+          },
+        );
 
-          if (propValue === undefined) continue;
-
-          const stringified = Array.isArray(propValue)
-            ? propValue.map(String)
-            : [String(propValue)];
-
-          const isMatch = stringified.some(
-            (v) => v.toLowerCase() === value.toLowerCase(),
-          );
-
-          if (isMatch) {
-            matches.push({ path: notePath, frontmatter: frontmatterData });
-          }
+        const matches: Hit[] = [];
+        for (const entry of perNote) {
+          if (entry) matches.push(entry);
         }
 
         if (matches.length === 0) {
@@ -360,7 +364,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           content: [{ type: "text" as const, text: lines.join("\n") }],
         };
       } catch (err) {
-        console.error("search_by_frontmatter error:", err);
+        log.error("search_by_frontmatter failed", { tool: "search_by_frontmatter", err: err as Error });
         return errorResult(`Error searching by frontmatter: ${sanitizeError(err)}`);
       }
     },

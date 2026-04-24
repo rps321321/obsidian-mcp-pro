@@ -257,6 +257,12 @@ Auto-detection works on **macOS**, **Windows**, and **Linux** by reading the pla
 
 Unrecognized tokens pass through unchanged. Local time is used (matching Obsidian's rendering).
 
+### Observability
+
+Logs stream to stderr as either plain text (default) or single-line JSON — set via `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`) and `LOG_FORMAT` (`text`/`json`).
+
+The server also declares the MCP [`logging` capability](https://modelcontextprotocol.io/specification), so every log line is forwarded to the connected client as a `notifications/message` frame alongside tool responses. Clients that honor `logging/setLevel` can filter server-side logs at runtime without restarting. Claude Desktop surfaces these in its MCP DevTools pane; most other clients currently ignore them, so this is useful primarily for self-hosters and tooling authors.
+
 ---
 
 ## Security

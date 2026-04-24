@@ -3,6 +3,7 @@ import { z } from "zod";
 import { listNotes, readNote, getNoteStats } from "../lib/vault.js";
 import { extractWikilinks, resolveWikilink, extractAliases } from "../lib/markdown.js";
 import { sanitizeError } from "../lib/errors.js";
+import { log } from "../lib/logger.js";
 import type { LinkInfo, BrokenLink, OrphanNote, GraphNeighbor } from "../types.js";
 
 interface LinkGraphData {
@@ -104,8 +105,8 @@ async function buildLinkGraph(
       slice.map(async (p) => {
         try {
           return [p, await readNote(vaultPath, p)] as const;
-        } catch {
-          console.error(`Failed to read note for link graph: ${p}`);
+        } catch (err) {
+          log.warn("link graph: note read failed", { note: p, err: err as Error });
           return null;
         }
       }),
@@ -117,8 +118,8 @@ async function buildLinkGraph(
 
   // Build alias map first so any note can link to any other by alias
   // (e.g. `[[My Project]]` → note whose frontmatter has `aliases: [My Project]`).
-  // Last-writer-wins on collisions; logged via console.error to surface dup
-  // aliases during development.
+  // Last-writer-wins on collisions; logged at warn level so operators and
+  // connected MCP clients can notice the duplicate during vault cleanup.
   const aliasMap = new Map<string, string>();
   for (const notePath of allNotes) {
     const content = noteContents.get(notePath);
@@ -126,8 +127,9 @@ async function buildLinkGraph(
     for (const alias of extractAliases(content)) {
       const key = alias.toLowerCase();
       if (!key) continue;
-      if (aliasMap.has(key) && aliasMap.get(key) !== notePath) {
-        console.error(`Duplicate alias "${alias}" — used by both ${aliasMap.get(key)} and ${notePath}`);
+      const prior = aliasMap.get(key);
+      if (prior && prior !== notePath) {
+        log.warn("Duplicate alias", { alias, a: prior, b: notePath });
       }
       aliasMap.set(key, notePath);
     }
@@ -316,7 +318,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         return { content: [{ type: "text" as const, text: output }] };
       } catch (err) {
-        console.error("get_backlinks error:", err);
+        log.error("get_backlinks failed", { tool: "get_backlinks", err: err as Error });
         return errorResult(`Error finding backlinks: ${sanitizeError(err)}`);
       }
     },
@@ -399,7 +401,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
-        console.error("get_outlinks error:", err);
+        log.error("get_outlinks failed", { tool: "get_outlinks", err: err as Error });
         return errorResult(`Error getting outlinks: ${sanitizeError(err)}`);
       }
     },
@@ -498,7 +500,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
-        console.error("find_orphans error:", err);
+        log.error("find_orphans failed", { tool: "find_orphans", err: err as Error });
         return errorResult(`Error finding orphans: ${sanitizeError(err)}`);
       }
     },
@@ -543,8 +545,8 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           let content: string;
           try {
             content = await readNote(vaultPath, notePath);
-          } catch {
-            console.error(`Failed to read note for broken link scan: ${notePath}`);
+          } catch (err) {
+            log.warn("find_broken_links: note read failed", { note: notePath, err: err as Error });
             continue;
           }
 
@@ -613,7 +615,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
-        console.error("find_broken_links error:", err);
+        log.error("find_broken_links failed", { tool: "find_broken_links", err: err as Error });
         return errorResult(`Error finding broken links: ${sanitizeError(err)}`);
       }
     },
@@ -783,7 +785,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
-        console.error("get_graph_neighbors error:", err);
+        log.error("get_graph_neighbors failed", { tool: "get_graph_neighbors", err: err as Error });
         return errorResult(`Error getting graph neighbors: ${sanitizeError(err)}`);
       }
     },

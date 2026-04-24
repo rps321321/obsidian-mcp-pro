@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { log, configureLogger } from "../lib/logger.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // The logger writes directly to process.stderr — monkeypatch `write` to
 // capture output without globals leaking across tests.
@@ -18,7 +19,7 @@ beforeEach(() => {
 afterEach(() => {
   process.stderr.write = originalWrite;
   // Reset to defaults so one test's override doesn't leak into the next.
-  configureLogger({ level: "info", format: "text" });
+  configureLogger({ level: "info", format: "text", mcpServer: null });
 });
 
 describe("logger", () => {
@@ -64,5 +65,43 @@ describe("logger", () => {
     expect(out).toContain("info startup");
     expect(out).toContain("port=3333");
     expect(out).toContain("host=127.0.0.1");
+  });
+
+  it("forwards to MCP when a server is configured, mapping warn→warning", async () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    // Minimal shape the logger touches: `server.server.sendLoggingMessage`.
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    log.warn("low disk", { usagePct: 92 });
+    // Fire-and-forget — let the rejected/resolved microtask drain.
+    await Promise.resolve();
+
+    expect(sendLoggingMessage).toHaveBeenCalledTimes(1);
+    const [params] = sendLoggingMessage.mock.calls[0];
+    expect(params.level).toBe("warning");
+    expect(params.logger).toBe("obsidian-mcp-pro");
+    expect(params.data).toMatchObject({ msg: "low disk", usagePct: 92 });
+  });
+
+  it("does not forward messages filtered by local level", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "warn", format: "text", mcpServer: fakeServer });
+
+    log.debug("ignored");
+    log.info("also ignored");
+    expect(sendLoggingMessage).not.toHaveBeenCalled();
+  });
+
+  it("swallows sendLoggingMessage rejections (logging must never fail a call)", async () => {
+    const sendLoggingMessage = vi.fn().mockRejectedValue(new Error("not connected"));
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    expect(() => log.info("startup")).not.toThrow();
+    // Drain the rejected promise so the unhandled-rejection detector doesn't trip.
+    await new Promise((r) => setImmediate(r));
+    expect(sendLoggingMessage).toHaveBeenCalled();
   });
 });
