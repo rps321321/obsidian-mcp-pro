@@ -45,7 +45,11 @@ export function sanitizeError(err: unknown): string {
 //   - POSIX: starts with `/` followed by a non-space char
 //   - Windows: `C:\…` or `C:/…`
 //   - Quoted paths in fs error messages: `'…'`
-function stripPaths(s: string): string {
+//
+// Exported (alongside `sanitizeError`) so the logger can apply the same
+// stripping to structured log payloads before forwarding them to MCP
+// clients via `notifications/message`.
+export function stripPaths(s: string): string {
   return s
     .replace(/'[^']*[\\/][^']*'/g, "<path>")
     .replace(/\b[a-zA-Z]:[\\/][^\s'"]+/g, "<path>")

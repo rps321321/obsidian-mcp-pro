@@ -15,6 +15,7 @@
 // logging never becomes a failure mode of the server.
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { stripPaths } from "./errors.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 export type LogFormat = "text" | "json";
@@ -95,16 +96,48 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
   // we must not await here (would serialize request handling) and we must not
   // throw (logging errors should never take down a tool call). The SDK drops
   // messages below the session's `logging/setLevel` on its own.
+  //
+  // The MCP `data` payload goes verbatim to the client in `notifications/
+  // message` — no SDK sanitization. Scrub absolute paths out of string values
+  // so remote clients (or clients running on a different host than the server)
+  // never see the operator's host filesystem layout. Stderr still gets full
+  // detail because the operator is reading it on their own machine.
   if (mcpServer && level !== "silent") {
     const mcpLevel = MCP_LEVEL[level];
-    const data: Record<string, unknown> = { msg };
+    const data: Record<string, unknown> = { msg: stripPaths(msg) };
     if (fields && Object.keys(fields).length > 0) {
-      Object.assign(data, serialized);
+      Object.assign(data, sanitizeLogData(serialized));
     }
     mcpServer.server
       .sendLoggingMessage({ level: mcpLevel, logger: "obsidian-mcp-pro", data })
       .catch(() => undefined);
   }
+}
+
+// Recursively strip absolute paths from log payload values before forwarding
+// to an MCP client. Applies to strings and to the `.message`/`.stack` of
+// already-serialized Error objects (where stack traces embed host paths).
+// Non-string leaf values pass through unchanged.
+function sanitizeLogData(input: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    out[k] = sanitizeValue(v);
+  }
+  return out;
+}
+
+function sanitizeValue(v: unknown): unknown {
+  if (typeof v === "string") return stripPaths(v);
+  if (Array.isArray(v)) return v.map(sanitizeValue);
+  if (v && typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, inner] of Object.entries(obj)) {
+      out[k] = sanitizeValue(inner);
+    }
+    return out;
+  }
+  return v;
 }
 
 function serializeFields(fields: Record<string, unknown> | undefined): Record<string, unknown> {

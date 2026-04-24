@@ -99,6 +99,34 @@ describe.skipIf(!CASE_INSENSITIVE_FS)("writeNote exclusive — case collision", 
 });
 
 // ---------------------------------------------------------------------------
+// Windows DOS device names — fail fast instead of binding to the device
+// ---------------------------------------------------------------------------
+describe.skipIf(process.platform !== "win32")("resolveVaultPath — Windows reserved names", () => {
+  it("rejects bare device names (CON, PRN, AUX, NUL)", () => {
+    for (const name of ["CON", "PRN", "AUX", "NUL"]) {
+      expect(() => resolveVaultPathSafe(vaultDir, name)).rejects.toThrow(/reserved/i);
+    }
+  });
+
+  it("rejects device names with any extension (case-insensitive)", () => {
+    for (const name of ["con.md", "Con.txt", "NUL.json", "lpt1.md", "COM3.anything"]) {
+      expect(() => resolveVaultPathSafe(vaultDir, name)).rejects.toThrow(/reserved/i);
+    }
+  });
+
+  it("rejects reserved names nested in subfolders too", async () => {
+    await expect(resolveVaultPathSafe(vaultDir, "folder/NUL.md")).rejects.toThrow(/reserved/i);
+    await expect(resolveVaultPathSafe(vaultDir, "a/b/LPT9")).rejects.toThrow(/reserved/i);
+  });
+
+  it("allows names that merely contain reserved substrings", async () => {
+    // `console.md` contains "con" but isn't reserved; must still work.
+    await expect(resolveVaultPathSafe(vaultDir, "console.md")).resolves.toBeTypeOf("string");
+    await expect(resolveVaultPathSafe(vaultDir, "nullify.md")).resolves.toBeTypeOf("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sanitizeError — regression guard for H1/H3 (path leak in error messages)
 // ---------------------------------------------------------------------------
 describe("sanitizeError", () => {
