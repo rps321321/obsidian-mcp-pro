@@ -5,6 +5,21 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Tests
+
+- **Handler-level integration test suite.** 72 new tests covering every
+  registered MCP tool via `Client` + `McpServer` linked by an
+  `InMemoryTransport` pair — the tests exercise tool handlers through
+  the real MCP protocol, covering zod schema validation, JSON argument
+  parsing (`create_note.frontmatter`, `update_frontmatter.properties`),
+  `ensureMdExtension` normalization, `isError: true` error shaping,
+  canvas file-reference validation, and the parallelized
+  `search_by_frontmatter` rewrite. Lives under
+  `src/__tests__/handlers/` with a shared harness that spins up a
+  fixture vault per test. Total suite is now **254 tests**, up from 182.
+
 ## [1.5.2] - 2026-04-25
 
 ### Security / Fixed
