@@ -293,7 +293,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       title: "Move/Rename Note",
       description:
-        "Move or rename a note within the vault, preserving its full content. Parent folders at the destination are created as needed. By default, wikilinks (`[[old]]`, `![[old]]`, with aliases and heading/block fragments preserved), markdown links (`[text](old.md)`), and canvas `nodes[].file` fields in every other note are rewritten to point at the new path — matching Obsidian's \"Automatically update internal links\" behavior. Pass `updateLinks: false` to skip the rewrite scan (faster on large vaults; pair with `find_broken_links` if you need to audit afterward). A .md extension is added automatically if omitted from either path.",
+        "Move or rename a note within the vault, preserving its full content. Parent folders at the destination are created as needed. By default, wikilinks and file references are updated, matching Obsidian's \"Automatically update internal links\" behavior. Pass `updateLinks: false` to skip the rewrite scan (faster on large vaults; pair with `find_broken_links` if you need to audit afterward). A .md extension is added automatically if omitted from either path.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
