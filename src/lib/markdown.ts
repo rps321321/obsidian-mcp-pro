@@ -124,6 +124,192 @@ export function extractWikilinks(content: string): LinkInfo[] {
 }
 
 /**
+ * Locate inline-code spans (delimited by single backticks) within a single
+ * line. Returned ranges are half-open `[start, end)` byte offsets into the
+ * input. Used by the rewriter to skip matches that fall inside inline code,
+ * while preserving original offsets (unlike `stripInlineCode`).
+ */
+function findInlineCodeRanges(line: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const re = /`[^`]*`/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    ranges.push([m.index, m.index + m[0].length]);
+  }
+  return ranges;
+}
+
+function isInRanges(offset: number, ranges: Array<[number, number]>): boolean {
+  for (const [s, e] of ranges) {
+    if (offset >= s && offset < e) return true;
+  }
+  return false;
+}
+
+/**
+ * A wikilink occurrence with original offsets and the inner pieces split out.
+ * Used by the link rewriter to do precise in-place substitution.
+ */
+export interface WikilinkSpan {
+  /** Byte offset where the leading `!` (or `[[`) begins. */
+  start: number;
+  /** Byte offset just past the closing `]]`. */
+  end: number;
+  /** Whether this is an `![[...]]` embed. */
+  isEmbed: boolean;
+  /** Target portion before any `|` or `#` (whitespace trimmed). */
+  target: string;
+  /** Heading or block-id fragment with leading `#`, or `""` if absent. */
+  fragment: string;
+  /** Display text after `|`, or `undefined` if none. */
+  alias?: string;
+}
+
+/**
+ * Extract every wikilink in `content` with original byte offsets, skipping
+ * fenced code blocks and inline code. Use when you need to rewrite a
+ * wikilink in place. For analysis only, prefer `extractWikilinks`.
+ */
+export function extractWikilinkSpans(content: string): WikilinkSpan[] {
+  const out: WikilinkSpan[] = [];
+  const isInsideCodeBlock = createCodeBlockTracker();
+  const wikilinkRegex = /(!)?\[\[([^\]\n]+?)\]\]/g;
+
+  let lineStart = 0;
+  for (const line of content.split("\n")) {
+    if (!isInsideCodeBlock(line)) {
+      const inlineRanges = findInlineCodeRanges(line);
+      wikilinkRegex.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = wikilinkRegex.exec(line)) !== null) {
+        const matchStart = m.index;
+        if (isInRanges(matchStart, inlineRanges)) continue;
+
+        const isEmbed = m[1] === "!";
+        const inner = m[2];
+        const pipeIndex = inner.indexOf("|");
+        const before = pipeIndex >= 0 ? inner.slice(0, pipeIndex) : inner;
+        const alias = pipeIndex >= 0 ? inner.slice(pipeIndex + 1).trim() : undefined;
+        const hashIndex = before.indexOf("#");
+        const target = (hashIndex >= 0 ? before.slice(0, hashIndex) : before).trim();
+        const fragment = hashIndex >= 0 ? before.slice(hashIndex) : "";
+
+        out.push({
+          start: lineStart + matchStart,
+          end: lineStart + matchStart + m[0].length,
+          isEmbed,
+          target,
+          fragment,
+          alias,
+        });
+      }
+    }
+    lineStart += line.length + 1; // +1 for the consumed "\n"
+  }
+  return out;
+}
+
+/**
+ * A markdown link occurrence with original offsets. Matches `[text](url)`
+ * (and the embed variant `![text](url)`). The URL is split into path + fragment
+ * so the rewriter can substitute the path while preserving `#heading` and any
+ * trailing title attribute.
+ */
+export interface MarkdownLinkSpan {
+  start: number;
+  end: number;
+  isEmbed: boolean;
+  /** Display text inside `[...]`. */
+  text: string;
+  /** URL path portion before any `#` fragment. */
+  urlPath: string;
+  /** Fragment beginning with `#`, or `""` if absent. */
+  fragment: string;
+  /** Trailing ` "title"` portion of the link, including leading space, or `""`. */
+  title: string;
+}
+
+/**
+ * Extract every markdown `[text](url)` link in `content` with original byte
+ * offsets. Skips fenced code blocks and inline code. Used by the link
+ * rewriter so vault reorganizations update plain markdown links alongside
+ * wikilinks.
+ */
+export function extractMarkdownLinkSpans(content: string): MarkdownLinkSpan[] {
+  const out: MarkdownLinkSpan[] = [];
+  const isInsideCodeBlock = createCodeBlockTracker();
+  // Permit a `!` embed prefix, then `[text](url)`. URLs without spaces; an
+  // optional ` "title"` suffix is captured separately. Bare `()` aren't
+  // supported in URLs (Obsidian itself encodes them) — keeping the URL char
+  // class strict avoids over-matching paragraph parens.
+  const re = /(!)?\[([^\]\n]*)\]\(([^\s)]+)(\s+"[^"\n]*")?\)/g;
+
+  let lineStart = 0;
+  for (const line of content.split("\n")) {
+    if (!isInsideCodeBlock(line)) {
+      const inlineRanges = findInlineCodeRanges(line);
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(line)) !== null) {
+        const matchStart = m.index;
+        if (isInRanges(matchStart, inlineRanges)) continue;
+
+        const isEmbed = m[1] === "!";
+        const text = m[2];
+        const url = m[3];
+        const title = m[4] ?? "";
+        const hashIndex = url.indexOf("#");
+        const urlPath = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+        const fragment = hashIndex >= 0 ? url.slice(hashIndex) : "";
+
+        out.push({
+          start: lineStart + matchStart,
+          end: lineStart + matchStart + m[0].length,
+          isEmbed,
+          text,
+          urlPath,
+          fragment,
+          title,
+        });
+      }
+    }
+    lineStart += line.length + 1;
+  }
+  return out;
+}
+
+/**
+ * Pick the wikilink target string for `newPath` that best preserves the
+ * `originalForm` the author wrote. If they used a basename and that basename
+ * is still unambiguous after the move, keep the basename; otherwise fall back
+ * to the path-without-extension form. Path-form originals always become
+ * the new path-without-extension.
+ *
+ * `allNotes` is the post-move list (must contain `newPath`).
+ */
+export function formatWikilinkTarget(
+  newPath: string,
+  originalForm: string,
+  allNotes: readonly string[],
+): string {
+  const newWithoutExt = newPath.replace(/\.md$/i, "");
+  const originalUsedPath = originalForm.includes("/");
+  if (originalUsedPath) return newWithoutExt;
+
+  const newBasename = path.basename(newWithoutExt);
+  const newBasenameLower = newBasename.toLowerCase();
+  let collisions = 0;
+  for (const np of allNotes) {
+    const base = path.basename(np, path.extname(np)).toLowerCase();
+    if (base === newBasenameLower) {
+      collisions++;
+      if (collisions > 1) break;
+    }
+  }
+  return collisions <= 1 ? newBasename : newWithoutExt;
+}
+
+/**
  * Extract inline tags and frontmatter tags from markdown content.
  * Returns deduplicated tags without the `#` prefix.
  * Ignores tags inside code blocks and inline code.

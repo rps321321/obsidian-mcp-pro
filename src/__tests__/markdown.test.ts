@@ -3,6 +3,9 @@ import {
   parseFrontmatter,
   updateFrontmatter,
   extractWikilinks,
+  extractWikilinkSpans,
+  extractMarkdownLinkSpans,
+  formatWikilinkTarget,
   extractTags,
   extractAliases,
   resolveWikilink,
@@ -388,5 +391,150 @@ Body.`;
     const content = "No frontmatter, plain body.";
     const meta = buildNoteMetadata("/vault", "notes/my-note.md", content, stats);
     expect(meta.title).toBe("my-note");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractWikilinkSpans
+// ---------------------------------------------------------------------------
+describe("extractWikilinkSpans", () => {
+  it("returns offsets covering the full [[...]] match", () => {
+    const c = "see [[foo]] then";
+    const spans = extractWikilinkSpans(c);
+    expect(spans).toHaveLength(1);
+    expect(c.slice(spans[0].start, spans[0].end)).toBe("[[foo]]");
+    expect(spans[0].target).toBe("foo");
+    expect(spans[0].fragment).toBe("");
+    expect(spans[0].alias).toBeUndefined();
+    expect(spans[0].isEmbed).toBe(false);
+  });
+
+  it("captures embed prefix in the span", () => {
+    const c = "img: ![[pic.png]]";
+    const spans = extractWikilinkSpans(c);
+    expect(spans[0].isEmbed).toBe(true);
+    expect(c.slice(spans[0].start, spans[0].end)).toBe("![[pic.png]]");
+  });
+
+  it("splits alias and fragment", () => {
+    const c = "x [[note#Heading|Display]] y";
+    const [span] = extractWikilinkSpans(c);
+    expect(span.target).toBe("note");
+    expect(span.fragment).toBe("#Heading");
+    expect(span.alias).toBe("Display");
+  });
+
+  it("handles block-id fragments", () => {
+    const [span] = extractWikilinkSpans("ref [[note#^abc123]] here");
+    expect(span.target).toBe("note");
+    expect(span.fragment).toBe("#^abc123");
+  });
+
+  it("skips wikilinks inside fenced code blocks", () => {
+    const c = ["before [[real]]", "```", "[[notreal]]", "```", "after"].join("\n");
+    const spans = extractWikilinkSpans(c);
+    expect(spans).toHaveLength(1);
+    expect(spans[0].target).toBe("real");
+  });
+
+  it("skips wikilinks inside inline code", () => {
+    const c = "kept [[hit]] but `[[skip]]` not";
+    const spans = extractWikilinkSpans(c);
+    expect(spans.map((s) => s.target)).toEqual(["hit"]);
+  });
+
+  it("captures multiple links per line with correct offsets", () => {
+    const c = "[[a]] then [[b]] then [[c]]";
+    const spans = extractWikilinkSpans(c);
+    expect(spans.map((s) => c.slice(s.start, s.end))).toEqual([
+      "[[a]]",
+      "[[b]]",
+      "[[c]]",
+    ]);
+  });
+
+  it("offsets account for newlines across lines", () => {
+    const c = "line one\nline two [[target]] here\nthird";
+    const [span] = extractWikilinkSpans(c);
+    expect(c.slice(span.start, span.end)).toBe("[[target]]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractMarkdownLinkSpans
+// ---------------------------------------------------------------------------
+describe("extractMarkdownLinkSpans", () => {
+  it("extracts a basic [text](url) link", () => {
+    const c = "[hello](world.md) yes";
+    const [span] = extractMarkdownLinkSpans(c);
+    expect(c.slice(span.start, span.end)).toBe("[hello](world.md)");
+    expect(span.text).toBe("hello");
+    expect(span.urlPath).toBe("world.md");
+    expect(span.fragment).toBe("");
+    expect(span.isEmbed).toBe(false);
+  });
+
+  it("splits the URL fragment", () => {
+    const [span] = extractMarkdownLinkSpans("[x](a/b.md#Heading)");
+    expect(span.urlPath).toBe("a/b.md");
+    expect(span.fragment).toBe("#Heading");
+  });
+
+  it("captures embed prefix", () => {
+    const [span] = extractMarkdownLinkSpans("![alt](pic.png)");
+    expect(span.isEmbed).toBe(true);
+  });
+
+  it("captures trailing title without losing it", () => {
+    const c = '[a](url.md "the title")';
+    const [span] = extractMarkdownLinkSpans(c);
+    expect(span.urlPath).toBe("url.md");
+    expect(span.title).toBe(' "the title"');
+    expect(c.slice(span.start, span.end)).toBe(c);
+  });
+
+  it("skips markdown links inside fenced code blocks", () => {
+    const c = "[real](r.md)\n```\n[skip](s.md)\n```\n[also-real](r2.md)";
+    const spans = extractMarkdownLinkSpans(c);
+    expect(spans.map((s) => s.urlPath)).toEqual(["r.md", "r2.md"]);
+  });
+
+  it("skips markdown links inside inline code", () => {
+    const c = "[a](b.md) and `[c](d.md)` and [e](f.md)";
+    const spans = extractMarkdownLinkSpans(c);
+    expect(spans.map((s) => s.urlPath)).toEqual(["b.md", "f.md"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatWikilinkTarget
+// ---------------------------------------------------------------------------
+describe("formatWikilinkTarget", () => {
+  it("keeps basename form when post-move basename is unambiguous", () => {
+    const out = formatWikilinkTarget("projects/idea.md", "idea", [
+      "projects/idea.md",
+      "other.md",
+    ]);
+    expect(out).toBe("idea");
+  });
+
+  it("falls back to path form when basename collides", () => {
+    const out = formatWikilinkTarget("archive/idea.md", "idea", [
+      "archive/idea.md",
+      "projects/idea.md",
+    ]);
+    expect(out).toBe("archive/idea");
+  });
+
+  it("preserves path form when original used a path", () => {
+    const out = formatWikilinkTarget("projects/idea.md", "inbox/idea", [
+      "projects/idea.md",
+    ]);
+    expect(out).toBe("projects/idea");
+  });
+
+  it("strips the .md extension on output", () => {
+    const out = formatWikilinkTarget("a/b/c.md", "c", ["a/b/c.md"]);
+    expect(out).toBe("c");
   });
 });
