@@ -85,7 +85,7 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
   }
 }
 
-async function atomicWriteFile(fullPath: string, content: string): Promise<void> {
+export async function atomicWriteFile(fullPath: string, content: string): Promise<void> {
   const dir = path.dirname(fullPath);
   const base = path.basename(fullPath);
   const tmp = path.join(dir, `.${base}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
@@ -102,7 +102,7 @@ async function atomicWriteFile(fullPath: string, content: string): Promise<void>
   }
 }
 
-async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): Promise<T> {
+export async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): Promise<T> {
   const key = lockKey(fullPath);
   const prev = fileLocks.get(key) ?? Promise.resolve();
   // Swallow the prior holder's rejection (so the chain continues) but still
@@ -454,11 +454,32 @@ export async function deleteNote(
   });
 }
 
+export interface MoveNoteOptions {
+  /** When true (default), rewrite wikilinks and markdown links in every other
+   *  note + canvas to point at the new path. Set false to skip the scan
+   *  entirely (faster on large vaults / for scripted bulk moves where the
+   *  caller is doing its own link bookkeeping). */
+  updateLinks?: boolean;
+}
+
+export interface MoveNoteResult {
+  /** Vault-relative paths of files whose references were rewritten. Empty
+   *  when no other note/canvas referenced the moved file (or `updateLinks`
+   *  was false). */
+  updatedReferrers: string[];
+  /** Per-file failures during the rewrite pass. The rename has already
+   *  committed by the time these are surfaced. Empty when everything landed
+   *  cleanly. */
+  failedReferrers: Array<{ path: string; error: string }>;
+}
+
 export async function moveNote(
   vaultPath: string,
   oldPath: string,
   newPath: string,
-): Promise<void> {
+  options: MoveNoteOptions = {},
+): Promise<MoveNoteResult> {
+  const updateLinks = options.updateLinks !== false;
   const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath);
   const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath);
   const doRename = async (): Promise<void> => {
@@ -476,18 +497,39 @@ export async function moveNote(
     await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
     await fs.rename(fullOldPath, fullNewPath);
   };
+
+  // Build the rewrite plan from the *pre-move* vault state — resolution must
+  // see the file at its old path so wikilinks pointing at it are matched.
+  // Importing here (not at module top) breaks an import cycle: link-rewriter
+  // depends on this module's read/list/lock helpers.
+  let plan: import("./link-rewriter.js").RewritePlan | null = null;
+  if (updateLinks) {
+    const { planMoveRewrites } = await import("./link-rewriter.js");
+    const preMoveNotes = await listNotes(vaultPath);
+    plan = await planMoveRewrites(vaultPath, oldPath, newPath, preMoveNotes);
+  }
+
   // Lock in deterministic order to prevent deadlock when two concurrent
   // moves cross-reference the same pair of paths. When both paths share
   // the same lock key (case-only rename on case-insensitive FS), a single
   // lock is sufficient — nesting the same key deadlocks.
   if (lockKey(fullOldPath) === lockKey(fullNewPath)) {
     await withFileLock(fullOldPath, doRename);
-    return;
+  } else {
+    const [first, second] = [fullOldPath, fullNewPath].sort();
+    await withFileLock(first, async () => {
+      await withFileLock(second, doRename);
+    });
   }
-  const [first, second] = [fullOldPath, fullNewPath].sort();
-  await withFileLock(first, async () => {
-    await withFileLock(second, doRename);
-  });
+
+  if (!plan) return { updatedReferrers: [], failedReferrers: [] };
+
+  const { applyRewrites } = await import("./link-rewriter.js");
+  const result = await applyRewrites(vaultPath, plan);
+  return {
+    updatedReferrers: result.updated,
+    failedReferrers: result.failed,
+  };
 }
 
 export async function searchNotes(
