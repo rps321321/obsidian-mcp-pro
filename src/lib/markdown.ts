@@ -36,48 +36,90 @@ export function updateFrontmatter(
 }
 
 /**
- * Track whether a line is inside a fenced code block.
- * Returns a function that, given a line, returns true if the line
- * is inside a code block (should be skipped).
+ * Track whether a line is inside a code block. Recognizes both fenced blocks
+ * (triple-backtick / triple-tilde) and CommonMark indented code blocks
+ * (4-space or tab leader, after a blank line). Returns a function that, given
+ * a line, returns true if the line should be skipped.
+ *
+ * Indented-code detection follows the CommonMark rule that an indented code
+ * block cannot interrupt a paragraph, so a line indented by 4 spaces only
+ * counts as code when the previous line was blank (or another indented-code
+ * line, or document start). False positives — e.g. a 4-space-indented list
+ * continuation paragraph — are accepted: the link rewriter would rather miss
+ * a rewrite than corrupt code.
  */
 function createCodeBlockTracker(): (line: string) => boolean {
-  let insideCodeBlock = false;
+  let insideFence = false;
   let fenceChar = "";
   let fenceLength = 0;
+  let insideIndentedCode = false;
+  let prevWasBlank = true; // doc start qualifies for "after blank line" rule
   return (line: string): boolean => {
-    const trimmed = line.trimStart();
-    if (!insideCodeBlock) {
-      const backtickMatch = trimmed.match(/^(`{3,})/);
-      const tildeMatch = trimmed.match(/^(~{3,})/);
-      if (backtickMatch) {
-        insideCodeBlock = true;
-        fenceChar = "`";
-        fenceLength = backtickMatch[1].length;
-        return true;
+    if (insideFence) {
+      const closePattern = new RegExp(
+        `^${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${fenceLength},}\\s*$`,
+      );
+      if (closePattern.test(line.trimStart())) {
+        insideFence = false;
       }
-      if (tildeMatch) {
-        insideCodeBlock = true;
-        fenceChar = "~";
-        fenceLength = tildeMatch[1].length;
-        return true;
-      }
-      return false;
-    } else {
-      const closePattern = new RegExp(`^${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}{${fenceLength},}\\s*$`);
-      if (closePattern.test(trimmed)) {
-        insideCodeBlock = false;
-        return true;
-      }
+      prevWasBlank = false;
       return true;
     }
+    const trimmed = line.trimStart();
+    const backtickMatch = trimmed.match(/^(`{3,})/);
+    const tildeMatch = trimmed.match(/^(~{3,})/);
+    if (backtickMatch) {
+      insideFence = true;
+      fenceChar = "`";
+      fenceLength = backtickMatch[1].length;
+      insideIndentedCode = false;
+      prevWasBlank = false;
+      return true;
+    }
+    if (tildeMatch) {
+      insideFence = true;
+      fenceChar = "~";
+      fenceLength = tildeMatch[1].length;
+      insideIndentedCode = false;
+      prevWasBlank = false;
+      return true;
+    }
+    if (line.trim() === "") {
+      // Blank lines don't carry text to skip but they do permit the next
+      // indented line to start (or continue) an indented code block.
+      prevWasBlank = true;
+      return false;
+    }
+    const indented = /^(    |\t)/.test(line);
+    if (indented && (insideIndentedCode || prevWasBlank)) {
+      insideIndentedCode = true;
+      prevWasBlank = false;
+      return true;
+    }
+    if (!indented) {
+      insideIndentedCode = false;
+    }
+    prevWasBlank = false;
+    return false;
   };
 }
 
 /**
  * Strip inline code spans from a line so patterns inside them are ignored.
+ * Handles N-backtick spans (e.g. `` ``with ` inside`` ``), not just single
+ * backticks.
  */
 function stripInlineCode(line: string): string {
-  return line.replace(/`[^`]*`/g, "");
+  const ranges = findInlineCodeRanges(line);
+  if (ranges.length === 0) return line;
+  let out = "";
+  let cursor = 0;
+  for (const [s, e] of ranges) {
+    out += line.slice(cursor, s);
+    cursor = e;
+  }
+  out += line.slice(cursor);
+  return out;
 }
 
 /**
@@ -124,17 +166,45 @@ export function extractWikilinks(content: string): LinkInfo[] {
 }
 
 /**
- * Locate inline-code spans (delimited by single backticks) within a single
- * line. Returned ranges are half-open `[start, end)` byte offsets into the
- * input. Used by the rewriter to skip matches that fall inside inline code,
- * while preserving original offsets (unlike `stripInlineCode`).
+ * Locate inline-code spans within a single line. Handles N-backtick spans
+ * (CommonMark): an opening run of N backticks pairs with the next run of
+ * exactly N backticks, allowing shorter runs to appear inside (e.g.
+ * `` ``contains ` inside`` ``). Returned ranges are half-open `[start, end)`
+ * byte offsets into the input. Used by the rewriter to skip matches that
+ * fall inside inline code while preserving original offsets.
  */
 function findInlineCodeRanges(line: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
-  const re = /`[^`]*`/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(line)) !== null) {
-    ranges.push([m.index, m.index + m[0].length]);
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] !== "`") {
+      i++;
+      continue;
+    }
+    let openLen = 0;
+    while (i + openLen < line.length && line[i + openLen] === "`") openLen++;
+    let j = i + openLen;
+    let matched = false;
+    while (j < line.length) {
+      if (line[j] !== "`") {
+        j++;
+        continue;
+      }
+      let closeLen = 0;
+      while (j + closeLen < line.length && line[j + closeLen] === "`") closeLen++;
+      if (closeLen === openLen) {
+        ranges.push([i, j + closeLen]);
+        i = j + closeLen;
+        matched = true;
+        break;
+      }
+      j += closeLen;
+    }
+    if (!matched) {
+      // Unclosed run: advance past the opener and keep scanning. Rare in
+      // practice; matches the lenient behavior of the previous regex.
+      i += openLen;
+    }
   }
   return ranges;
 }

@@ -135,6 +135,40 @@ describe("extractWikilinks", () => {
     expect(links).toHaveLength(0);
   });
 
+  it("should ignore links inside double-backtick inline code", () => {
+    // ``code with ` inside`` is a CommonMark code span; the wikilink within
+    // must not be extracted. The single-backtick regex used previously
+    // missed this and rewrote into the code span.
+    const links = extractWikilinks("Use ``with ` and [[skip]]`` outside [[hit]].");
+    expect(links.map((l) => l.target)).toEqual(["hit"]);
+  });
+
+  it("should ignore links inside 4-space indented code blocks", () => {
+    const content = [
+      "Paragraph above.",
+      "",
+      "    [[indented-code]]",
+      "",
+      "After [[hit]].",
+    ].join("\n");
+    const links = extractWikilinks(content);
+    expect(links.map((l) => l.target)).toEqual(["hit"]);
+  });
+
+  it("should ignore links inside tab-indented code blocks", () => {
+    const content = ["Para.", "", "\t[[skip]]", "", "[[hit]]"].join("\n");
+    const links = extractWikilinks(content);
+    expect(links.map((l) => l.target)).toEqual(["hit"]);
+  });
+
+  it("does not treat a 4-space-indented paragraph continuation as code", () => {
+    // No blank line before the indent — it's a paragraph continuation, not
+    // an indented code block, per CommonMark. The link should still be seen.
+    const content = "Paragraph one\n    [[continuation]] still in para";
+    const links = extractWikilinks(content);
+    expect(links.map((l) => l.target)).toEqual(["continuation"]);
+  });
+
   it("should handle [[note#heading]] with anchor", () => {
     const links = extractWikilinks("See [[note#heading]].");
     expect(links).toHaveLength(1);
@@ -443,6 +477,26 @@ describe("extractWikilinkSpans", () => {
     expect(spans.map((s) => s.target)).toEqual(["hit"]);
   });
 
+  it("skips wikilinks inside double-backtick inline code", () => {
+    const c = "outer [[hit]] then ``inside ` and [[skip]]`` end";
+    const spans = extractWikilinkSpans(c);
+    expect(spans.map((s) => s.target)).toEqual(["hit"]);
+  });
+
+  it("skips wikilinks inside triple-backtick inline code on the same line", () => {
+    // CommonMark allows `` ``` ``code with `` inside ``` `` `` as inline code
+    // when the line isn't a fence opener (fences must be at line start).
+    const c = "foo ```text with `` and [[skip]]``` bar [[hit]]";
+    const spans = extractWikilinkSpans(c);
+    expect(spans.map((s) => s.target)).toEqual(["hit"]);
+  });
+
+  it("skips wikilinks inside 4-space indented code blocks", () => {
+    const c = ["before [[real]]", "", "    [[skip-me]]", "", "after"].join("\n");
+    const spans = extractWikilinkSpans(c);
+    expect(spans.map((s) => s.target)).toEqual(["real"]);
+  });
+
   it("captures multiple links per line with correct offsets", () => {
     const c = "[[a]] then [[b]] then [[c]]";
     const spans = extractWikilinkSpans(c);
@@ -503,6 +557,18 @@ describe("extractMarkdownLinkSpans", () => {
     const c = "[a](b.md) and `[c](d.md)` and [e](f.md)";
     const spans = extractMarkdownLinkSpans(c);
     expect(spans.map((s) => s.urlPath)).toEqual(["b.md", "f.md"]);
+  });
+
+  it("skips markdown links inside double-backtick inline code", () => {
+    const c = "[hit](a.md) then ``inline ` [skip](b.md)`` end";
+    const spans = extractMarkdownLinkSpans(c);
+    expect(spans.map((s) => s.urlPath)).toEqual(["a.md"]);
+  });
+
+  it("skips markdown links inside 4-space indented code blocks", () => {
+    const c = "[hit](a.md)\n\n    [skip](b.md)\n\n[also-hit](c.md)";
+    const spans = extractMarkdownLinkSpans(c);
+    expect(spans.map((s) => s.urlPath)).toEqual(["a.md", "c.md"]);
   });
 });
 
