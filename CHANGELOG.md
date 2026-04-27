@@ -5,6 +5,40 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`move_note` now updates references across the vault by default**, matching
+  Obsidian's "Automatically update internal links" behavior. Wikilinks
+  (`[[old]]`, `![[old]]`, with aliases and `#heading` / `#^block-id`
+  fragments preserved), markdown links (`[text](old.md)` and the
+  extension-less form), and canvas `nodes[].file` fields all follow the
+  move. The link form is preserved when possible — a bare `[[idea]]`
+  stays bare when the basename remains unambiguous post-move, and falls
+  back to the path form (`[[archive/idea]]`) when it doesn't.
+  Pass `updateLinks: false` to skip the rewrite scan (faster on huge
+  vaults, or when the caller is doing its own bookkeeping).
+  Addresses the `move_note` half of
+  [#3](https://github.com/rps321321/obsidian-mcp-pro/issues/3);
+  `delete_note` reference handling is tracked separately.
+
+### Added
+
+- `MoveNoteOptions` and `MoveNoteResult` exported from `lib/vault.ts`. The
+  result reports per-file counts of rewritten and failed referrers so
+  callers can surface partial-failure cases. The rename itself stays
+  committed if the rewrite phase encounters a per-file failure — failures
+  are surfaced rather than rolled back.
+- `lib/link-rewriter.ts` (`planMoveRewrites`, `applyRewrites`): pure
+  planner + applier split for testability. Reuses the existing
+  Obsidian-faithful `resolveWikilink` so a link is only rewritten when it
+  actually pointed at the moved file pre-move (handles basename
+  collisions and proximity tie-breaking correctly).
+- `lib/markdown.ts`: `extractWikilinkSpans`, `extractMarkdownLinkSpans`
+  (offset-preserving variants of `extractWikilinks` for in-place
+  rewriting), and `formatWikilinkTarget` (form-preserving target picker).
+
 ## [1.5.3] - 2026-04-25
 
 ### Tests

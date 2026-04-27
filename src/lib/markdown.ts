@@ -36,48 +36,90 @@ export function updateFrontmatter(
 }
 
 /**
- * Track whether a line is inside a fenced code block.
- * Returns a function that, given a line, returns true if the line
- * is inside a code block (should be skipped).
+ * Track whether a line is inside a code block. Recognizes both fenced blocks
+ * (triple-backtick / triple-tilde) and CommonMark indented code blocks
+ * (4-space or tab leader, after a blank line). Returns a function that, given
+ * a line, returns true if the line should be skipped.
+ *
+ * Indented-code detection follows the CommonMark rule that an indented code
+ * block cannot interrupt a paragraph, so a line indented by 4 spaces only
+ * counts as code when the previous line was blank (or another indented-code
+ * line, or document start). False positives — e.g. a 4-space-indented list
+ * continuation paragraph — are accepted: the link rewriter would rather miss
+ * a rewrite than corrupt code.
  */
 function createCodeBlockTracker(): (line: string) => boolean {
-  let insideCodeBlock = false;
+  let insideFence = false;
   let fenceChar = "";
   let fenceLength = 0;
+  let insideIndentedCode = false;
+  let prevWasBlank = true; // doc start qualifies for "after blank line" rule
   return (line: string): boolean => {
-    const trimmed = line.trimStart();
-    if (!insideCodeBlock) {
-      const backtickMatch = trimmed.match(/^(`{3,})/);
-      const tildeMatch = trimmed.match(/^(~{3,})/);
-      if (backtickMatch) {
-        insideCodeBlock = true;
-        fenceChar = "`";
-        fenceLength = backtickMatch[1].length;
-        return true;
+    if (insideFence) {
+      const closePattern = new RegExp(
+        `^${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${fenceLength},}\\s*$`,
+      );
+      if (closePattern.test(line.trimStart())) {
+        insideFence = false;
       }
-      if (tildeMatch) {
-        insideCodeBlock = true;
-        fenceChar = "~";
-        fenceLength = tildeMatch[1].length;
-        return true;
-      }
-      return false;
-    } else {
-      const closePattern = new RegExp(`^${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}{${fenceLength},}\\s*$`);
-      if (closePattern.test(trimmed)) {
-        insideCodeBlock = false;
-        return true;
-      }
+      prevWasBlank = false;
       return true;
     }
+    const trimmed = line.trimStart();
+    const backtickMatch = trimmed.match(/^(`{3,})/);
+    const tildeMatch = trimmed.match(/^(~{3,})/);
+    if (backtickMatch) {
+      insideFence = true;
+      fenceChar = "`";
+      fenceLength = backtickMatch[1].length;
+      insideIndentedCode = false;
+      prevWasBlank = false;
+      return true;
+    }
+    if (tildeMatch) {
+      insideFence = true;
+      fenceChar = "~";
+      fenceLength = tildeMatch[1].length;
+      insideIndentedCode = false;
+      prevWasBlank = false;
+      return true;
+    }
+    if (line.trim() === "") {
+      // Blank lines don't carry text to skip but they do permit the next
+      // indented line to start (or continue) an indented code block.
+      prevWasBlank = true;
+      return false;
+    }
+    const indented = /^(    |\t)/.test(line);
+    if (indented && (insideIndentedCode || prevWasBlank)) {
+      insideIndentedCode = true;
+      prevWasBlank = false;
+      return true;
+    }
+    if (!indented) {
+      insideIndentedCode = false;
+    }
+    prevWasBlank = false;
+    return false;
   };
 }
 
 /**
  * Strip inline code spans from a line so patterns inside them are ignored.
+ * Handles N-backtick spans (e.g. `` ``with ` inside`` ``), not just single
+ * backticks.
  */
 function stripInlineCode(line: string): string {
-  return line.replace(/`[^`]*`/g, "");
+  const ranges = findInlineCodeRanges(line);
+  if (ranges.length === 0) return line;
+  let out = "";
+  let cursor = 0;
+  for (const [s, e] of ranges) {
+    out += line.slice(cursor, s);
+    cursor = e;
+  }
+  out += line.slice(cursor);
+  return out;
 }
 
 /**
@@ -121,6 +163,220 @@ export function extractWikilinks(content: string): LinkInfo[] {
   }
 
   return links;
+}
+
+/**
+ * Locate inline-code spans within a single line. Handles N-backtick spans
+ * (CommonMark): an opening run of N backticks pairs with the next run of
+ * exactly N backticks, allowing shorter runs to appear inside (e.g.
+ * `` ``contains ` inside`` ``). Returned ranges are half-open `[start, end)`
+ * byte offsets into the input. Used by the rewriter to skip matches that
+ * fall inside inline code while preserving original offsets.
+ */
+function findInlineCodeRanges(line: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] !== "`") {
+      i++;
+      continue;
+    }
+    let openLen = 0;
+    while (i + openLen < line.length && line[i + openLen] === "`") openLen++;
+    let j = i + openLen;
+    let matched = false;
+    while (j < line.length) {
+      if (line[j] !== "`") {
+        j++;
+        continue;
+      }
+      let closeLen = 0;
+      while (j + closeLen < line.length && line[j + closeLen] === "`") closeLen++;
+      if (closeLen === openLen) {
+        ranges.push([i, j + closeLen]);
+        i = j + closeLen;
+        matched = true;
+        break;
+      }
+      j += closeLen;
+    }
+    if (!matched) {
+      // Unclosed run: advance past the opener and keep scanning. Rare in
+      // practice; matches the lenient behavior of the previous regex.
+      i += openLen;
+    }
+  }
+  return ranges;
+}
+
+function isInRanges(offset: number, ranges: Array<[number, number]>): boolean {
+  for (const [s, e] of ranges) {
+    if (offset >= s && offset < e) return true;
+  }
+  return false;
+}
+
+/**
+ * A wikilink occurrence with original offsets and the inner pieces split out.
+ * Used by the link rewriter to do precise in-place substitution.
+ */
+export interface WikilinkSpan {
+  /** Byte offset where the leading `!` (or `[[`) begins. */
+  start: number;
+  /** Byte offset just past the closing `]]`. */
+  end: number;
+  /** Whether this is an `![[...]]` embed. */
+  isEmbed: boolean;
+  /** Target portion before any `|` or `#` (whitespace trimmed). */
+  target: string;
+  /** Heading or block-id fragment with leading `#`, or `""` if absent. */
+  fragment: string;
+  /** Display text after `|`, or `undefined` if none. */
+  alias?: string;
+}
+
+/**
+ * Extract every wikilink in `content` with original byte offsets, skipping
+ * fenced code blocks and inline code. Use when you need to rewrite a
+ * wikilink in place. For analysis only, prefer `extractWikilinks`.
+ */
+export function extractWikilinkSpans(content: string): WikilinkSpan[] {
+  const out: WikilinkSpan[] = [];
+  const isInsideCodeBlock = createCodeBlockTracker();
+  const wikilinkRegex = /(!)?\[\[([^\]\n]+?)\]\]/g;
+
+  let lineStart = 0;
+  for (const line of content.split("\n")) {
+    if (!isInsideCodeBlock(line)) {
+      const inlineRanges = findInlineCodeRanges(line);
+      wikilinkRegex.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = wikilinkRegex.exec(line)) !== null) {
+        const matchStart = m.index;
+        if (isInRanges(matchStart, inlineRanges)) continue;
+
+        const isEmbed = m[1] === "!";
+        const inner = m[2];
+        const pipeIndex = inner.indexOf("|");
+        const before = pipeIndex >= 0 ? inner.slice(0, pipeIndex) : inner;
+        const alias = pipeIndex >= 0 ? inner.slice(pipeIndex + 1).trim() : undefined;
+        const hashIndex = before.indexOf("#");
+        const target = (hashIndex >= 0 ? before.slice(0, hashIndex) : before).trim();
+        const fragment = hashIndex >= 0 ? before.slice(hashIndex) : "";
+
+        out.push({
+          start: lineStart + matchStart,
+          end: lineStart + matchStart + m[0].length,
+          isEmbed,
+          target,
+          fragment,
+          alias,
+        });
+      }
+    }
+    lineStart += line.length + 1; // +1 for the consumed "\n"
+  }
+  return out;
+}
+
+/**
+ * A markdown link occurrence with original offsets. Matches `[text](url)`
+ * (and the embed variant `![text](url)`). The URL is split into path + fragment
+ * so the rewriter can substitute the path while preserving `#heading` and any
+ * trailing title attribute.
+ */
+export interface MarkdownLinkSpan {
+  start: number;
+  end: number;
+  isEmbed: boolean;
+  /** Display text inside `[...]`. */
+  text: string;
+  /** URL path portion before any `#` fragment. */
+  urlPath: string;
+  /** Fragment beginning with `#`, or `""` if absent. */
+  fragment: string;
+  /** Trailing ` "title"` portion of the link, including leading space, or `""`. */
+  title: string;
+}
+
+/**
+ * Extract every markdown `[text](url)` link in `content` with original byte
+ * offsets. Skips fenced code blocks and inline code. Used by the link
+ * rewriter so vault reorganizations update plain markdown links alongside
+ * wikilinks.
+ */
+export function extractMarkdownLinkSpans(content: string): MarkdownLinkSpan[] {
+  const out: MarkdownLinkSpan[] = [];
+  const isInsideCodeBlock = createCodeBlockTracker();
+  // Permit a `!` embed prefix, then `[text](url)`. URLs without spaces; an
+  // optional ` "title"` suffix is captured separately. Bare `()` aren't
+  // supported in URLs (Obsidian itself encodes them) — keeping the URL char
+  // class strict avoids over-matching paragraph parens.
+  const re = /(!)?\[([^\]\n]*)\]\(([^\s)]+)(\s+"[^"\n]*")?\)/g;
+
+  let lineStart = 0;
+  for (const line of content.split("\n")) {
+    if (!isInsideCodeBlock(line)) {
+      const inlineRanges = findInlineCodeRanges(line);
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(line)) !== null) {
+        const matchStart = m.index;
+        if (isInRanges(matchStart, inlineRanges)) continue;
+
+        const isEmbed = m[1] === "!";
+        const text = m[2];
+        const url = m[3];
+        const title = m[4] ?? "";
+        const hashIndex = url.indexOf("#");
+        const urlPath = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+        const fragment = hashIndex >= 0 ? url.slice(hashIndex) : "";
+
+        out.push({
+          start: lineStart + matchStart,
+          end: lineStart + matchStart + m[0].length,
+          isEmbed,
+          text,
+          urlPath,
+          fragment,
+          title,
+        });
+      }
+    }
+    lineStart += line.length + 1;
+  }
+  return out;
+}
+
+/**
+ * Pick the wikilink target string for `newPath` that best preserves the
+ * `originalForm` the author wrote. If they used a basename and that basename
+ * is still unambiguous after the move, keep the basename; otherwise fall back
+ * to the path-without-extension form. Path-form originals always become
+ * the new path-without-extension.
+ *
+ * `allNotes` is the post-move list (must contain `newPath`).
+ */
+export function formatWikilinkTarget(
+  newPath: string,
+  originalForm: string,
+  allNotes: readonly string[],
+): string {
+  const newWithoutExt = newPath.replace(/\.md$/i, "");
+  const originalUsedPath = originalForm.includes("/");
+  if (originalUsedPath) return newWithoutExt;
+
+  const newBasename = path.basename(newWithoutExt);
+  const newBasenameLower = newBasename.toLowerCase();
+  let collisions = 0;
+  for (const np of allNotes) {
+    const base = path.basename(np, path.extname(np)).toLowerCase();
+    if (base === newBasenameLower) {
+      collisions++;
+      if (collisions > 1) break;
+    }
+  }
+  return collisions <= 1 ? newBasename : newWithoutExt;
 }
 
 /**
