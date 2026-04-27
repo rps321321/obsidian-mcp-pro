@@ -23,10 +23,16 @@ import type { CanvasData } from "../types.js";
 const SCAN_CONCURRENCY = 8;
 
 /** A single in-place edit on a referrer file, expressed as a byte-offset slice
- *  to replace. Edits within a file are listed in increasing-offset order. */
+ *  to replace. Edits within a file are listed in increasing-offset order.
+ *
+ *  `expected` captures the exact bytes at `[start, end)` at plan time. The
+ *  apply step compares against current contents so a parallel `write_note`
+ *  that mutated the referrer between plan and apply (offsets shift but
+ *  bounds still pass) doesn't silently splice the wrong bytes. */
 interface SpanEdit {
   start: number;
   end: number;
+  expected: string;
   replacement: string;
 }
 
@@ -126,8 +132,9 @@ export async function planMoveRewrites(
       // note may already be in the right form when the basename stays
       // unambiguous post-move. Reporting these as "updated" would be
       // misleading and would touch mtimes for nothing.
-      if (replacement === content.slice(span.start, span.end)) continue;
-      edits.push({ start: span.start, end: span.end, replacement });
+      const expected = content.slice(span.start, span.end);
+      if (replacement === expected) continue;
+      edits.push({ start: span.start, end: span.end, expected, replacement });
     }
 
     // Markdown `[text](url)` links. Resolve URL paths the same way wikilinks
@@ -150,8 +157,9 @@ export async function planMoveRewrites(
       const newBare = formatWikilinkTarget(newPath, decodedBare, postMoveNotes);
       const newUrl = encodeUrlPath(hadExt ? `${newBare}.md` : newBare);
       const replacement = `${span.isEmbed ? "!" : ""}[${span.text}](${newUrl}${span.fragment}${span.title})`;
-      if (replacement === content.slice(span.start, span.end)) continue;
-      edits.push({ start: span.start, end: span.end, replacement });
+      const expected = content.slice(span.start, span.end);
+      if (replacement === expected) continue;
+      edits.push({ start: span.start, end: span.end, expected, replacement });
     }
 
     if (edits.length > 0) {
@@ -226,15 +234,13 @@ export async function applyRewrites(
         const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
         let didWrite = false;
         await withFileLock(fullPath, async () => {
-          // Re-read inside the lock so we apply edits to current content. Any
-          // change since planning may have shifted offsets — fall back to a
-          // resolver-based re-plan for this single file if a span no longer
-          // matches. Cheap to detect (compare content slice to expected
-          // pre-edit text isn't tracked, so re-extract instead).
+          // Re-read inside the lock so we apply edits to current content.
+          // applyEditsBackToFront verifies each edit's `expected` slice
+          // matches before splicing — a parallel `write_note` that landed
+          // between plan and apply will fail the comparison and we report
+          // the file rather than corrupting it.
           const current = await fs.readFile(fullPath, "utf-8");
-          const next = applyEditsBackToFront(current, edits, () =>
-            replanSingleNote(vaultPath, notePath, current, plan),
-          );
+          const next = applyEditsBackToFront(current, edits);
           if (next === null) {
             failed.push({
               path: notePath,
@@ -293,35 +299,27 @@ export async function applyRewrites(
 }
 
 /** Apply pre-sorted edits back-to-front. Returns `null` if any edit's span
- *  no longer matches the current content (means the file was modified between
- *  plan and apply); caller can decide whether to skip or re-plan. */
+ *  is out of bounds or if the bytes at `[start, end)` don't match the edit's
+ *  `expected` slice — which means the file was modified between plan and
+ *  apply (offsets shifted, or the link itself was rewritten). Caller treats
+ *  `null` as a failed referrer rather than corrupting the file. */
 function applyEditsBackToFront(
   content: string,
   edits: SpanEdit[],
-  _fallbackReplan: () => SpanEdit[] | null,
 ): string | null {
-  // Bounds-check from the back so subsequent edits don't shift offsets.
+  // Walk from the back so earlier offsets stay valid as we splice.
   let out = content;
   for (let i = edits.length - 1; i >= 0; i--) {
     const e = edits[i];
     if (e.start < 0 || e.end > out.length || e.start > e.end) {
       return null;
     }
+    if (out.slice(e.start, e.end) !== e.expected) {
+      return null;
+    }
     out = out.slice(0, e.start) + e.replacement + out.slice(e.end);
   }
   return out;
-}
-
-// Reserved for a future "content changed under us" recovery path. Keeping the
-// hook in `applyEditsBackToFront`'s signature documents the intent without
-// shipping a half-finished re-plan implementation today.
-function replanSingleNote(
-  _vaultPath: string,
-  _notePath: string,
-  _currentContent: string,
-  _plan: RewritePlan,
-): SpanEdit[] | null {
-  return null;
 }
 
 /** Tolerant `decodeURIComponent`: returns the input unchanged on malformed

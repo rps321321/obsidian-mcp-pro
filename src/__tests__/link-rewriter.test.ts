@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { moveNote, readNote, writeNote } from "../lib/vault.js";
+import { listNotes, moveNote, readNote, writeNote } from "../lib/vault.js";
+import { planMoveRewrites, applyRewrites } from "../lib/link-rewriter.js";
 
 let vaultDir: string;
 
@@ -262,5 +263,89 @@ describe("moveNote — wikilink rewriting", () => {
     expect(out).toContain("![[archive/topic]]");
     expect(out).toContain("[link](archive/topic.md)");
     expect(out).toContain("[link](archive/topic)");
+  });
+});
+
+describe("applyRewrites — TOCTOU safety", () => {
+  it("aborts a referrer rewrite when bytes shift between plan and apply", async () => {
+    // Race: plan is built against `ref.md` v1, then a parallel `write_note`
+    // prepends a paragraph and shifts every wikilink offset before
+    // `applyRewrites` runs. Bounds-only validation would still pass and we'd
+    // splice the wrong bytes; the `expected` check catches it.
+    await seed("inbox/idea.md", "# Idea");
+    await seed("ref.md", "See [[inbox/idea]] please.");
+
+    const preMoveNotes = await listNotes(vaultDir);
+    const plan = await planMoveRewrites(
+      vaultDir,
+      "inbox/idea.md",
+      "archive/idea.md",
+      preMoveNotes,
+    );
+
+    const racedContent =
+      "Inserted paragraph that shifts everything.\n\nSee [[inbox/idea]] please.";
+    await fs.writeFile(path.join(vaultDir, "ref.md"), racedContent, "utf-8");
+
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual([]);
+    expect(result.failed).toEqual([
+      { path: "ref.md", error: "content changed during move; references not updated" },
+    ]);
+
+    // Crucially: ref.md was not corrupted by a misaligned splice.
+    const finalContent = await fs.readFile(path.join(vaultDir, "ref.md"), "utf-8");
+    expect(finalContent).toBe(racedContent);
+  });
+
+  it("aborts when bytes at the same offsets changed in place (no length shift)", async () => {
+    // Subtle case: a parallel edit replaces the wikilink with a different
+    // wikilink of identical length. Bounds still pass, but the `expected`
+    // slice now mismatches — apply must refuse.
+    await seed("inbox/idea.md", "# Idea");
+    await seed("ref.md", "See [[inbox/idea]] now.");
+
+    const preMoveNotes = await listNotes(vaultDir);
+    const plan = await planMoveRewrites(
+      vaultDir,
+      "inbox/idea.md",
+      "archive/idea.md",
+      preMoveNotes,
+    );
+
+    // Same byte length as `[[inbox/idea]]` (14), keeps every offset intact.
+    const racedContent = "See [[other/note]] now.";
+    expect(racedContent.length).toBe("See [[inbox/idea]] now.".length);
+    await fs.writeFile(path.join(vaultDir, "ref.md"), racedContent, "utf-8");
+
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual([]);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].path).toBe("ref.md");
+    const finalContent = await fs.readFile(path.join(vaultDir, "ref.md"), "utf-8");
+    expect(finalContent).toBe(racedContent);
+  });
+
+  it("succeeds when the referrer is unchanged between plan and apply", async () => {
+    // Positive control: with no concurrent modification, the plan applies
+    // cleanly — confirming `expected` doesn't reject the happy path.
+    await seed("inbox/idea.md", "# Idea");
+    await seed("ref.md", "See [[inbox/idea]] please.");
+
+    const preMoveNotes = await listNotes(vaultDir);
+    const plan = await planMoveRewrites(
+      vaultDir,
+      "inbox/idea.md",
+      "archive/idea.md",
+      preMoveNotes,
+    );
+
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.failed).toEqual([]);
+    expect(result.updated).toEqual(["ref.md"]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("See [[archive/idea]] please.");
   });
 });
