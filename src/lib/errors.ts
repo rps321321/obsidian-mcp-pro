@@ -51,9 +51,14 @@ export function sanitizeError(err: unknown): string {
  * characters `\` and `n`; other control bytes use `\xHH`. Printable input
  * passes through unchanged.
  *
- * Use on values that are about to be interpolated into MCP tool output but
- * are not themselves an Error (file paths, identifiers); for Errors and raw
- * error strings, prefer `sanitizeError`, which already calls this internally.
+ * Exists as a separate export from `sanitizeError` because that function's
+ * path-stripping step would rewrite a path-shaped value to literal `<path>`
+ * — fine inside an error message that mentions a host path, but it would
+ * erase the value when the value itself is the path you want to display
+ * (e.g. `f.path` from `failedReferrers`). Both functions apply the same
+ * control-char escape, so passing `f.path` here and `f.error` to
+ * `sanitizeError` gives equivalent injection protection through different
+ * doors.
  */
 export function escapeControlChars(s: string): string {
   return s.replace(/[\x00-\x1f\x7f]/g, (c) => {
