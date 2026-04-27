@@ -12,7 +12,7 @@ import {
 } from "../lib/vault.js";
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
-import { sanitizeError } from "../lib/errors.js";
+import { sanitizeError, escapeControlChars } from "../lib/errors.js";
 import { formatMomentDate } from "../lib/dates.js";
 import { log } from "../lib/logger.js";
 
@@ -330,9 +330,19 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
               : `Updated references in ${updated} file(s).`,
           );
           if (result.failedReferrers.length > 0) {
+            // Cap at 5 so a vault with hundreds of failures (e.g. a perms
+            // glitch under a big folder) doesn't blow up the response.
+            // Filenames are attacker-controllable, so escape control chars
+            // in `path` and route `error` through `sanitizeError` to prevent
+            // a `\n`-bearing name from injecting text into LLM context.
+            const MAX_DISPLAY = 5;
             lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
-            for (const f of result.failedReferrers) {
-              lines.push(`  - ${f.path}: ${f.error}`);
+            for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
+              lines.push(`  - ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`);
+            }
+            const remaining = result.failedReferrers.length - MAX_DISPLAY;
+            if (remaining > 0) {
+              lines.push(`  ...and ${remaining} more`);
             }
           }
         }
