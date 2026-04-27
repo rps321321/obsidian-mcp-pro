@@ -12,7 +12,7 @@ import {
 } from "../lib/vault.js";
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
-import { sanitizeError } from "../lib/errors.js";
+import { sanitizeError, escapeControlChars } from "../lib/errors.js";
 import { formatMomentDate } from "../lib/dates.js";
 import { log } from "../lib/logger.js";
 
@@ -293,7 +293,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       title: "Move/Rename Note",
       description:
-        "Move or rename a note within the vault, preserving its full content. Parent folders at the destination are created as needed. Note: this does not rewrite wikilinks in other notes that reference the old path — use find_broken_links afterward to spot broken references. A .md extension is added automatically if omitted from either path.",
+        "Move or rename a note within the vault, preserving its full content. Parent folders at the destination are created as needed. By default, wikilinks and file references are updated, matching Obsidian's \"Automatically update internal links\" behavior. Pass `updateLinks: false` to skip the rewrite scan (faster on large vaults; pair with `find_broken_links` if you need to audit afterward). A .md extension is added automatically if omitted from either path.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -309,14 +309,44 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           .string()
           .min(1)
           .describe("Destination relative path from vault root (e.g., 'projects/idea.md'). Creates intermediate folders as needed."),
+        updateLinks: z
+          .boolean()
+          .optional()
+          .default(true)
+          .describe("If true (default), update every wikilink, markdown link, and canvas node reference across the vault to point at the new path. Set false to skip the rewrite pass."),
       },
     },
-    async ({ oldPath, newPath }) => {
+    async ({ oldPath, newPath, updateLinks }) => {
       try {
         const resolvedOld = ensureMdExtension(oldPath);
         const resolvedNew = ensureMdExtension(newPath);
-        await moveNote(vaultPath, resolvedOld, resolvedNew);
-        return textResult(`Moved note from '${resolvedOld}' to '${resolvedNew}'.`);
+        const result = await moveNote(vaultPath, resolvedOld, resolvedNew, { updateLinks });
+        const lines: string[] = [`Moved note from '${resolvedOld}' to '${resolvedNew}'.`];
+        if (updateLinks !== false) {
+          const updated = result.updatedReferrers.length;
+          lines.push(
+            updated === 0
+              ? "No other notes referenced this file — nothing to rewrite."
+              : `Updated references in ${updated} file(s).`,
+          );
+          if (result.failedReferrers.length > 0) {
+            // Cap at 5 so a vault with hundreds of failures (e.g. a perms
+            // glitch under a big folder) doesn't blow up the response.
+            // Filenames are attacker-controllable, so escape control chars
+            // in `path` and route `error` through `sanitizeError` to prevent
+            // a `\n`-bearing name from injecting text into LLM context.
+            const MAX_DISPLAY = 5;
+            lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
+            for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
+              lines.push(`  - ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`);
+            }
+            const remaining = result.failedReferrers.length - MAX_DISPLAY;
+            if (remaining > 0) {
+              lines.push(`  ...and ${remaining} more`);
+            }
+          }
+        }
+        return textResult(lines.join("\n"));
       } catch (err) {
         log.error("move_note failed", { tool: "move_note", err: err as Error });
         return errorResult(`Error moving note: ${sanitizeError(err)}`);

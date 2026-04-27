@@ -228,6 +228,47 @@ describe("write handlers — move_note", () => {
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/already exists/i);
   });
+
+  it("rewrites references in referrers by default", async () => {
+    // Fixture canvas references `note-a.md` via `nodes[].file`, which is a
+    // structured path reference and must follow the move.
+    const result = await env.client.callTool({
+      name: "move_note",
+      arguments: { oldPath: "note-a.md", newPath: "archive/2026/note-a.md" },
+    });
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toMatch(/Updated references in \d+ file\(s\)/);
+
+    const canvasRaw = await fs.readFile(
+      path.join(env.vaultDir, "boards/test.canvas"),
+      "utf-8",
+    );
+    const canvas = JSON.parse(canvasRaw);
+    const fileNode = canvas.nodes.find((n: { type: string }) => n.type === "file");
+    expect(fileNode.file).toBe("archive/2026/note-a.md");
+  });
+
+  it("updateLinks: false skips the rewrite pass", async () => {
+    const result = await env.client.callTool({
+      name: "move_note",
+      arguments: {
+        oldPath: "note-a.md",
+        newPath: "archive/note-a.md",
+        updateLinks: false,
+      },
+    });
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).not.toMatch(/Updated references/);
+
+    // Canvas reference is left dangling — exactly the legacy behavior.
+    const canvasRaw = await fs.readFile(
+      path.join(env.vaultDir, "boards/test.canvas"),
+      "utf-8",
+    );
+    const canvas = JSON.parse(canvasRaw);
+    const fileNode = canvas.nodes.find((n: { type: string }) => n.type === "file");
+    expect(fileNode.file).toBe("note-a.md");
+  });
 });
 
 describe("write handlers — delete_note", () => {

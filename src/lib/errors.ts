@@ -26,11 +26,14 @@ interface ErrnoLike {
 
 /**
  * Convert an unknown thrown value into a message safe to return to an MCP
- * client. Strips absolute paths, stack traces, and collapses known errno
- * codes to generic human-readable text.
+ * client. Strips absolute paths, stack traces, collapses known errno
+ * codes to generic human-readable text, and escapes control characters so
+ * an attacker-controlled value (e.g. a filename with `\n` in it embedded
+ * in an error message) can't break out of its line and inject text into
+ * the LLM context.
  */
 export function sanitizeError(err: unknown): string {
-  if (typeof err === "string") return stripPaths(err);
+  if (typeof err === "string") return escapeControlChars(stripPaths(err));
   if (!err || typeof err !== "object") return "Unknown error";
 
   const e = err as ErrnoLike;
@@ -38,7 +41,32 @@ export function sanitizeError(err: unknown): string {
   if (code && FS_ERROR_MESSAGES[code]) return FS_ERROR_MESSAGES[code];
 
   const msg = typeof e.message === "string" ? e.message : String(err);
-  return stripPaths(msg);
+  return escapeControlChars(stripPaths(msg));
+}
+
+/**
+ * Escape ASCII control characters (newlines, carriage returns, tabs, NULs,
+ * etc.) so an attacker-controlled string interpolated into a multi-line tool
+ * response can't break out of its line. `\n` becomes the two literal
+ * characters `\` and `n`; other control bytes use `\xHH`. Printable input
+ * passes through unchanged.
+ *
+ * Exists as a separate export from `sanitizeError` because that function's
+ * path-stripping step would rewrite a path-shaped value to literal `<path>`
+ * — fine inside an error message that mentions a host path, but it would
+ * erase the value when the value itself is the path you want to display
+ * (e.g. `f.path` from `failedReferrers`). Both functions apply the same
+ * control-char escape, so passing `f.path` here and `f.error` to
+ * `sanitizeError` gives equivalent injection protection through different
+ * doors.
+ */
+export function escapeControlChars(s: string): string {
+  return s.replace(/[\x00-\x1f\x7f]/g, (c) => {
+    if (c === "\n") return "\\n";
+    if (c === "\r") return "\\r";
+    if (c === "\t") return "\\t";
+    return `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`;
+  });
 }
 
 // Replace anything that looks like an absolute path with `<path>`. Covers:
