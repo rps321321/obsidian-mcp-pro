@@ -462,3 +462,11 @@ MIT
 Contributions welcome! Please open an issue first to discuss what you'd like to change. Pull requests without a corresponding issue may be closed.
 
 If you're adding or editing a tool, read [docs/TOOL_AUTHORING.md](./docs/TOOL_AUTHORING.md) first — it documents the description, schema, and annotation conventions that keep every tool at A-grade quality.
+
+---
+
+## Acknowledgments
+
+- Vault-wide link rewriting on `move_note` ([#3](https://github.com/rps321321/obsidian-mcp-pro/issues/3), [#4](https://github.com/rps321321/obsidian-mcp-pro/pull/4)) and the `sanitizeError` defense-in-depth hardening contributed by [@brentkearney](https://github.com/brentkearney).
+
+For the full list of everyone who's contributed, see the [contributors page](https://github.com/rps321321/obsidian-mcp-pro/graphs/contributors).
