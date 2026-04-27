@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-27
+
+> Vault-wide link rewriting on `move_note` filed in
+> [#3](https://github.com/rps321321/obsidian-mcp-pro/issues/3), implemented
+> in [#4](https://github.com/rps321321/obsidian-mcp-pro/pull/4), and
+> additional hardening contributed by
+> [@brentkearney](https://github.com/brentkearney) during review.
+
 ### Changed
 
 - **`move_note` now updates references across the vault by default**, matching
@@ -38,6 +46,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `lib/markdown.ts`: `extractWikilinkSpans`, `extractMarkdownLinkSpans`
   (offset-preserving variants of `extractWikilinks` for in-place
   rewriting), and `formatWikilinkTarget` (form-preserving target picker).
+- `lib/errors.ts`: `escapeControlChars` for sanitizing caller-controllable
+  strings before they reach tool output. Also applied internally by
+  `sanitizeError`, so every existing call site gets the same protection
+  against control-char injection (e.g. attacker-controlled filenames
+  containing `\n` smuggling text into LLM context).
+
+### Security
+
+- TOCTOU correctness in `move_note` reference rewriting:
+  `applyEditsBackToFront` now verifies each edit's expected pre-edit
+  content before splicing. A parallel `write_note` between plan and apply
+  is surfaced in `failedReferrers` rather than corrupting referrer files
+  silently.
+
+### Fixed
+
+- Inline-code detection in the link extractor handles N-backtick spans
+  (not just single-backtick) and 4-space / tab indented code blocks per
+  CommonMark, so wikilinks inside code samples are no longer rewritten
+  when their containing notes are moved.
 
 ## [1.5.3] - 2026-04-25
 
