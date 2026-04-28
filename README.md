@@ -15,7 +15,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-173_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tests](https://img.shields.io/badge/tests-331_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
 [![Tool Quality](https://img.shields.io/badge/Glama-all_23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
@@ -305,8 +305,8 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 | `prepend_to_note` | Prepend content after frontmatter | `path`, `content` |
 | `update_frontmatter` | Update frontmatter properties on a note | `path`, `properties` |
 | `create_daily_note` | Create today's daily note from template | `date`, `content`, `templatePath` |
-| `move_note` | Move or rename a note | `oldPath`, `newPath` |
-| `delete_note` | Delete a note from the vault | `path`, `permanent` |
+| `move_note` | Move or rename a note; rewrites references across the vault | `oldPath`, `newPath`, `updateLinks` |
+| `delete_note` | Delete a note (trash by default); optionally strip references | `path`, `permanent`, `removeReferences` |
 | `get_tags` | Get all tags and their usage counts | `sortBy` |
 | `search_by_tag` | Find all notes with a specific tag | `tag`, `includeContent` |
 | `get_backlinks` | Get all notes that link to a given note | `path` |
@@ -432,20 +432,22 @@ src/
 npm test
 ```
 
-173 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, code-block detection), moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Runs against Node 20 + 22 on Ubuntu, macOS, and Windows in CI.
+331 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Runs against Node 20 + 22 on Ubuntu, macOS, and Windows in CI.
 
 ---
 
 ## What's New
 
-**v1.5.0** — production hardening pass:
+**v1.7.0** — `delete_note` reference handling:
 
-- **Atomic writes** on every mutating tool (temp file + rename). Crashes, kills, or OOMs mid-write can no longer leave a truncated note.
-- **`create_note` exclusive mode uses OS-level `wx`** so an out-of-process writer (Obsidian itself, a sync client) can't slip between the check and the write.
-- **Parallel vault scans** — `search_notes` and the `obsidian://tags` resource fan out 8-way. Order-of-magnitude latency drop on 10K+ note vaults.
-- **HTTP hardening** — per-IP `--rate-limit`, `--allow-origin` CORS allowlist (with `Vary: Origin`), POST request timeout, `GET /version` endpoint.
-- **Structured logger** with `LOG_LEVEL` / `LOG_FORMAT` env vars (text or JSON, stderr-only).
-- **Process supervision** — `uncaughtException` exits cleanly for systemd/Docker; `unhandledRejection` logs without killing the process.
+- **`delete_note` can strip references vault-wide** when `permanent: true` is paired with `removeReferences: true`. Wikilinks fall back to alias-or-basename, markdown links fall back to visible text, embeds drop entirely, fragments are discarded. Trash-mode (default) leaves references intact since trashed files stay recoverable.
+- **Concurrent-safe rewrites** — `move_note` (with `updateLinks: true`) and `delete_note` (with `removeReferences: true`) serialize per vault, removing the partial-failure mode for parallel rewrite-bearing operations.
+
+**v1.6.0** — Obsidian-parity link maintenance:
+
+- **`move_note` rewrites references across the vault by default**, matching Obsidian's "Automatically update internal links" behavior. Wikilinks (with aliases / fragments preserved), markdown links, and canvas `nodes[].file` fields all follow the moved file. Output form is preserved when possible.
+- **TOCTOU correctness** — every edit's pre-edit content is verified before splicing, so a parallel `write_note` between plan and apply is surfaced in `failedReferrers` rather than corrupting referrers silently.
+- **Control-char injection defense** — `sanitizeError` and the new `escapeControlChars` strip newlines/control bytes from any caller-controlled string before it reaches LLM context. Closes a prompt-injection vector via attacker-named filenames.
 
 Full version history in [CHANGELOG.md](./CHANGELOG.md).
 

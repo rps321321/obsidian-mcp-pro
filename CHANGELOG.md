@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-04-28
+
+### Documentation
+
+- README refreshed: test count, "What's New" section, and tool reference
+  updated for v1.6.0 + v1.7.0 features (move_note / delete_note reference
+  handling, TOCTOU correctness, control-char injection defense). No code
+  change — patch bump exists solely to refresh the README on the npm
+  registry, which is locked at publish time.
+
 ## [1.7.0] - 2026-04-28
 
 ### Added
