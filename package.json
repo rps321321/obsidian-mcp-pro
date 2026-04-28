@@ -1,6 +1,6 @@
 {
   "name": "obsidian-mcp-pro",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "The most feature-complete MCP server for Obsidian vaults — search, read, write, tag, link analysis, graph traversal, canvas support, and more.",
   "type": "module",
   "bin": {

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-04-28
+
+### Added
+
+- **`delete_note` can now strip references vault-wide** when `permanent: true`
+  is paired with `removeReferences: true`. Wikilinks fall back to their alias
+  (or the deleted file's basename); markdown links fall back to their visible
+  text; embeds (`![[...]]`, `![text](...)`) are removed entirely since they
+  have no textual fallback. Fragments (`#heading`, `#^block`) are dropped
+  because the target is gone. References are never rewritten when the file
+  moves to `.trash` (default), since trashed files are recoverable and
+  silently editing references would destroy information the user could
+  otherwise restore. Closes [#7](https://github.com/rps321321/obsidian-mcp-pro/issues/7).
+- `lib/link-rewriter.ts`: `planDeleteRewrites` (mirrors `planMoveRewrites`,
+  reuses `applyRewrites`). Canvas references are not auto-cleaned on delete
+  — separate decision tracked elsewhere.
+- `lib/vault.ts`: `DeleteNoteOptions`, `DeleteNoteResult` exports.
+
+### Changed
+
+- **`move_note` (with `updateLinks: true`) and `delete_note` (with
+  `removeReferences: true`) now serialize per vault.** A new vault-level
+  lock wraps the entire plan + rename/delete + apply sequence so concurrent
+  rewrite-bearing operations can't see each other's mid-flight state. The
+  per-edit `expected: string` content check from v1.6.0 already turned
+  cross-operation races into reported failures rather than corruption;
+  this lock removes the partial-failure mode entirely. `updateLinks: false`
+  and `removeReferences: false` paths bypass the vault lock so simple
+  renames and trash-deletes stay concurrent. Closes
+  [#5](https://github.com/rps321321/obsidian-mcp-pro/issues/5).
+- **Internal API:** `deleteNote(vaultPath, path, useTrash)` is now
+  `deleteNote(vaultPath, path, options)`. The previous boolean form is
+  removed. The MCP `delete_note` tool surface is unaffected — its input
+  schema gained a new optional `removeReferences` field, existing calls
+  continue to work unchanged.
+
 ## [1.6.0] - 2026-04-27
 
 > Vault-wide link rewriting on `move_note` filed in
