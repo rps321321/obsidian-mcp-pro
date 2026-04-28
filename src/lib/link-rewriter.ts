@@ -207,6 +207,122 @@ export async function planMoveRewrites(
 }
 
 /**
+ * Build an edit plan describing how to strip every reference to `deletedPath`
+ * across the vault. Pure planning — does not write to disk. Caller is
+ * expected to invoke `applyRewrites` after the deletion has committed.
+ *
+ * Replacement rules:
+ *
+ * - Wikilinks: `[[file]]` becomes the deleted file's basename (or alias if
+ *   present). `![[file]]` (embed) is removed entirely since an embed has
+ *   no fallback text. Fragments (`#heading`, `#^block`) are dropped — the
+ *   target is gone, so the fragment is meaningless.
+ * - Markdown links: `[text](file.md)` becomes the visible text. `![alt](...)`
+ *   embed pointing at the deleted file is removed entirely.
+ * - Canvas: not handled here. Cleaning canvas refs after delete is a
+ *   separate decision (remove node? leave dangling? convert to text node?)
+ *   tracked separately. The returned plan has `canvases: []`.
+ *
+ * `preDeleteNotes` is the list returned by `listNotes(vaultPath)` *before*
+ * the delete. Resolution is computed against it so a wikilink that pointed
+ * at the deleted file is correctly identified, even if a different note
+ * elsewhere happens to share its basename.
+ */
+export async function planDeleteRewrites(
+  vaultPath: string,
+  deletedPath: string,
+  preDeleteNotes: string[],
+): Promise<RewritePlan> {
+  // Build alias map from the pre-delete state. Same logic as planMoveRewrites.
+  const aliasMap = new Map<string, string>();
+  await mapConcurrent(preDeleteNotes, SCAN_CONCURRENCY, async (notePath) => {
+    let content: string;
+    try {
+      content = await readNote(vaultPath, notePath);
+    } catch {
+      return undefined;
+    }
+    for (const alias of extractAliases(content)) {
+      const key = alias.toLowerCase();
+      if (key) aliasMap.set(key, notePath);
+    }
+    return undefined;
+  });
+
+  const notesPlan = new Map<string, SpanEdit[]>();
+
+  // Fallback display text for wikilinks without an alias: the basename of
+  // the deleted file, without extension or path. Matches what Obsidian would
+  // render for a now-broken bare wikilink.
+  const deletedBasename =
+    deletedPath.replace(/\.md$/i, "").split("/").pop() ??
+    deletedPath.replace(/\.md$/i, "");
+
+  await mapConcurrent(preDeleteNotes, SCAN_CONCURRENCY, async (notePath) => {
+    // Skip the file being deleted itself — it's about to disappear, so
+    // editing its body is wasted work (and the FS write would race the
+    // unlink). The `removeReferences` path only edits *other* notes.
+    if (notePath === deletedPath) return undefined;
+
+    let content: string;
+    try {
+      content = await readNote(vaultPath, notePath);
+    } catch (err) {
+      log.warn("link-rewriter: read failed during delete plan", {
+        note: notePath,
+        err: err as Error,
+      });
+      return undefined;
+    }
+
+    const edits: SpanEdit[] = [];
+
+    // Wikilinks.
+    for (const span of extractWikilinkSpans(content)) {
+      if (!span.target) continue;
+      const resolved = resolveWikilink(span.target, notePath, preDeleteNotes, { aliasMap });
+      if (resolved !== deletedPath) continue;
+
+      // Embeds disappear entirely; plain wikilinks fall back to alias-or-basename.
+      const replacement = span.isEmbed
+        ? ""
+        : (span.alias !== undefined ? span.alias : deletedBasename);
+      const expected = content.slice(span.start, span.end);
+      if (replacement === expected) continue;
+      edits.push({ start: span.start, end: span.end, expected, replacement });
+    }
+
+    // Markdown `[text](url)` links.
+    for (const span of extractMarkdownLinkSpans(content)) {
+      const url = span.urlPath;
+      // Skip absolute / external URLs — only intra-vault refs strip.
+      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) || url.startsWith("/")) continue;
+      const decoded = safeDecode(url);
+      const resolved = resolveWikilink(decoded, notePath, preDeleteNotes, { aliasMap });
+      if (resolved !== deletedPath) continue;
+
+      const replacement = span.isEmbed ? "" : span.text;
+      const expected = content.slice(span.start, span.end);
+      if (replacement === expected) continue;
+      edits.push({ start: span.start, end: span.end, expected, replacement });
+    }
+
+    if (edits.length > 0) {
+      edits.sort((a, b) => a.start - b.start);
+      notesPlan.set(notePath, edits);
+    }
+    return undefined;
+  });
+
+  return {
+    notes: notesPlan,
+    canvases: [],
+    oldPath: deletedPath,
+    newPath: "", // unused by applyRewrites when canvases is empty
+  };
+}
+
+/**
  * Apply a previously-built `RewritePlan` to the vault. Each file is
  * serialized through the existing per-file lock so concurrent MCP writes
  * don't lose updates. Markdown edits are applied back-to-front to keep

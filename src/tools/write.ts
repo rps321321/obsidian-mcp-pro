@@ -360,7 +360,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       title: "Delete Note",
       description:
-        "Delete a note. By default the file is moved to the vault's .trash folder (recoverable inside Obsidian); pass permanent=true to unlink it from disk immediately. Note: this does not rewrite wikilinks in other notes that reference the deleted path — run find_broken_links afterward to surface dangling references.",
+        "Delete a note. By default the file is moved to the vault's .trash folder (recoverable inside Obsidian); pass permanent=true to unlink it from disk immediately. When permanent=true, you can additionally pass removeReferences=true to strip wikilinks and markdown links to the deleted file across the vault (embeds are removed entirely; plain links fall back to their visible text). References are never rewritten when the file moves to .trash, since trashed files are recoverable.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -377,15 +377,39 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           .optional()
           .default(false)
           .describe("If true, delete the file permanently from disk; if false (default), move it to the vault's .trash folder so it can be recovered."),
+        removeReferences: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("If true (and permanent=true), strip wikilinks and markdown links pointing at the deleted file across the vault. Embeds are removed entirely; plain links fall back to their visible text (alias if present, else the deleted file's basename). Ignored when permanent=false. Default false — opt in explicitly because the rewrite is irreversible."),
       },
     },
-    async ({ path: notePath, permanent }) => {
+    async ({ path: notePath, permanent, removeReferences }) => {
       try {
         const resolvedPath = ensureMdExtension(notePath);
-        const useTrash = !permanent;
-        await deleteNote(vaultPath, resolvedPath, useTrash);
-        const method = useTrash ? "moved to trash" : "permanently deleted";
-        return textResult(`Note '${resolvedPath}' ${method}.`);
+        const result = await deleteNote(vaultPath, resolvedPath, { permanent, removeReferences });
+        const method = permanent ? "permanently deleted" : "moved to trash";
+        const lines: string[] = [`Note '${resolvedPath}' ${method}.`];
+        if (removeReferences && permanent) {
+          const updated = result.updatedReferrers.length;
+          lines.push(
+            updated === 0
+              ? "No other notes referenced this file — nothing to strip."
+              : `Stripped references in ${updated} file(s).`,
+          );
+          if (result.failedReferrers.length > 0) {
+            const MAX_DISPLAY = 5;
+            lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
+            for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
+              lines.push(`  - ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`);
+            }
+            const remaining = result.failedReferrers.length - MAX_DISPLAY;
+            if (remaining > 0) {
+              lines.push(`  ...and ${remaining} more`);
+            }
+          }
+        }
+        return textResult(lines.join("\n"));
       } catch (err) {
         log.error("delete_note failed", { tool: "delete_note", err: err as Error });
         return errorResult(`Error deleting note: ${sanitizeError(err)}`);

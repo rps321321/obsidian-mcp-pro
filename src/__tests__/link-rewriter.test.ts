@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { listNotes, moveNote, readNote, writeNote } from "../lib/vault.js";
-import { planMoveRewrites, applyRewrites } from "../lib/link-rewriter.js";
+import { deleteNote, listNotes, moveNote, readNote, writeNote } from "../lib/vault.js";
+import { planMoveRewrites, planDeleteRewrites, applyRewrites } from "../lib/link-rewriter.js";
 
 let vaultDir: string;
 
@@ -347,5 +347,185 @@ describe("applyRewrites — TOCTOU safety", () => {
     expect(result.failed).toEqual([]);
     expect(result.updated).toEqual(["ref.md"]);
     expect(await readNote(vaultDir, "ref.md")).toBe("See [[archive/idea]] please.");
+  });
+});
+
+describe("moveNote — concurrent serialization", () => {
+  it("two parallel moves on disjoint files both land cleanly", async () => {
+    // Without vault-level locking, two move_note calls plan against the
+    // same pre-move snapshot, then race on writing referrer.md (which
+    // contains links to both moved files). With the vault lock, they
+    // serialize: first move applies, second move plans against the
+    // already-rewritten referrer.md and produces a correct second edit.
+    await seed("a.md", "# A");
+    await seed("b.md", "# B");
+    await seed("ref.md", "Links: [[a]] and [[b]].");
+
+    // Trigger a basename collision so the rewrite has to use path form,
+    // forcing an actual edit rather than a no-op.
+    await seed("archive/a.md", "# also-A");
+    await seed("archive/b.md", "# also-B");
+
+    const [r1, r2] = await Promise.all([
+      moveNote(vaultDir, "a.md", "moved/a.md"),
+      moveNote(vaultDir, "b.md", "moved/b.md"),
+    ]);
+
+    // Both moves succeed and both rewrites land in ref.md.
+    expect(r1.failedReferrers).toEqual([]);
+    expect(r2.failedReferrers).toEqual([]);
+    const final = await readNote(vaultDir, "ref.md");
+    expect(final).toContain("[[moved/a]]");
+    expect(final).toContain("[[moved/b]]");
+    // Neither old reference survived.
+    expect(final).not.toMatch(/\[\[a\]\]/);
+    expect(final).not.toMatch(/\[\[b\]\]/);
+  });
+
+  it("updateLinks: false skips the vault lock so concurrent renames don't serialize", async () => {
+    // Smoke test that the rename-only path still works under parallel load.
+    // Without referrer rewriting there's no need to serialize, and the
+    // existing per-file locks suffice.
+    await seed("x.md", "# X");
+    await seed("y.md", "# Y");
+    await Promise.all([
+      moveNote(vaultDir, "x.md", "renamed-x.md", { updateLinks: false }),
+      moveNote(vaultDir, "y.md", "renamed-y.md", { updateLinks: false }),
+    ]);
+    await expect(fs.access(path.join(vaultDir, "renamed-x.md"))).resolves.toBeUndefined();
+    await expect(fs.access(path.join(vaultDir, "renamed-y.md"))).resolves.toBeUndefined();
+  });
+});
+
+describe("planDeleteRewrites", () => {
+  it("strips a bare wikilink to the deleted file's basename", async () => {
+    await seed("inbox/idea.md", "# Idea");
+    await seed("ref.md", "See [[inbox/idea]] for context.");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "inbox/idea.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.failed).toEqual([]);
+    expect(result.updated).toEqual(["ref.md"]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("See idea for context.");
+  });
+
+  it("strips an aliased wikilink to its alias", async () => {
+    await seed("notes/old.md", "# Old");
+    await seed("ref.md", "Read [[notes/old|the old version]] later.");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "notes/old.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual(["ref.md"]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("Read the old version later.");
+  });
+
+  it("drops a fragment when the target is gone", async () => {
+    await seed("doc.md", "# Doc\n## Methods");
+    await seed("ref.md", "See [[doc#Methods]].");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "doc.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual(["ref.md"]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("See doc.");
+  });
+
+  it("removes an embed entirely (no fallback text)", async () => {
+    await seed("snippet.md", "# Snippet body");
+    await seed("ref.md", "Before. ![[snippet]] After.");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "snippet.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual(["ref.md"]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("Before.  After.");
+  });
+
+  it("strips a markdown link to its visible text", async () => {
+    await seed("notes/topic.md", "# Topic");
+    await seed("ref.md", "Read [the topic](notes/topic.md) carefully.");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "notes/topic.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual(["ref.md"]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("Read the topic carefully.");
+  });
+
+  it("does not touch references in unrelated files", async () => {
+    await seed("a.md", "# A");
+    await seed("b.md", "# B");
+    await seed("ref.md", "[[a]] and [[b]]");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "a.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual(["ref.md"]);
+    // [[b]] survives — only [[a]] was stripped.
+    expect(await readNote(vaultDir, "ref.md")).toBe("a and [[b]]");
+  });
+
+  it("skips edits inside the file being deleted itself", async () => {
+    // The deleted file is about to disappear, so editing its content is
+    // wasted work. The plan must not include it as a referrer.
+    await seed("self.md", "I link to [[self]] and [[other]]");
+    await seed("other.md", "# Other");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "self.md", preDeleteNotes);
+
+    expect(plan.notes.has("self.md")).toBe(false);
+  });
+});
+
+describe("deleteNote — removeReferences integration", () => {
+  it("does NOT strip references when permanent: false (trash mode)", async () => {
+    // Trashed files are recoverable, so references must stay intact.
+    await seed("recoverable.md", "# Will be trashed");
+    await seed("ref.md", "Read [[recoverable]].");
+
+    const result = await deleteNote(vaultDir, "recoverable.md", {
+      permanent: false,
+      removeReferences: true, // ignored when not permanent
+    });
+
+    expect(result.updatedReferrers).toEqual([]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("Read [[recoverable]].");
+  });
+
+  it("does NOT strip references when removeReferences is omitted", async () => {
+    await seed("doomed.md", "# Will be deleted");
+    await seed("ref.md", "Read [[doomed]].");
+
+    const result = await deleteNote(vaultDir, "doomed.md", { permanent: true });
+
+    expect(result.updatedReferrers).toEqual([]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("Read [[doomed]].");
+  });
+
+  it("strips references end-to-end when permanent + removeReferences", async () => {
+    await seed("doomed.md", "# Will be deleted");
+    await seed("ref.md", "Before. [[doomed|the doomed note]] After.");
+
+    const result = await deleteNote(vaultDir, "doomed.md", {
+      permanent: true,
+      removeReferences: true,
+    });
+
+    expect(result.updatedReferrers).toEqual(["ref.md"]);
+    expect(await readNote(vaultDir, "ref.md")).toBe("Before. the doomed note After.");
+    // File actually gone (not in .trash either).
+    await expect(fs.access(path.join(vaultDir, "doomed.md"))).rejects.toThrow();
+    await expect(
+      fs.access(path.join(vaultDir, ".trash", "doomed.md")),
+    ).rejects.toThrow();
   });
 });
