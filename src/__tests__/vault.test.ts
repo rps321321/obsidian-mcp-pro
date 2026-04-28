@@ -262,9 +262,9 @@ describe("deleteNote", () => {
     expect(trashContent).toBe("bye");
   });
 
-  it("should permanently delete when useTrash=false", async () => {
+  it("should permanently delete when permanent=true", async () => {
     await writeNote(vaultDir, "perm.md", "gone");
-    await deleteNote(vaultDir, "perm.md", false);
+    await deleteNote(vaultDir, "perm.md", { permanent: true });
 
     await expect(fs.access(path.join(vaultDir, "perm.md"))).rejects.toThrow();
     // .trash should not have it either
@@ -619,7 +619,7 @@ describe("concurrent mutation races", () => {
     // removes the file, or (b) delete lands then later appends fail with
     // ENOENT — both are acceptable outcomes. The invariant is that the
     // filesystem never ends up with a partial/corrupt file.
-    const del = deleteNote(vaultDir, "raced.md", false).catch(() => undefined);
+    const del = deleteNote(vaultDir, "raced.md", { permanent: true }).catch(() => undefined);
     await Promise.all([...appends, del]);
 
     const exists = await fs

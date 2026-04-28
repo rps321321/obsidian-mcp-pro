@@ -58,7 +58,7 @@ describe.skipIf(!SYMLINKS_SUPPORTED)("resolveVaultPathSafe — symlink boundary"
     await fs.mkdir(outsideTrash, { recursive: true });
     await fs.symlink(outsideTrash, path.join(vaultDir, ".trash"));
 
-    await expect(deleteNote(vaultDir, "note.md", true)).rejects.toThrow(
+    await expect(deleteNote(vaultDir, "note.md")).rejects.toThrow(
       /symlink/i,
     );
   });

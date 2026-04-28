@@ -43,6 +43,14 @@ const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform ===
 function lockKey(fullPath: string): string {
   return CASE_INSENSITIVE_FS ? fullPath.toLowerCase() : fullPath;
 }
+
+// Synthetic lock key used to serialize vault-wide reference-rewriting
+// operations (move_note + delete_note with `removeReferences: true`).
+// Distinct from any real filesystem path because of the `vault-rewrite:`
+// prefix, so it never collides with `lockKey(fullPath)`.
+function vaultRewriteLockKey(vaultPath: string): string {
+  return `vault-rewrite:${lockKey(path.resolve(vaultPath))}`;
+}
 /**
  * Crash-atomic file write: stages content to a sibling temp file, then renames
  * onto the target. `fs.rename` is atomic on the same filesystem (POSIX
@@ -428,30 +436,86 @@ export async function prependToNote(
   });
 }
 
+export interface DeleteNoteOptions {
+  /** When false (default), the file moves to `.trash/` and stays recoverable.
+   *  When true, the file is permanently unlinked. */
+  permanent?: boolean;
+  /** When true, also rewrite references across the vault to drop the deleted
+   *  file. Wikilinks and markdown links are stripped to their visible text;
+   *  embeds (`![[...]]`, `![text](...)`) are removed entirely since they have
+   *  no textual fallback. Only honored when `permanent: true` — a file in
+   *  `.trash/` is recoverable, so silently editing references would destroy
+   *  information the user could otherwise restore. Default false. */
+  removeReferences?: boolean;
+}
+
+export interface DeleteNoteResult {
+  /** Vault-relative paths of files whose references were rewritten. Empty
+   *  when `removeReferences` was false or no other note referenced the
+   *  deleted file. */
+  updatedReferrers: string[];
+  /** Per-file failures during the rewrite pass. The deletion has already
+   *  committed by the time these are surfaced. */
+  failedReferrers: Array<{ path: string; error: string }>;
+}
+
 export async function deleteNote(
   vaultPath: string,
   relativePath: string,
-  useTrash = true,
-): Promise<void> {
+  options: DeleteNoteOptions = {},
+): Promise<DeleteNoteResult> {
+  const permanent = options.permanent === true;
+  const removeReferences = permanent && options.removeReferences === true;
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
-  await withFileLock(fullPath, async () => {
-    if (useTrash) {
-      const trashDir = path.join(vaultPath, ".trash");
-      const trashPath = path.join(trashDir, relativePath);
-      const resolvedTrash = path.resolve(trashPath);
-      const resolvedTrashDir = path.resolve(trashDir);
-      if (!resolvedTrash.startsWith(resolvedTrashDir + path.sep) && resolvedTrash !== resolvedTrashDir) {
-        throw new Error(`Invalid trash path: ${relativePath}`);
-      }
-      await fs.mkdir(path.dirname(trashPath), { recursive: true });
-      // Realpath-check the trash destination: guards against `.trash` itself
-      // (or an intermediate dir) being a symlink pointing outside the vault.
-      await assertRealPathWithinVault(resolvedTrash, vaultPath);
-      await fs.rename(fullPath, trashPath);
-    } else {
-      await fs.unlink(fullPath);
+
+  const performDelete = async (): Promise<DeleteNoteResult> => {
+    // Build the rewrite plan from the *pre-delete* vault state — resolution
+    // must see the file at its current path so wikilinks pointing at it are
+    // matched. Only built when removeReferences is on.
+    let plan: import("./link-rewriter.js").RewritePlan | null = null;
+    if (removeReferences) {
+      const { planDeleteRewrites } = await import("./link-rewriter.js");
+      const preDeleteNotes = await listNotes(vaultPath);
+      plan = await planDeleteRewrites(vaultPath, relativePath, preDeleteNotes);
     }
-  });
+
+    await withFileLock(fullPath, async () => {
+      if (!permanent) {
+        const trashDir = path.join(vaultPath, ".trash");
+        const trashPath = path.join(trashDir, relativePath);
+        const resolvedTrash = path.resolve(trashPath);
+        const resolvedTrashDir = path.resolve(trashDir);
+        if (!resolvedTrash.startsWith(resolvedTrashDir + path.sep) && resolvedTrash !== resolvedTrashDir) {
+          throw new Error(`Invalid trash path: ${relativePath}`);
+        }
+        await fs.mkdir(path.dirname(trashPath), { recursive: true });
+        // Realpath-check the trash destination: guards against `.trash` itself
+        // (or an intermediate dir) being a symlink pointing outside the vault.
+        await assertRealPathWithinVault(resolvedTrash, vaultPath);
+        await fs.rename(fullPath, trashPath);
+      } else {
+        await fs.unlink(fullPath);
+      }
+    });
+
+    if (!plan) return { updatedReferrers: [], failedReferrers: [] };
+
+    const { applyRewrites } = await import("./link-rewriter.js");
+    const result = await applyRewrites(vaultPath, plan);
+    return {
+      updatedReferrers: result.updated,
+      failedReferrers: result.failed,
+    };
+  };
+
+  // Same vault-level lock as moveNote when reference rewriting is on.
+  // Serializes plan + delete + apply against any other rewrite-bearing
+  // operation on this vault, so a concurrent move_note can't see a vault
+  // state mid-delete.
+  if (removeReferences) {
+    return withFileLock(vaultRewriteLockKey(vaultPath), performDelete);
+  }
+  return performDelete();
 }
 
 export interface MoveNoteOptions {
@@ -498,38 +562,54 @@ export async function moveNote(
     await fs.rename(fullOldPath, fullNewPath);
   };
 
-  // Build the rewrite plan from the *pre-move* vault state — resolution must
-  // see the file at its old path so wikilinks pointing at it are matched.
-  // Importing here (not at module top) breaks an import cycle: link-rewriter
-  // depends on this module's read/list/lock helpers.
-  let plan: import("./link-rewriter.js").RewritePlan | null = null;
-  if (updateLinks) {
-    const { planMoveRewrites } = await import("./link-rewriter.js");
-    const preMoveNotes = await listNotes(vaultPath);
-    plan = await planMoveRewrites(vaultPath, oldPath, newPath, preMoveNotes);
-  }
+  const performMove = async (): Promise<MoveNoteResult> => {
+    // Build the rewrite plan from the *pre-move* vault state — resolution
+    // must see the file at its old path so wikilinks pointing at it are
+    // matched. Importing here (not at module top) breaks an import cycle:
+    // link-rewriter depends on this module's read/list/lock helpers.
+    let plan: import("./link-rewriter.js").RewritePlan | null = null;
+    if (updateLinks) {
+      const { planMoveRewrites } = await import("./link-rewriter.js");
+      const preMoveNotes = await listNotes(vaultPath);
+      plan = await planMoveRewrites(vaultPath, oldPath, newPath, preMoveNotes);
+    }
 
-  // Lock in deterministic order to prevent deadlock when two concurrent
-  // moves cross-reference the same pair of paths. When both paths share
-  // the same lock key (case-only rename on case-insensitive FS), a single
-  // lock is sufficient — nesting the same key deadlocks.
-  if (lockKey(fullOldPath) === lockKey(fullNewPath)) {
-    await withFileLock(fullOldPath, doRename);
-  } else {
-    const [first, second] = [fullOldPath, fullNewPath].sort();
-    await withFileLock(first, async () => {
-      await withFileLock(second, doRename);
-    });
-  }
+    // Lock in deterministic order to prevent deadlock when two concurrent
+    // moves cross-reference the same pair of paths. When both paths share
+    // the same lock key (case-only rename on case-insensitive FS), a single
+    // lock is sufficient — nesting the same key deadlocks.
+    if (lockKey(fullOldPath) === lockKey(fullNewPath)) {
+      await withFileLock(fullOldPath, doRename);
+    } else {
+      const [first, second] = [fullOldPath, fullNewPath].sort();
+      await withFileLock(first, async () => {
+        await withFileLock(second, doRename);
+      });
+    }
 
-  if (!plan) return { updatedReferrers: [], failedReferrers: [] };
+    if (!plan) return { updatedReferrers: [], failedReferrers: [] };
 
-  const { applyRewrites } = await import("./link-rewriter.js");
-  const result = await applyRewrites(vaultPath, plan);
-  return {
-    updatedReferrers: result.updated,
-    failedReferrers: result.failed,
+    const { applyRewrites } = await import("./link-rewriter.js");
+    const result = await applyRewrites(vaultPath, plan);
+    return {
+      updatedReferrers: result.updated,
+      failedReferrers: result.failed,
+    };
   };
+
+  // When `updateLinks` is on, serialize the entire plan + rename + apply
+  // sequence under a single vault-level lock so concurrent move_note calls
+  // can't see each other's mid-flight state. Without this, two parallel
+  // moves can each plan against a snapshot that's stale by the time they
+  // apply — the `expected: string` content check in `applyEditsBackToFront`
+  // turns those races into reported failures rather than corruption, but
+  // serializing avoids the partial-failure mode entirely. With
+  // `updateLinks: false` the rename has no plan/apply phases so the
+  // existing per-file locks are sufficient and the vault lock is skipped.
+  if (updateLinks) {
+    return withFileLock(vaultRewriteLockKey(vaultPath), performMove);
+  }
+  return performMove();
 }
 
 export async function searchNotes(

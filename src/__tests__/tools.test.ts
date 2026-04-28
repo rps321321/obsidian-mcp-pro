@@ -264,7 +264,7 @@ describe("Write Tools", () => {
   it("deleteNote should move file to .trash", async () => {
     // Create a throwaway note
     await writeNote(vaultPath, "to-delete.md", "Delete me.");
-    await deleteNote(vaultPath, "to-delete.md", true);
+    await deleteNote(vaultPath, "to-delete.md");
 
     // Original should be gone
     await expect(
