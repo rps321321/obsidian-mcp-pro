@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-05-01
+
+### Fixed
+
+- **HTTP transport now supports reconnects and concurrent clients.**
+  Previously, `--transport=http` shared one `McpServer` across the entire
+  process and re-`connect()`d it on every `initialize`. The MCP SDK's
+  underlying `Protocol` rejects a second `connect()` while a transport is
+  still attached, so every reconnect (client restart, IDE reload) and every
+  second concurrent client returned HTTP 500 with
+  `"Already connected to a transport. Call close() before connecting to a
+  new transport, or use a separate Protocol instance per connection."`
+  Each `initialize` now builds a fresh `McpServer`; GC reclaims it once the
+  transport closes. Stdio transport is unaffected (one session per process).
+  Reported by @j-menzies in
+  [#8](https://github.com/rps321321/obsidian-mcp-pro/issues/8).
+- HTTP-mode log forwarding via `notifications/message` is removed as part
+  of this fix — the singleton it relied on is gone. Stderr remains the
+  source of truth for HTTP operators (which is where the MCP host already
+  surfaces server logs to humans). Stdio mode keeps log forwarding.
+- **DNS rebinding `allowedHosts` now uses the actually-bound port** rather
+  than the requested port. When callers passed `port: 0` (tests, embedders
+  that don't care about a specific port) the previous list contained
+  `:0` literally, so every real request was rejected with
+  `"Invalid Host header"`. The list is now populated after `listen()`
+  returns the OS-assigned port.
+
+### Tests
+
+- New regression tests in `src/__tests__/http-server.test.ts`: a sequential
+  reconnect (close session A, then connect session B) and two concurrent
+  sessions on the same server, both driven through the SDK's
+  `StreamableHTTPClientTransport`.
+
 ## [1.7.1] - 2026-04-28
 
 ### Documentation

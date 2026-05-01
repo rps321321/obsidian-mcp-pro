@@ -3,7 +3,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { log, configureLogger } from "./lib/logger.js";
+import { log } from "./lib/logger.js";
 
 export interface HttpServerOptions {
   host: string;
@@ -185,11 +185,12 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const lastActivity = new Map<string, number>();
   const touch = (sid: string): void => { lastActivity.set(sid, Date.now()); };
-  const mcpServer = opts.buildMcpServer();
-  // Route logger output through the MCP client via `notifications/message`
-  // (in addition to stderr). Harmless before any session connects — the SDK
-  // silently drops sends with no connected transport.
-  configureLogger({ mcpServer });
+  // One `McpServer` per session: the underlying SDK `Protocol` rejects a
+  // second `connect()` while a transport is still attached, so a singleton
+  // 500s every reconnect and every concurrent client past the first. Each
+  // `initialize` builds a fresh server below; GC reclaims it once the
+  // transport closes (Protocol._onclose clears the transport reference).
+  // See https://github.com/rps321321/obsidian-mcp-pro/issues/8.
   const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
     ? opts.allowedOrigins
     : ["*"];
@@ -215,13 +216,12 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
   // DNS rebinding protection: restrict Host header to the bound interface +
   // localhost aliases. Browsers attacking via dns-rebinding will present a
-  // third-party hostname and be rejected.
-  const allowedHosts = [
-    `${opts.host}:${opts.port}`,
-    `127.0.0.1:${opts.port}`,
-    `localhost:${opts.port}`,
-    `[::1]:${opts.port}`,
-  ];
+  // third-party hostname and be rejected. Populated after `listen()` so we
+  // know the bound port — important when callers pass `port: 0` (tests,
+  // embedders) and the OS assigns one. The array reference is captured by
+  // each `StreamableHTTPServerTransport` and read on every request, so
+  // re-assigning it post-listen propagates to all subsequent transports.
+  let allowedHosts: string[] = [];
 
   const httpServer = createServer(async (req, res) => {
     // Cap wall-clock time for POST requests only. GET is used by the
@@ -320,7 +320,8 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
               lastActivity.delete(transport.sessionId);
             }
           };
-          await mcpServer.connect(transport);
+          const sessionServer = opts.buildMcpServer();
+          await sessionServer.connect(transport);
           await transport.handleRequest(req, res, body);
           return;
         }
@@ -363,6 +364,13 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // so callers can build URLs that work.
   const addr = httpServer.address();
   const boundPort = typeof addr === "object" && addr ? addr.port : opts.port;
+
+  allowedHosts = [
+    `${opts.host}:${boundPort}`,
+    `127.0.0.1:${boundPort}`,
+    `localhost:${boundPort}`,
+    `[::1]:${boundPort}`,
+  ];
 
   log.info(`HTTP server listening`, {
     url: `http://${opts.host}:${boundPort}/mcp`,
