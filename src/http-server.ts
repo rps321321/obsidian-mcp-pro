@@ -217,7 +217,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // DNS rebinding protection: restrict Host header to the bound interface +
   // localhost aliases. Browsers attacking via dns-rebinding will present a
   // third-party hostname and be rejected. Populated after `listen()` so we
-  // know the bound port — important when callers pass `port: 0` (tests,
+  // know the bound port; this matters when callers pass `port: 0` (tests,
   // embedders) and the OS assigns one. The array reference is captured by
   // each `StreamableHTTPServerTransport` and read on every request, so
   // re-assigning it post-listen propagates to all subsequent transports.

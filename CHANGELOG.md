@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Reported by @j-menzies in
   [#8](https://github.com/rps321321/obsidian-mcp-pro/issues/8).
 - HTTP-mode log forwarding via `notifications/message` is removed as part
-  of this fix — the singleton it relied on is gone. Stderr remains the
+  of this fix; the singleton it relied on is gone. Stderr remains the
   source of truth for HTTP operators (which is where the MCP host already
   surfaces server logs to humans). Stdio mode keeps log forwarding.
 - **DNS rebinding `allowedHosts` now uses the actually-bound port** rather
