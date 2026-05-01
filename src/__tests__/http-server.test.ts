@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startHttpServer, type HttpServerHandle } from "../http-server.js";
 
 function buildNoopServer(): McpServer {
@@ -205,6 +207,51 @@ describe("HTTP server — rate limiting", () => {
       const v = await fetch(`http://127.0.0.1:${handle.port}/version`);
       expect(v.status).toBe(200);
     }
+  });
+});
+
+// Regression for https://github.com/rps321321/obsidian-mcp-pro/issues/8 —
+// the HTTP server used to share one `McpServer` across the whole process,
+// so the SDK's underlying `Protocol` rejected the second `connect()` with
+// "Already connected to a transport" and every reconnect / second concurrent
+// client returned HTTP 500. Each `initialize` now builds a fresh `McpServer`.
+describe("HTTP server — multi-session lifecycle (regression for #8)", () => {
+  it("accepts two sequential MCP clients without 500ing the second initialize", async () => {
+    handle = await startOnEphemeral();
+
+    const clientA = new Client({ name: "session-a", version: "0.0.0" });
+    const transportA = new StreamableHTTPClientTransport(new URL(handle.url));
+    await clientA.connect(transportA);
+    expect(transportA.sessionId).toBeTruthy();
+    await clientA.close();
+
+    // Pre-fix: second initialize → 500 "Already connected to a transport".
+    const clientB = new Client({ name: "session-b", version: "0.0.0" });
+    const transportB = new StreamableHTTPClientTransport(new URL(handle.url));
+    await clientB.connect(transportB);
+    expect(transportB.sessionId).toBeTruthy();
+    expect(transportB.sessionId).not.toBe(transportA.sessionId);
+    await clientB.close();
+  });
+
+  it("supports two concurrent MCP clients on the same server", async () => {
+    handle = await startOnEphemeral();
+
+    const clientA = new Client({ name: "session-a", version: "0.0.0" });
+    const transportA = new StreamableHTTPClientTransport(new URL(handle.url));
+    const clientB = new Client({ name: "session-b", version: "0.0.0" });
+    const transportB = new StreamableHTTPClientTransport(new URL(handle.url));
+
+    // Connect both before either closes — exercises the singleton-Protocol
+    // failure mode where the second `connect()` happens while the first
+    // session's transport is still attached.
+    await Promise.all([clientA.connect(transportA), clientB.connect(transportB)]);
+
+    expect(transportA.sessionId).toBeTruthy();
+    expect(transportB.sessionId).toBeTruthy();
+    expect(transportA.sessionId).not.toBe(transportB.sessionId);
+
+    await Promise.all([clientA.close(), clientB.close()]);
   });
 });
 
