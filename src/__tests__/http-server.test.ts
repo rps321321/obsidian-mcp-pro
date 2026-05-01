@@ -210,12 +210,12 @@ describe("HTTP server — rate limiting", () => {
   });
 });
 
-// Regression for https://github.com/rps321321/obsidian-mcp-pro/issues/8 —
-// the HTTP server used to share one `McpServer` across the whole process,
+// Regression for https://github.com/rps321321/obsidian-mcp-pro/issues/8.
+// The HTTP server used to share one `McpServer` across the whole process,
 // so the SDK's underlying `Protocol` rejected the second `connect()` with
 // "Already connected to a transport" and every reconnect / second concurrent
 // client returned HTTP 500. Each `initialize` now builds a fresh `McpServer`.
-describe("HTTP server — multi-session lifecycle (regression for #8)", () => {
+describe("HTTP server: multi-session lifecycle (regression for #8)", () => {
   it("accepts two sequential MCP clients without 500ing the second initialize", async () => {
     handle = await startOnEphemeral();
 
@@ -242,9 +242,9 @@ describe("HTTP server — multi-session lifecycle (regression for #8)", () => {
     const clientB = new Client({ name: "session-b", version: "0.0.0" });
     const transportB = new StreamableHTTPClientTransport(new URL(handle.url));
 
-    // Connect both before either closes — exercises the singleton-Protocol
-    // failure mode where the second `connect()` happens while the first
-    // session's transport is still attached.
+    // Connect both before either closes. This exercises the
+    // singleton-Protocol failure mode, where the second `connect()` happens
+    // while the first session's transport is still attached.
     await Promise.all([clientA.connect(transportA), clientB.connect(transportB)]);
 
     expect(transportA.sessionId).toBeTruthy();
