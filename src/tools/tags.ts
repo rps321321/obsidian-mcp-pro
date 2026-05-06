@@ -237,16 +237,37 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           8,
           async (notePath) => {
             try {
-              const original = await readNote(vaultPath, notePath);
-              const result = rewriteAllTags(original, opts);
-              const totalCount = result.inlineCount + result.frontmatterCount;
-              if (totalCount > 0) {
-                if (!dryRun && result.content !== original) {
-                  await updateNote(vaultPath, notePath, () => result.content);
+              if (dryRun) {
+                // No write path — a single read outside any lock is fine
+                // because we only report counts.
+                const original = await readNote(vaultPath, notePath);
+                const result = rewriteAllTags(original, opts);
+                if (result.inlineCount + result.frontmatterCount > 0) {
+                  updatedFiles++;
+                  totalInline += result.inlineCount;
+                  totalFrontmatter += result.frontmatterCount;
                 }
-                updatedFiles++;
-                totalInline += result.inlineCount;
-                totalFrontmatter += result.frontmatterCount;
+              } else {
+                // Apply the rewrite inside the per-file lock so a concurrent
+                // write between read and write can't be silently overwritten.
+                // `updateNote` re-reads under the lock and feeds `existing`
+                // into our transform, then atomically renames the result.
+                let inline = 0;
+                let frontmatter = 0;
+                let changed = false;
+                await updateNote(vaultPath, notePath, (existing) => {
+                  const result = rewriteAllTags(existing, opts);
+                  inline = result.inlineCount;
+                  frontmatter = result.frontmatterCount;
+                  if (inline + frontmatter === 0) return existing;
+                  changed = result.content !== existing;
+                  return result.content;
+                });
+                if (inline + frontmatter > 0 && changed) {
+                  updatedFiles++;
+                  totalInline += inline;
+                  totalFrontmatter += frontmatter;
+                }
               }
             } catch (err) {
               failed.push({ path: notePath, error: (err as Error).message });

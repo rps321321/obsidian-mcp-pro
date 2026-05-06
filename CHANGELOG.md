@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-05-06
+
+### Security
+
+- **Permission allowlist bypass via `..` segments (CRITICAL).** v1.8.0
+  evaluated `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` against the
+  raw user-supplied path before `path.resolve` collapsed `..` segments.
+  An input like `Allowed/../OtherFolder/note.md` passed the prefix
+  check (string starts with `Allowed/`) and `path.resolve` then sent
+  the read or write to a folder outside the allowlist. The vault-
+  traversal check still passed because the resolved path stayed inside
+  the vault root. Fixed by collapsing `..` segments via
+  `path.posix.normalize` inside `assertAllowed` and rejecting any path
+  whose normalized form climbs above its starting point. Six new
+  regression tests cover the bypass classes (escape into a different
+  folder, climb above vault root, leading `..`, backslash-encoded
+  variant, write-side variant, and an allowed `..`-traversal that
+  lands back inside the same folder).
+
+### Fixed
+
+- **No HTTP timeout on embedding-provider fetches (HIGH).** A hung
+  Ollama or OpenAI endpoint would hang the tool call forever and
+  hold the MCP session open. Every `fetch` in
+  `lib/embedding-providers.ts` now uses
+  `signal: AbortSignal.timeout(30_000)`.
+- **TOCTOU race in `rename_tag` (HIGH).** The previous implementation
+  read the note outside any lock and then fed a precomputed
+  `result.content` into `updateNote` via `() => result.content`,
+  silently overwriting any concurrent write that landed between the
+  read and the lock-acquired write. The rewrite now runs inside the
+  `updateNote` transform so `existing` is always the current
+  on-disk content. Dry-run path stays lockless (no writes).
+- **`search_semantic` and `find_similar_notes` ignored model
+  mismatches (HIGH).** Only `index_vault` invalidated stale cached
+  vectors when the active provider/model changed. Switching models
+  and querying before re-indexing produced meaningless cosine scores
+  with no warning. Both tools now call `invalidateIfIncompatible`
+  after `loadStore`, and `search_semantic` reports a clearer message
+  when the index ends up empty for the active model.
+- **DoS via deeply nested filter recursion in `bases.ts` (MEDIUM).**
+  `evaluateFilter` recursed through `and`/`or`/`not` with no depth
+  guard. A pathological `.base` file could blow the V8 stack. A
+  depth counter now caps recursion at 64 levels and surfaces a
+  warning past the limit.
+- **`updateNote` rewrote files even when transforms returned
+  unchanged content (MEDIUM).** No-op tools (`replace_in_note` with
+  zero matches, `rename_tag` on notes without occurrences) bumped
+  mtime on every call, invalidating the index-cache and
+  embedding-store entries for files that were not actually
+  modified. `updateNote` now compares `next === existing` and skips
+  the atomic write when nothing changed. Benefits every caller, not
+  just `replace_in_note`.
+- **Provider error response bodies leaked verbatim into thrown
+  Error messages (MEDIUM).** Truncated to 200 chars before
+  interpolation in all three Ollama/OpenAI error paths.
+- **Empty `accept` form-elicit responses surfaced as errors (LOW).**
+  `delete_note` treated an `action: "accept"` with missing or empty
+  `confirmPath` as a confirmation failure. Now it is a cancel,
+  matching the user's apparent intent (dismissed the form).
+- **Cache snapshot eviction was non-deterministic (LOW).** When the
+  in-memory cache exceeded the 64 MB on-disk cap, entries were
+  iterated in insertion order, so a single multi-MB note inserted
+  early starved smaller entries from the snapshot. Entries are now
+  sorted by content length ascending before serialization, so small
+  entries fill the budget first.
+- **`update_section` reported byte count using `string.length`
+  (TRIVIAL).** Off by 2x for multi-byte characters. Switched to
+  `Buffer.byteLength(newBody, "utf-8")`.
+
+### Tests
+
+- 444 tests passing (was 438). Six new regression tests for the
+  permission allowlist bypass classes.
+
 ## [1.8.0] - 2026-05-06
 
 ### Added

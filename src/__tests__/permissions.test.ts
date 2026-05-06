@@ -61,4 +61,42 @@ describe("permissions", () => {
     setPermissions({ readPaths: ["a", "b"], writePaths: ["c"] });
     expect(describePermissions()).toEqual({ read: "a, b", write: "c" });
   });
+
+  // Regression for the CRITICAL bypass identified in v1.8.0 audit:
+  // assertAllowed used to run on the raw user-supplied path, before
+  // path.resolve collapsed `..` segments. A path like
+  // `Allowed/../Secret.md` would pass the prefix check (string starts with
+  // `Allowed/`) but resolve to `Secret.md` outside the allowlist.
+  describe("dot-dot traversal cannot escape the allowlist", () => {
+    it("rejects ..-escape from within an allowed folder", () => {
+      setPermissions({ readPaths: ["projects"], writePaths: null });
+      expect(() => assertAllowed("projects/../private/secret.md", "read")).toThrow(/Access denied/);
+    });
+
+    it("rejects deeper ..-escape that climbs above the vault root", () => {
+      setPermissions({ readPaths: ["projects"], writePaths: null });
+      expect(() => assertAllowed("projects/sub/../../../../etc/passwd", "read")).toThrow(/Access denied/);
+    });
+
+    it("rejects a leading .. that bypasses the prefix check", () => {
+      setPermissions({ readPaths: ["projects"], writePaths: null });
+      expect(() => assertAllowed("../projects/a.md", "read")).toThrow(/Access denied/);
+    });
+
+    it("rejects writes that ..-escape into a different folder", () => {
+      setPermissions({ readPaths: null, writePaths: ["drafts"] });
+      expect(() => assertAllowed("drafts/../public/post.md", "write")).toThrow(/Access denied/);
+    });
+
+    it("permits ..-traversal that lands back inside the same allowed folder", () => {
+      setPermissions({ readPaths: ["projects"], writePaths: null });
+      // `projects/sub/../a.md` collapses to `projects/a.md` — still allowed.
+      expect(() => assertAllowed("projects/sub/../a.md", "read")).not.toThrow();
+    });
+
+    it("rejects backslash-encoded ..-escape on Windows-style paths", () => {
+      setPermissions({ readPaths: ["projects"], writePaths: null });
+      expect(() => assertAllowed("projects\\..\\private\\secret.md", "read")).toThrow(/Access denied/);
+    });
+  });
 });

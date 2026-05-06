@@ -417,7 +417,15 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             if (elicit.action !== "accept") {
               return textResult(`Deletion of "${resolvedPath}" cancelled.`);
             }
-            const confirmed = (elicit.content as { confirmPath?: unknown } | undefined)?.confirmPath;
+            // An accept with no content (or a missing field) is treated as
+            // a cancel rather than an error: the user dismissed the form
+            // without filling it in. Only a non-matching string counts as
+            // a true confirmation failure worth surfacing as an error.
+            const content = elicit.content as { confirmPath?: unknown } | undefined;
+            const confirmed = content?.confirmPath;
+            if (confirmed === undefined || confirmed === null || confirmed === "") {
+              return textResult(`Deletion of "${resolvedPath}" cancelled (no confirmation provided).`);
+            }
             if (typeof confirmed !== "string" || confirmed.trim() !== resolvedPath) {
               return errorResult(
                 `Confirmation path did not match "${resolvedPath}"; deletion aborted.`,

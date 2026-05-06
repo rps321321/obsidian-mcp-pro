@@ -99,6 +99,12 @@ interface EvaluationContext {
   warnings: string[];
 }
 
+/** Recursion-depth limit for the filter evaluator. A pathological `.base`
+ *  file with deeply nested `not`/`and`/`or` blocks would otherwise blow the
+ *  V8 stack. 64 covers any reasonable hand-authored Base while leaving
+ *  generous headroom over the few-deep nests Obsidian itself produces. */
+const MAX_FILTER_DEPTH = 64;
+
 function flattenFilter(filter: BaseFilter | BaseFilter[] | undefined): BaseFilter | undefined {
   if (filter === undefined) return undefined;
   if (Array.isArray(filter)) return { and: filter };
@@ -114,12 +120,20 @@ export function evaluateFilter(
   row: BaseRow,
   filter: BaseFilter | undefined,
   ctx: EvaluationContext,
+  depth = 0,
 ): boolean {
+  if (depth > MAX_FILTER_DEPTH) {
+    // Bail out instead of exploding the stack. Returning `true` is the
+    // permissive fallback the rest of the evaluator already uses for
+    // unrecognized shapes — surfacing a warning lets the user fix the Base.
+    ctx.warnings.push(`Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; clauses past this depth were skipped.`);
+    return true;
+  }
   if (filter === undefined) return true;
   if (typeof filter === "string") return evaluateExpression(row, filter, ctx);
-  if ("and" in filter) return filter.and.every((f) => evaluateFilter(row, f, ctx));
-  if ("or" in filter) return filter.or.some((f) => evaluateFilter(row, f, ctx));
-  if ("not" in filter) return !evaluateFilter(row, filter.not, ctx);
+  if ("and" in filter) return filter.and.every((f) => evaluateFilter(row, f, ctx, depth + 1));
+  if ("or" in filter) return filter.or.some((f) => evaluateFilter(row, f, ctx, depth + 1));
+  if ("not" in filter) return !evaluateFilter(row, filter.not, ctx, depth + 1);
   ctx.warnings.push(`Unknown filter shape: ${JSON.stringify(filter)}`);
   return true;
 }
