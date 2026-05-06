@@ -15,12 +15,12 @@
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-331_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
-[![Tool Quality](https://img.shields.io/badge/Glama-all_23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
+[![Tests](https://img.shields.io/badge/tests-438_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tool Quality](https://img.shields.io/badge/Glama-23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
-Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, and manipulate canvases — all through the [Model Context Protocol](https://modelcontextprotocol.io/).
+Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, manipulate canvases, query Bases, edit by heading or block reference, run semantic search, and pull binary attachments. All through the [Model Context Protocol](https://modelcontextprotocol.io/).
 
-Every one of the 23 tools ships with rich descriptions, typed schemas, human-readable titles, and safety annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so your agent picks the right tool, passes the right arguments, and handles results correctly — with an average **4.40/5** score and all 23 tools rated A on [Glama's quality index](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro).
+**41 tools, 5 prompts, 3 resources.** Every tool ships with rich descriptions, typed schemas, human-readable titles, and safety annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so your agent picks the right tool, passes the right arguments, and handles results correctly. The original 23 tools earned an average 4.40/5 score and all-A grades on [Glama's quality index](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro); the 18 newer ones follow the same authoring conventions documented in [docs/TOOL_AUTHORING.md](./docs/TOOL_AUTHORING.md).
 
 ---
 
@@ -46,22 +46,25 @@ Every one of the 23 tools ships with rich descriptions, typed schemas, human-rea
 ## Features
 
 ### Read & Search
-- Full-text search across all vault notes
-- Read individual notes with frontmatter parsing
+- Full-text search across all vault notes (cached: re-runs only re-read changed files)
+- Read individual notes whole, or as a fragment by heading path, block id, or line range
 - List and filter notes by folder, date, or pattern
 - Search by frontmatter fields and values
-- Retrieve daily notes automatically
+- Retrieve daily notes automatically using the vault's configured filename format
+- `get_recent_notes` orders by mtime; `get_vault_stats` reports counts, words, tag coverage; `resolve_alias` translates a display name to a real note path
 
 ### Write & Modify
 - Create new notes with frontmatter and content
 - Append or prepend content to existing notes
-- Update frontmatter properties programmatically (merges — unlisted keys are preserved)
-- Move and rename notes (pair with `find_broken_links` to surface any references that need updating)
-- Delete notes safely — moved to the vault's `.trash` folder by default, with an optional permanent flag
+- Update frontmatter properties programmatically (merge: unlisted keys are preserved)
+- Move and rename notes (rewrites every wikilink, markdown link, and canvas reference across the vault by default)
+- Delete notes safely; moved to the vault's `.trash` folder by default, with an optional permanent flag and elicitation-based confirmation
+- Surgical edits by heading: `update_section`, `insert_at_section`, `list_sections`, plus single-note `replace_in_note` (regex with match-count guard) and `edit_block` for paragraphs tagged with `^id`
 
 ### Tags
-- Build and query a complete tag index
+- Build and query a complete tag index (incremental: cached across runs)
 - Search notes by single or multiple tags
+- `rename_tag` rewrites both inline `#tag` occurrences and frontmatter `tags:` arrays vault-wide; hierarchical mode also rebases nested sub-tags (`project/alpha` follows `project`)
 
 ### Links & Graph
 - Get backlinks (what links *to* a note)
@@ -76,10 +79,40 @@ Every one of the 23 tools ships with rich descriptions, typed schemas, human-rea
 - Add edges between canvas nodes
 - List all canvases in the vault
 
+### Bases (Obsidian 1.10+)
+- `list_bases` enumerates `.base` files
+- `read_base` returns the parsed YAML (filters, properties, views)
+- `query_base` runs the filter DSL against the vault and returns matching notes; supports `taggedWith()`, `file.hasTag()`, `file.inFolder()`, comparison operators, and `and`/`or`/`not` combinators
+
+### Attachments
+- `list_attachments` enumerates every non-md/canvas/base file with a per-extension count summary
+- `find_unused_attachments` flags assets no note references via embeds or markdown links; optional reclaimable-bytes report
+- `get_attachment` returns image / audio / blob bytes inline as MCP content blocks (5 MB default cap, 50 MB hard cap)
+
+### Semantic Search (optional, Ollama or OpenAI)
+- `index_vault` chunks each note (heading-aware), embeds via the configured provider, persists vectors to `<vault>/.obsidian/cache/`, and incrementally re-embeds only changed notes
+- `search_semantic` ranks notes by cosine similarity against an embedded query
+- `find_similar_notes` reuses an existing note's embeddings to surface neighbors without a live API call
+
 ### MCP Resources
-- `obsidian://note/{path}` — read any note by its vault-relative path
-- `obsidian://tags` — retrieve the full tag index as JSON
-- `obsidian://daily` — get today's daily note content
+- `obsidian://note/{path}` reads any note by its vault-relative path
+- `obsidian://tags` retrieves the full tag index as JSON
+- `obsidian://daily` gets today's daily note content
+
+### MCP Prompts
+The server exposes five starter prompts that clients (Claude Desktop, Cursor) surface in their slash-command palette:
+
+- `daily-review` walks today's daily note, surfaces unchecked tasks, and proposes follow-ups
+- `weekly-rollup` aggregates the last seven daily notes into themes / decisions / open tasks
+- `find-stale-notes` locates untouched notes and clusters them as orphaned vs. broken-linked vs. still-linked
+- `extract-action-items` pulls all `- [ ] …` lines from a note (or every note matching a tag) into a checklist
+- `build-moc` generates a Map of Content (MOC) for a tag or folder
+
+### Operational features
+- **Folder-scoped permissions**: `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists gate every tool at the path-resolution choke point
+- **Persistent mtime cache** at `<vault>/.obsidian/cache/mcp-pro-index-cache.json` survives restarts; subsequent vault scans serve from cache after one stat-pass
+- **Progress notifications** (`notifications/progress`) on `rename_tag`, `find_unused_attachments`, and `index_vault` when the client subscribes via `_meta.progressToken`
+- **Elicitation** prompts the user to retype the note path on `delete_note(permanent: true)` when the client supports it
 
 ---
 
@@ -257,9 +290,44 @@ Auto-detection works on **macOS**, **Windows**, and **Linux** by reading the pla
 
 Unrecognized tokens pass through unchanged. Local time is used (matching Obsidian's rendering).
 
+### Folder-Scoped Permissions
+
+Restrict the tools' read/write surface to specific folders without exposing the rest of the vault:
+
+| Env var | Purpose |
+|---------|---------|
+| `OBSIDIAN_READ_PATHS` | Comma- or colon-separated list of folders that read tools may access. Unset means unrestricted. Use `.` to mean the vault root. |
+| `OBSIDIAN_WRITE_PATHS` | Same shape, but for mutations (create / append / update / delete / move / surgical edits). |
+
+Read and write are independent, so an audit account can be read-only on most of the vault but write-only to a `Drafts/` folder. The startup log line and `--help` advertise the active scope. The allowlist is enforced at a single path-resolution choke point so every tool inherits it.
+
+### Persistent Caches
+
+Two caches live under `<vault>/.obsidian/cache/`:
+
+| File | Purpose |
+|------|---------|
+| `mcp-pro-index-cache.json` | mtime-keyed snapshot of recently read notes. The next process start hydrates from this and stat-passes against the live filesystem; only changed notes are re-read. |
+| `mcp-pro-embeddings.json` | Persisted embeddings for semantic search (only present once `index_vault` has run). Vault-relocation safe via an embedded `vaultRoot` check; switching providers / models invalidates entries automatically. |
+
+Both are vault-local, are excluded from vault scans (`.obsidian/` is pruned), and can be deleted at any time. Persistence can be turned off entirely with `OBSIDIAN_CACHE_DISABLED=1`.
+
+### Semantic Search Provider
+
+The semantic-search tools (`index_vault`, `search_semantic`, `find_similar_notes`) need an embedding provider. Configure via env:
+
+| Env var | Default | Notes |
+|---------|---------|-------|
+| `OBSIDIAN_EMBEDDING_PROVIDER` | `ollama` | `ollama`, `openai`, or `none` to disable. |
+| `OBSIDIAN_EMBEDDING_MODEL` | `nomic-embed-text` (Ollama), `text-embedding-3-small` (OpenAI) | Provider-specific model identifier. |
+| `OBSIDIAN_EMBEDDING_URL` | `http://localhost:11434` (Ollama), `https://api.openai.com/v1` (OpenAI) | Base URL. |
+| `OBSIDIAN_EMBEDDING_API_KEY` | `OPENAI_API_KEY` falls back if unset | Required for hosted providers. |
+
+For local Ollama: install [Ollama](https://ollama.com/), then `ollama pull nomic-embed-text`. The semantic tools register even when no provider is configured, so they're discoverable; calls return a configuration hint until set up.
+
 ### Observability
 
-Logs stream to stderr as either plain text (default) or single-line JSON — set via `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`) and `LOG_FORMAT` (`text`/`json`).
+Logs stream to stderr as either plain text (default) or single-line JSON, controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`) and `LOG_FORMAT` (`text`/`json`).
 
 The server also declares the MCP [`logging` capability](https://modelcontextprotocol.io/specification), so every log line is forwarded to the connected client as a `notifications/message` frame alongside tool responses. Clients that honor `logging/setLevel` can filter server-side logs at runtime without restarting. Claude Desktop surfaces these in its MCP DevTools pane; most other clients currently ignore them, so this is useful primarily for self-hosters and tooling authors.
 
@@ -293,31 +361,91 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 
 ## Tool Reference
 
+### Read
+
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `search_notes` | Full-text search across all notes | `query`, `caseSensitive`, `maxResults`, `folder` |
-| `get_note` | Read a note's content and metadata | `path` |
+| `search_notes` | Full-text search across all notes (cached) | `query`, `caseSensitive`, `maxResults`, `folder` |
+| `get_note` | Read a note whole, or by `section` / `block` / `lines` | `path`, `section`, `block`, `lines` |
 | `list_notes` | List notes in the vault or a folder | `folder`, `limit` |
 | `get_daily_note` | Get today's (or a specific date's) daily note | `date` |
 | `search_by_frontmatter` | Find notes by frontmatter property values | `property`, `value`, `folder` |
+| `get_recent_notes` | Notes sorted by mtime; optional ISO-or-relative `since` filter | `limit`, `since`, `folder` |
+| `get_vault_stats` | Vault counts, bytes, words, tag coverage, most-recent note | `folder` |
+| `resolve_alias` | Translate frontmatter alias (or basename) to note path | `name`, `includeBasename` |
+
+### Write
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
 | `create_note` | Create a new note with content and frontmatter | `path`, `content`, `frontmatter` |
 | `append_to_note` | Append content to an existing note | `path`, `content`, `ensureNewline` |
 | `prepend_to_note` | Prepend content after frontmatter | `path`, `content` |
 | `update_frontmatter` | Update frontmatter properties on a note | `path`, `properties` |
 | `create_daily_note` | Create today's daily note from template | `date`, `content`, `templatePath` |
 | `move_note` | Move or rename a note; rewrites references across the vault | `oldPath`, `newPath`, `updateLinks` |
-| `delete_note` | Delete a note (trash by default); optionally strip references | `path`, `permanent`, `removeReferences` |
+| `delete_note` | Delete a note (trash by default); optional elicitation on permanent | `path`, `permanent`, `removeReferences` |
+
+### Section-level edits
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `update_section` | Replace the body under a heading path (heading kept) | `path`, `section`, `newBody` |
+| `insert_at_section` | Insert at `before` / `after-heading` / `append` of a section | `path`, `section`, `content`, `position` |
+| `list_sections` | Return the heading outline of a note as an indented tree | `path` |
+| `replace_in_note` | Find/replace within one note (literal or regex, with match-count guard) | `path`, `find`, `replace`, `regex`, `flags`, `expectedCount` |
+| `edit_block` | Replace content of a paragraph tagged `^id` (anchor preserved) | `path`, `block`, `newContent` |
+
+### Tags
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
 | `get_tags` | Get all tags and their usage counts | `sortBy` |
 | `search_by_tag` | Find all notes with a specific tag | `tag`, `includeContent` |
+| `rename_tag` | Rewrite inline + frontmatter occurrences vault-wide; hierarchical | `oldName`, `newName`, `hierarchical`, `dryRun` |
+
+### Links & graph
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
 | `get_backlinks` | Get all notes that link to a given note | `path` |
 | `get_outlinks` | Get all links from a given note | `path` |
 | `find_orphans` | Find notes with no links in or out | `includeOutlinksCheck` |
 | `find_broken_links` | Detect links pointing to non-existent notes | `folder` |
 | `get_graph_neighbors` | Get notes connected within N link hops | `path`, `depth`, `direction` |
-| `list_canvases` | List all `.canvas` files in the vault | — |
+
+### Canvas
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `list_canvases` | List all `.canvas` files in the vault | (none) |
 | `read_canvas` | Read a `.canvas` file's nodes and edges | `path` |
 | `add_canvas_node` | Add a node to a canvas | `canvasPath`, `type`, `content`, `x`, `y` |
 | `add_canvas_edge` | Add an edge between two canvas nodes | `canvasPath`, `fromNode`, `toNode` |
+
+### Bases
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `list_bases` | Enumerate `.base` files in the vault | (none) |
+| `read_base` | Parse a Base file (filters, properties, views) | `path` |
+| `query_base` | Run a Base's filter DSL against the vault | `path`, `view`, `limit`, `includeFrontmatter` |
+
+### Attachments
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `list_attachments` | Enumerate every non-md/canvas/base file | `extension`, `limit` |
+| `find_unused_attachments` | Attachments not referenced via embeds or markdown links | `limit`, `includeBytes` |
+| `get_attachment` | Return image / audio / blob content (5 MB default cap) | `path`, `maxBytes` |
+
+### Semantic search
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `index_vault` | Build / refresh the embedding index (incremental, progress events) | `force`, `folder` |
+| `search_semantic` | Cosine search the embedding index for a natural-language query | `query`, `limit`, `folder`, `includeSnippet` |
+| `find_similar_notes` | Surface notes most similar to a source note (no live API call) | `path`, `limit` |
 
 ---
 
@@ -399,29 +527,54 @@ OBSIDIAN_VAULT_PATH=/path/to/vault npm start
 
 ```
 src/
-  index.ts           # Server entry, CLI parser, resource registration
-  config.ts          # Vault detection, daily-notes config loader
-  http-server.ts     # Streamable HTTP transport, Bearer auth, session TTL
-  install.ts         # `install` subcommand (Claude Desktop / Cursor)
-  types.ts           # Shared TypeScript interfaces
+  index.ts                # Server entry, CLI parser, resource + prompt registration
+  config.ts               # Vault detection, daily-notes config loader
+  http-server.ts          # Streamable HTTP transport, Bearer auth, session TTL
+  install.ts              # `install` subcommand (Claude Desktop / Cursor)
+  types.ts                # Shared TypeScript interfaces
   lib/
-    vault.ts         # Core vault ops (read, search, list, per-file locks,
-                     # symlink boundary, canvas round-trip)
-    markdown.ts      # Frontmatter, wikilinks, tags, alias-aware resolver
-    dates.ts         # Moment-style date format for daily-note filenames
-    errors.ts        # sanitizeError: strips absolute paths from fs errors
-    concurrency.ts   # Bounded-concurrency fan-out helper (tag/link scans)
-    logger.ts        # Leveled stderr logger (text + JSON modes)
+    vault.ts              # Core vault ops (read, search, list, per-file locks,
+                          # symlink boundary, canvas + base + attachment round-trip)
+    permissions.ts        # OBSIDIAN_READ_PATHS / OBSIDIAN_WRITE_PATHS allowlist
+    markdown.ts           # Frontmatter, wikilinks, tags, alias-aware resolver
+    sections.ts           # Heading parser, block-id parser, section bounds
+    tag-rewriter.ts       # Vault-wide tag rewriting (inline + frontmatter)
+    link-rewriter.ts      # Plan/apply edit pipeline used by move + delete
+    bases.ts              # Bases YAML parser + filter DSL evaluator
+    chunker.ts            # Heading-aware chunking for embeddings
+    embedding-providers.ts# Ollama + OpenAI providers
+    embedding-store.ts    # Persistent vector index, cosine search
+    index-cache.ts        # mtime-keyed content cache (in-memory + on-disk)
+    progress.ts           # MCP progress-notification helper
+    mime.ts               # extension -> MIME map for attachments
+    dates.ts              # Moment-style date format for daily-note filenames
+    errors.ts             # sanitizeError: strips absolute paths from fs errors
+    concurrency.ts        # Bounded-concurrency fan-out helper
+    logger.ts             # Leveled stderr logger (text + JSON modes)
   tools/
-    read.ts          # search_notes, get_note, list_notes, daily, frontmatter
-    write.ts         # create, append, prepend, update_frontmatter, move, delete
-    tags.ts          # get_tags, search_by_tag
-    links.ts         # backlinks, outlinks, orphans, broken, graph_neighbors
-    canvas.ts        # list, read, add_node, add_edge
+    read.ts               # search, get, list, daily, frontmatter, recent, stats, alias
+    write.ts              # create, append, prepend, update_frontmatter, move, delete
+    sections.ts           # update_section, insert_at_section, list_sections,
+                          # replace_in_note, edit_block
+    tags.ts               # get_tags, search_by_tag, rename_tag
+    links.ts              # backlinks, outlinks, orphans, broken, graph_neighbors
+    canvas.ts             # list, read, add_node, add_edge
+    bases.ts              # list_bases, read_base, query_base
+    attachments.ts        # list_attachments, find_unused_attachments, get_attachment
+    semantic.ts           # index_vault, search_semantic, find_similar_notes
+    prompts.ts            # daily-review, weekly-rollup, find-stale-notes,
+                          # extract-action-items, build-moc
   __tests__/
-    vault.test.ts       markdown.test.ts       tools.test.ts
-    security.test.ts    http-server.test.ts    semantics.test.ts
-    logger.test.ts
+    vault.test.ts            markdown.test.ts            tools.test.ts
+    security.test.ts         http-server.test.ts         semantics.test.ts
+    logger.test.ts           sections.test.ts            tag-rewriter.test.ts
+    bases.test.ts            permissions.test.ts         index-cache.test.ts
+    chunker.test.ts          embedding-store.test.ts     errors.test.ts
+    link-rewriter.test.ts
+    handlers/
+      read.test.ts          write.test.ts          tags.test.ts
+      links.test.ts         canvas.test.ts         attachments.test.ts
+      semantic.test.ts      harness.ts
 ```
 
 ---
@@ -432,11 +585,31 @@ src/
 npm test
 ```
 
-331 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Runs against Node 20 + 22 on Ubuntu, macOS, and Windows in CI.
+438 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
+
+```bash
+npm run lint       # eslint v9 + typescript-eslint v8 (flat config)
+npm run lint:fix   # auto-fix
+```
 
 ---
 
 ## What's New
+
+**Unreleased** brings the largest feature drop since v1.0:
+
+- **Surgical edits by heading and block id.** `update_section`, `insert_at_section`, `list_sections`, `replace_in_note`, `edit_block`, plus fragment retrieval modes on `get_note` (`section`, `block`, `lines`).
+- **Bases support.** `list_bases`, `read_base`, `query_base` for Obsidian's database-view files. First filesystem-only MCP server to ship native Bases.
+- **Semantic search.** `index_vault`, `search_semantic`, `find_similar_notes` backed by Ollama (default) or OpenAI. Persistent vector index with content-hash incremental updates.
+- **Attachments.** `list_attachments`, `find_unused_attachments`, `get_attachment` (returns image / audio / blob bytes inline).
+- **Tag renames vault-wide.** `rename_tag` rewrites both inline `#tag` and frontmatter `tags:` (hierarchical mode rebases nested sub-tags).
+- **Folder-scoped permissions.** `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists.
+- **Persistent mtime cache.** Vault-wide scans (`get_tags`, `search_notes`, `search_by_tag`) hydrate from `<vault>/.obsidian/cache/mcp-pro-index-cache.json` after a restart and stat-pass against current state, only re-reading changed notes.
+- **Quick wins.** `get_recent_notes`, `get_vault_stats`, `resolve_alias`.
+- **MCP prompts.** `daily-review`, `weekly-rollup`, `find-stale-notes`, `extract-action-items`, `build-moc`.
+- **Progress notifications** on `rename_tag`, `find_unused_attachments`, `index_vault`.
+- **Elicitation** on `delete_note(permanent: true)` for clients that support it.
+- **eslint** wired up with typescript-eslint flat config; `npm run lint` and `lint:fix`.
 
 **v1.7.0** — `delete_note` reference handling:
 

@@ -90,7 +90,7 @@ function createCodeBlockTracker(): (line: string) => boolean {
       prevWasBlank = true;
       return false;
     }
-    const indented = /^(    |\t)/.test(line);
+    const indented = /^( {4}|\t)/.test(line);
     if (indented && (insideIndentedCode || prevWasBlank)) {
       insideIndentedCode = true;
       prevWasBlank = false;

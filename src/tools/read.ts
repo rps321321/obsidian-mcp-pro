@@ -1,11 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { searchNotes, readNote, listNotes, getNoteStats } from "../lib/vault.js";
+import fs from "fs/promises";
+import path from "path";
+import { searchInContents, readNote, listNotes, getNoteStats, resolveVaultPathSafe } from "../lib/vault.js";
+import { readAllCached } from "../lib/index-cache.js";
 import { sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 import { formatMomentDate } from "../lib/dates.js";
-import { parseFrontmatter, extractTags } from "../lib/markdown.js";
+import { parseFrontmatter, extractTags, extractAliases } from "../lib/markdown.js";
+import { findSection, findBlockById, stripBlockId } from "../lib/sections.js";
 import { getDailyNoteConfig } from "../config.js";
 
 export function registerReadTools(server: McpServer, vaultPath: string): void {
@@ -50,10 +54,16 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     },
     async ({ query, caseSensitive, maxResults, folder }) => {
       try {
-        const results = await searchNotes(vaultPath, query, {
+        // Pull notes via the mtime cache so repeat searches with hot files
+        // skip re-reads. The pure matcher (`searchInContents`) does the
+        // line-level scan on the in-memory map.
+        const notes = await listNotes(vaultPath, folder);
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("search_notes: note read failed", { note, err });
+        });
+        const results = searchInContents(notes, contents, query, {
           caseSensitive,
           maxResults,
-          folder,
         });
 
         if (results.length === 0) {
@@ -95,7 +105,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     {
       title: "Get Note",
       description:
-        "Read the full content of a single note, including its parsed YAML frontmatter (rendered as a labeled header block), a flat list of inline #tags, and the markdown body. Use to retrieve a specific note by exact path — for discovery across many notes, prefer search_notes, search_by_tag, or list_notes.",
+        "Read a note in full or as a fragment. With no fragment options, returns parsed frontmatter (as a labeled header), a flat list of inline #tags, and the body. With `section`, returns just the body under that heading (path-form like 'Tasks/Today' is supported). With `block`, returns the paragraph or block tagged `^id`. With `lines`, returns the inclusive 1-indexed line range. Fragment modes skip the frontmatter/tag header and return raw text — use them to keep token usage tight on long notes.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -106,11 +116,74 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           .string()
           .min(1)
           .describe("Relative path from vault root to the note (e.g., 'folder/note.md'). Extension required."),
+        section: z
+          .string()
+          .optional()
+          .describe("Heading path (e.g., 'Tasks' or 'Project A/Status'). Returns just that section's body."),
+        block: z
+          .string()
+          .optional()
+          .describe("Block id (without the leading `^`). Returns just the paragraph or block tagged with that id."),
+        lines: z
+          .string()
+          .regex(/^\d+(-\d+)?$/, "Must be N or N-M (1-indexed, inclusive)")
+          .optional()
+          .describe("Line range, 1-indexed and inclusive (e.g., '10-25' or '42'). Returns just those lines."),
       },
     },
-    async ({ path: notePath }) => {
+    async ({ path: notePath, section, block, lines }) => {
       try {
         const content = await readNote(vaultPath, notePath);
+
+        // Fragment modes are mutually exclusive — picking one skips the
+        // frontmatter/tag header and returns raw text. Mode order: section
+        // first (most user-facing), then block, then lines.
+        if (section) {
+          const headingPath = section.split("/").map((s) => s.trim()).filter(Boolean);
+          const found = findSection(content, headingPath);
+          if (!found) {
+            return errorResult(`Section not found: "${section}" in ${notePath}`);
+          }
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: content.slice(found.start, found.end),
+              },
+            ],
+          };
+        }
+
+        if (block) {
+          const found = findBlockById(content, block);
+          if (!found) {
+            return errorResult(`Block not found: "^${block}" in ${notePath}`);
+          }
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: stripBlockId(content.slice(found.start, found.end)),
+              },
+            ],
+          };
+        }
+
+        if (lines) {
+          const allLines = content.split("\n");
+          const m = /^(\d+)(?:-(\d+))?$/.exec(lines);
+          if (!m) return errorResult(`Invalid lines format: "${lines}"`);
+          const a = Math.max(1, Number(m[1]));
+          const b = m[2] ? Math.max(a, Number(m[2])) : a;
+          if (a > allLines.length) {
+            return errorResult(`Line ${a} is past end of file (${allLines.length} lines)`);
+          }
+          const slice = allLines.slice(a - 1, Math.min(b, allLines.length));
+          return {
+            content: [{ type: "text" as const, text: slice.join("\n") }],
+          };
+        }
+
         const { data: frontmatterData, content: bodyContent } = parseFrontmatter(content);
 
         const header: string[] = [];
@@ -369,4 +442,270 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       }
     },
   );
+
+  server.registerTool(
+    "get_recent_notes",
+    {
+      title: "Get Recent Notes",
+      description:
+        "List notes ordered by most-recently-modified first. Optional `since` filter accepts an ISO date (e.g. '2026-04-01') or a relative span ('7d', '24h', '2w'); only notes modified at or after that time are returned. Use to surface what you've been working on, build a 'what changed this week' digest, or pick targets for review.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .default(20)
+          .describe("Maximum number of notes to return (1-1000, default: 20)."),
+        since: z
+          .string()
+          .optional()
+          .describe("Filter to notes modified at or after this point. Accepts ISO 8601 (YYYY-MM-DD or full timestamp) or a relative span like '7d', '24h', '2w'."),
+        folder: z
+          .string()
+          .optional()
+          .describe("Restrict to notes within this folder (relative to vault root). Omit to scan the entire vault."),
+      },
+    },
+    async ({ limit, since, folder }) => {
+      try {
+        const sinceMs = since ? parseSince(since) : null;
+        if (since && sinceMs === null) {
+          return errorResult(`Invalid 'since' value: "${since}". Use ISO date or relative span like '7d', '24h', '2w'.`);
+        }
+        const notes = await listNotes(vaultPath, folder);
+
+        // Stat each note for mtime. fs.stat is one syscall and bypasses the
+        // content cache deliberately — we don't need bodies, only timestamps.
+        type Row = { path: string; mtimeMs: number };
+        const stats = await mapConcurrent<string, Row | undefined>(
+          notes,
+          16,
+          async (notePath) => {
+            try {
+              const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
+              const st = await fs.stat(fullPath);
+              return { path: notePath, mtimeMs: st.mtimeMs };
+            } catch {
+              return undefined;
+            }
+          },
+        );
+
+        const rows: Row[] = [];
+        for (const r of stats) {
+          if (!r) continue;
+          if (sinceMs !== null && r.mtimeMs < sinceMs) continue;
+          rows.push(r);
+        }
+        rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
+        const top = rows.slice(0, limit);
+
+        if (top.length === 0) {
+          return { content: [{ type: "text" as const, text: since ? `No notes modified since ${since}.` : "No notes in the vault." }] };
+        }
+
+        const lines: string[] = [
+          `${rows.length} note(s)${since ? ` modified since ${since}` : ""}${rows.length > limit ? ` (showing first ${limit})` : ""}:`,
+          "",
+        ];
+        for (const r of top) {
+          const iso = new Date(r.mtimeMs).toISOString();
+          lines.push(`- ${r.path}  (${iso})`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (err) {
+        log.error("get_recent_notes failed", { tool: "get_recent_notes", err: err as Error });
+        return errorResult(`Error listing recent notes: ${sanitizeError(err)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_vault_stats",
+    {
+      title: "Get Vault Stats",
+      description:
+        "Return a quick health snapshot of the vault: note count, total bytes, total words, unique tag count, untagged-note count, and the most-recently-modified note. Useful for dashboards and 'is this vault healthy?' checks. Reads through the mtime cache so repeat calls are cheap.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        folder: z
+          .string()
+          .optional()
+          .describe("Restrict stats to this folder (relative to vault root). Omit for whole-vault stats."),
+      },
+    },
+    async ({ folder }) => {
+      try {
+        const notes = await listNotes(vaultPath, folder);
+        if (notes.length === 0) {
+          return { content: [{ type: "text" as const, text: folder ? `No notes in "${folder}"` : "Vault is empty." }] };
+        }
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("get_vault_stats: note read failed", { note, err });
+        });
+
+        let totalBytes = 0;
+        let totalWords = 0;
+        let untagged = 0;
+        const tagSet = new Set<string>();
+        for (const notePath of notes) {
+          const content = contents.get(notePath);
+          if (content === undefined) continue;
+          totalBytes += Buffer.byteLength(content, "utf-8");
+          // Word count: parse frontmatter out so YAML keys don't inflate
+          // the count, then split body on whitespace.
+          const { content: body } = parseFrontmatter(content);
+          const matches = body.match(/\S+/g);
+          totalWords += matches ? matches.length : 0;
+          const tags = extractTags(content);
+          if (tags.length === 0) untagged++;
+          for (const t of tags) tagSet.add(t.toLowerCase());
+        }
+
+        // Most recent note via fs.stat — keep this independent of the cache
+        // so it's accurate even if the cache hasn't been touched yet.
+        let mostRecent: { path: string; mtimeMs: number } | null = null;
+        const stats = await mapConcurrent<string, { path: string; mtimeMs: number } | undefined>(
+          notes,
+          16,
+          async (notePath) => {
+            try {
+              const st = await getNoteStats(vaultPath, notePath);
+              if (!st.modified) return undefined;
+              return { path: notePath, mtimeMs: st.modified.getTime() };
+            } catch {
+              return undefined;
+            }
+          },
+        );
+        for (const s of stats) {
+          if (!s) continue;
+          if (!mostRecent || s.mtimeMs > mostRecent.mtimeMs) mostRecent = s;
+        }
+
+        const avgBytes = Math.round(totalBytes / notes.length);
+        const avgWords = Math.round(totalWords / notes.length);
+        const untaggedPct = ((untagged / notes.length) * 100).toFixed(1);
+        const lines = [
+          `Vault stats${folder ? ` (folder: ${folder})` : ""}`,
+          "",
+          `  Notes:           ${notes.length}`,
+          `  Total bytes:     ${totalBytes.toLocaleString()}`,
+          `  Total words:     ${totalWords.toLocaleString()}`,
+          `  Avg bytes/note:  ${avgBytes.toLocaleString()}`,
+          `  Avg words/note:  ${avgWords.toLocaleString()}`,
+          `  Unique tags:     ${tagSet.size}`,
+          `  Untagged notes:  ${untagged} (${untaggedPct}%)`,
+          mostRecent
+            ? `  Most recent:     ${mostRecent.path} (${new Date(mostRecent.mtimeMs).toISOString()})`
+            : `  Most recent:     (none)`,
+        ];
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (err) {
+        log.error("get_vault_stats failed", { tool: "get_vault_stats", err: err as Error });
+        return errorResult(`Error gathering vault stats: ${sanitizeError(err)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "resolve_alias",
+    {
+      title: "Resolve Alias",
+      description:
+        "Find every note whose frontmatter `aliases:` field contains the given name (case-insensitive). With `includeBasename: true`, also matches notes whose filename (without `.md`) equals the name — Obsidian's resolution fallback when no alias matches. Use to translate a human-friendly title like 'My Project' into the actual note path before calling get_note.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        name: z
+          .string()
+          .min(1)
+          .describe("Alias or display name to resolve, e.g. 'My Project'."),
+        includeBasename: z
+          .boolean()
+          .optional()
+          .default(true)
+          .describe("If true (default), also match notes whose filename (without extension) equals `name`."),
+      },
+    },
+    async ({ name, includeBasename }) => {
+      try {
+        const target = name.trim().toLowerCase();
+        if (!target) return errorResult("name must not be empty");
+        const notes = await listNotes(vaultPath);
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("resolve_alias: note read failed", { note, err });
+        });
+
+        const aliasMatches: string[] = [];
+        const basenameMatches: string[] = [];
+        for (const notePath of notes) {
+          if (includeBasename) {
+            const basename = path.basename(notePath, path.extname(notePath)).toLowerCase();
+            if (basename === target) basenameMatches.push(notePath);
+          }
+          const content = contents.get(notePath);
+          if (content === undefined) continue;
+          const aliases = extractAliases(content);
+          if (aliases.some((a) => a.toLowerCase() === target)) aliasMatches.push(notePath);
+        }
+
+        const total = aliasMatches.length + basenameMatches.length;
+        if (total === 0) {
+          return { content: [{ type: "text" as const, text: `No alias or basename match for "${name}"` }] };
+        }
+
+        const lines: string[] = [`Matches for "${name}":`, ""];
+        if (aliasMatches.length > 0) {
+          lines.push(`Alias matches (${aliasMatches.length}):`);
+          for (const p of aliasMatches) lines.push(`  - ${p}`);
+        }
+        if (basenameMatches.length > 0) {
+          if (aliasMatches.length > 0) lines.push("");
+          lines.push(`Basename matches (${basenameMatches.length}):`);
+          for (const p of basenameMatches) lines.push(`  - ${p}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (err) {
+        log.error("resolve_alias failed", { tool: "resolve_alias", err: err as Error });
+        return errorResult(`Error resolving alias: ${sanitizeError(err)}`);
+      }
+    },
+  );
+}
+
+/**
+ * Parse a `since` filter into milliseconds-since-epoch. Accepts ISO 8601
+ * (YYYY-MM-DD or full timestamp) or relative spans of the form `<n><unit>`
+ * where unit is `h` (hours), `d` (days), or `w` (weeks). Returns null on
+ * unrecognized input so callers can surface a precise error.
+ */
+function parseSince(input: string): number | null {
+  const trimmed = input.trim();
+  // Relative span: 7d, 24h, 2w
+  const rel = trimmed.match(/^(\d+)\s*(h|d|w)$/i);
+  if (rel) {
+    const n = Number(rel[1]);
+    const unit = rel[2].toLowerCase();
+    const ms = unit === "h" ? 3600_000 : unit === "d" ? 86_400_000 : 7 * 86_400_000;
+    return Date.now() - n * ms;
+  }
+  // ISO date: YYYY-MM-DD or full timestamp.
+  const parsed = Date.parse(trimmed);
+  if (!Number.isNaN(parsed)) return parsed;
+  return null;
 }

@@ -9,6 +9,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
 import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
+import { describePermissions } from "./lib/permissions.js";
+import { flushAllCachesAsync } from "./lib/index-cache.js";
 import { mapConcurrent } from "./lib/concurrency.js";
 import { extractTags } from "./lib/markdown.js";
 import { log, configureLogger } from "./lib/logger.js";
@@ -19,6 +21,11 @@ import { registerWriteTools } from "./tools/write.js";
 import { registerTagTools } from "./tools/tags.js";
 import { registerLinkTools } from "./tools/links.js";
 import { registerCanvasTools } from "./tools/canvas.js";
+import { registerSectionTools } from "./tools/sections.js";
+import { registerBaseTools } from "./tools/bases.js";
+import { registerAttachmentTools } from "./tools/attachments.js";
+import { registerSemanticTools } from "./tools/semantic.js";
+import { registerPrompts } from "./tools/prompts.js";
 import { startHttpServer } from "./http-server.js";
 import { runInstall, type InstallClient } from "./install.js";
 
@@ -147,6 +154,8 @@ Install options:
 Env vars:
   OBSIDIAN_VAULT_PATH     Vault to serve (else auto-detected from Obsidian config)
   OBSIDIAN_VAULT_NAME     Select a named vault when multiple exist
+  OBSIDIAN_READ_PATHS     Comma/colon list of folders read tools may access
+  OBSIDIAN_WRITE_PATHS    Comma/colon list of folders write tools may modify
   MCP_HTTP_TOKEN          Default bearer token for --transport=http
   LOG_LEVEL               debug|info|warn|error|silent (default: info)
   LOG_FORMAT              text|json (default: text)
@@ -178,8 +187,10 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       // to filter server-side logs at runtime, and lets the server push
       // structured `notifications/message` events alongside tool responses.
       // Logger forwarding is wired up by callers via `configureLogger` once
-      // the server instance is available.
-      capabilities: { logging: {} },
+      // the server instance is available. `prompts` advertises that the
+      // server hosts callable starter templates (registered via
+      // `registerPrompts`).
+      capabilities: { logging: {}, prompts: { listChanged: false } },
     },
   );
 
@@ -299,6 +310,11 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
   registerTagTools(server, vaultForTools);
   registerLinkTools(server, vaultForTools);
   registerCanvasTools(server, vaultForTools);
+  registerSectionTools(server, vaultForTools);
+  registerBaseTools(server, vaultForTools);
+  registerAttachmentTools(server, vaultForTools);
+  registerSemanticTools(server, vaultForTools);
+  registerPrompts(server);
   if (!vaultPath) {
     log.warn(`Tools registered but vault unconfigured — calls will return errors`);
   }
@@ -364,7 +380,12 @@ async function main(): Promise<void> {
       buildMcpServer: () => buildMcpServer(vaultPath),
       version: readPackageVersion(),
     });
-    log.info(`Vault configured`, { vault: vaultPath ?? "(not configured)" });
+    const perms = describePermissions();
+    log.info(`Vault configured`, {
+      vault: vaultPath ?? "(not configured)",
+      readPaths: perms.read,
+      writePaths: perms.write,
+    });
     return;
   }
 
@@ -376,7 +397,12 @@ async function main(): Promise<void> {
   configureLogger({ mcpServer: server });
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  log.info(`Server started (stdio)`, { vault: vaultPath ?? "(not configured)" });
+  const perms = describePermissions();
+  log.info(`Server started (stdio)`, {
+    vault: vaultPath ?? "(not configured)",
+    readPaths: perms.read,
+    writePaths: perms.write,
+  });
 }
 
 export { startHttpServer, type HttpServerHandle, type HttpServerOptions } from "./http-server.js";
@@ -417,6 +443,28 @@ function installProcessErrorHandlers(): void {
     log.error("Uncaught exception", { err });
     process.exit(1);
   });
+
+  // Flush the index cache to disk on graceful shutdown so the next run can
+  // skip re-reading every note. `beforeExit` is the right hook for clean
+  // exits; SIGINT/SIGTERM handlers re-raise after the flush so the process
+  // still terminates with the expected exit code. We do NOT flush from
+  // `uncaughtException` — the process is in undefined state and writing
+  // could corrupt the snapshot.
+  let flushed = false;
+  const flush = async (): Promise<void> => {
+    if (flushed) return;
+    flushed = true;
+    try { await flushAllCachesAsync(); } catch { /* best-effort */ }
+  };
+  process.on("beforeExit", () => { void flush(); });
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, async () => {
+      await flush();
+      // Restore default behavior so the second signal terminates promptly.
+      process.removeAllListeners(sig);
+      process.kill(process.pid, sig);
+    });
+  }
 }
 
 if (isCliEntry()) {
