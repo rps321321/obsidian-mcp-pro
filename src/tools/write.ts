@@ -387,6 +387,47 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     async ({ path: notePath, permanent, removeReferences }) => {
       try {
         const resolvedPath = ensureMdExtension(notePath);
+
+        // Elicit a typed confirmation before permanent deletion if the client
+        // supports form elicitation. Trash deletes (`permanent: false`) are
+        // recoverable, so we don't gate them. Errors from the elicit path
+        // (network blip, schema mismatch) fall through to the delete: the
+        // tool annotation `destructiveHint: true` already gives the host a
+        // chance to confirm, so this is a defense-in-depth check, not a
+        // mandatory gate.
+        const caps = server.server.getClientCapabilities();
+        if (permanent && caps?.elicitation?.form) {
+          try {
+            const elicit = await server.server.elicitInput({
+              message:
+                `Permanently delete "${resolvedPath}" from the vault?` +
+                (removeReferences ? " References across the vault will also be stripped." : "") +
+                ` This cannot be undone. Type the note's path to confirm.`,
+              requestedSchema: {
+                type: "object",
+                properties: {
+                  confirmPath: {
+                    type: "string",
+                    description: "Re-type the path to confirm permanent deletion.",
+                  },
+                },
+                required: ["confirmPath"],
+              },
+            });
+            if (elicit.action !== "accept") {
+              return textResult(`Deletion of "${resolvedPath}" cancelled.`);
+            }
+            const confirmed = (elicit.content as { confirmPath?: unknown } | undefined)?.confirmPath;
+            if (typeof confirmed !== "string" || confirmed.trim() !== resolvedPath) {
+              return errorResult(
+                `Confirmation path did not match "${resolvedPath}"; deletion aborted.`,
+              );
+            }
+          } catch (err) {
+            log.warn("delete_note: elicitation skipped", { err: err as Error });
+          }
+        }
+
         const result = await deleteNote(vaultPath, resolvedPath, { permanent, removeReferences });
         const method = permanent ? "permanently deleted" : "moved to trash";
         const lines: string[] = [`Note '${resolvedPath}' ${method}.`];

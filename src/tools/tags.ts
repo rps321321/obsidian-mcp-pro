@@ -1,12 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes, readNote } from "../lib/vault.js";
+import { listNotes, readNote, updateNote } from "../lib/vault.js";
 import { extractTags } from "../lib/markdown.js";
+import { rewriteAllTags } from "../lib/tag-rewriter.js";
+import { readAllCached } from "../lib/index-cache.js";
+import { makeProgressReporter } from "../lib/progress.js";
 import { sanitizeError } from "../lib/errors.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 import { log } from "../lib/logger.js";
 
-const READ_CONCURRENCY = 16;
 import type { TagInfo } from "../types.js";
 
 function errorResult(text: string) {
@@ -38,19 +40,16 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         const notes = await listNotes(vaultPath);
         const tagMap = new Map<string, { tag: string; files: Set<string> }>();
 
-        const contents = await mapConcurrent(
-          notes,
-          READ_CONCURRENCY,
-          (notePath) => readNote(vaultPath, notePath),
-          (err, notePath) => {
-            log.warn("get_tags: note read failed", { note: notePath, err: err as Error });
-          },
-        );
+        // Cached batch read: re-uses content for files whose mtime hasn't
+        // moved since the last vault-wide scan. Per-file failures are
+        // logged and dropped so one unreadable note can't abort the index.
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("get_tags: note read failed", { note, err });
+        });
 
-        for (let i = 0; i < notes.length; i++) {
-          const content = contents[i];
+        for (const notePath of notes) {
+          const content = contents.get(notePath);
           if (content === undefined) continue;
-          const notePath = notes[i];
           const tags = extractTags(content);
           for (const tag of tags) {
             const normalizedTag = tag.toLowerCase();
@@ -132,21 +131,15 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         const searchTag = tag.replace(/^#/, "").toLowerCase();
         const notes = await listNotes(vaultPath);
 
-        const contents = await mapConcurrent(
-          notes,
-          READ_CONCURRENCY,
-          (notePath) => readNote(vaultPath, notePath),
-          (err, notePath) => {
-            log.warn("search_by_tag: note read failed", { note: notePath, err: err as Error });
-          },
-        );
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("search_by_tag: note read failed", { note, err });
+        });
 
         const matchingNotes: { path: string; preview?: string }[] = [];
-        for (let i = 0; i < notes.length; i++) {
+        for (const notePath of notes) {
           if (matchingNotes.length >= maxResults) break;
-          const content = contents[i];
+          const content = contents.get(notePath);
           if (content === undefined) continue;
-          const notePath = notes[i];
           const tags = extractTags(content);
           const hasMatch = tags.some((t) => {
             const normalized = t.toLowerCase();
@@ -187,6 +180,102 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
       } catch (err) {
         log.error("search_by_tag failed", { tool: "search_by_tag", err: err as Error });
         return errorResult(`Error searching by tag: ${sanitizeError(err)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "rename_tag",
+    {
+      title: "Rename Tag",
+      description:
+        "Rename a tag everywhere it appears across the vault, in both inline #tags and frontmatter `tags:` fields. With `hierarchical: true` (default), nested tags also rebase: renaming `project` to `client` also renames `project/alpha` → `client/alpha`. With `dryRun: true`, returns the planned counts without writing. Strip the leading `#` from oldName/newName — they're tag names, not tag tokens.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        oldName: z
+          .string()
+          .min(1)
+          .regex(/^[^#\s/][^\s]*$/, "Tag name must not start with # or whitespace; pass the bare name")
+          .describe("Existing tag name (without leading #), e.g. 'project'."),
+        newName: z
+          .string()
+          .min(1)
+          .regex(/^[^#\s/][^\s]*$/, "Tag name must not start with # or whitespace; pass the bare name")
+          .describe("New tag name (without leading #), e.g. 'client'."),
+        hierarchical: z
+          .boolean()
+          .optional()
+          .default(true)
+          .describe("Also rename nested sub-tags (default: true)."),
+        dryRun: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("If true, count matches without modifying any notes."),
+      },
+    },
+    async ({ oldName, newName, hierarchical, dryRun }, extra) => {
+      try {
+        if (oldName === newName) return errorResult("oldName and newName must differ");
+        const notes = await listNotes(vaultPath);
+        const opts = { oldName, newName, hierarchical };
+        const reportProgress = makeProgressReporter(extra);
+
+        let updatedFiles = 0;
+        let totalInline = 0;
+        let totalFrontmatter = 0;
+        let processed = 0;
+        const failed: Array<{ path: string; error: string }> = [];
+
+        await mapConcurrent(
+          notes,
+          8,
+          async (notePath) => {
+            try {
+              const original = await readNote(vaultPath, notePath);
+              const result = rewriteAllTags(original, opts);
+              const totalCount = result.inlineCount + result.frontmatterCount;
+              if (totalCount > 0) {
+                if (!dryRun && result.content !== original) {
+                  await updateNote(vaultPath, notePath, () => result.content);
+                }
+                updatedFiles++;
+                totalInline += result.inlineCount;
+                totalFrontmatter += result.frontmatterCount;
+              }
+            } catch (err) {
+              failed.push({ path: notePath, error: (err as Error).message });
+            }
+            processed++;
+            await reportProgress(processed, notes.length, `Scanned ${processed}/${notes.length} notes`);
+            return undefined;
+          },
+          (err, notePath) => {
+            log.warn("rename_tag: note read failed", { note: notePath, err: err as Error });
+          },
+        );
+
+        const verb = dryRun ? "Would rewrite" : "Rewrote";
+        const lines = [
+          `${verb} #${oldName} → #${newName}${hierarchical ? " (and nested sub-tags)" : ""}`,
+          `  Files affected: ${updatedFiles}`,
+          `  Inline #tag occurrences: ${totalInline}`,
+          `  Frontmatter occurrences: ${totalFrontmatter}`,
+        ];
+        if (failed.length > 0) {
+          lines.push(`  Skipped due to errors: ${failed.length}`);
+          for (const f of failed.slice(0, 5)) lines.push(`    - ${f.path}: ${sanitizeError(f.error)}`);
+          if (failed.length > 5) lines.push(`    ...and ${failed.length - 5} more`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (err) {
+        log.error("rename_tag failed", { tool: "rename_tag", err: err as Error });
+        return errorResult(`Error renaming tag: ${sanitizeError(err)}`);
       }
     },
   );

@@ -1,7 +1,5 @@
 import fs from "fs/promises";
-import path from "path";
 import {
-  listNotes,
   listCanvasFiles,
   readNote,
   readCanvasFile,
@@ -347,7 +345,7 @@ export async function applyRewrites(
       const edits = plan.notes.get(notePath);
       if (!edits || edits.length === 0) return undefined;
       try {
-        const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
+        const fullPath = await resolveVaultPathSafe(vaultPath, notePath, "write");
         let didWrite = false;
         await withFileLock(fullPath, async () => {
           // Re-read inside the lock so we apply edits to current content.
@@ -380,7 +378,7 @@ export async function applyRewrites(
   // Canvas pass.
   for (const cp of plan.canvases) {
     try {
-      const fullPath = await resolveVaultPathSafe(vaultPath, cp);
+      const fullPath = await resolveVaultPathSafe(vaultPath, cp, "write");
       let didWrite = false;
       await withFileLock(fullPath, async () => {
         const raw = await fs.readFile(fullPath, "utf-8");

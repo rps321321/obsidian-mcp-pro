@@ -7,6 +7,135 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Section / heading / block surgical edits.** New `lib/sections.ts` parser
+  drives a family of fragment-aware tools so an LLM can edit a single
+  paragraph without rewriting the file:
+  - `update_section` replaces the body under a heading path
+    (`'Tasks'` or `'Project A/Status'`); the heading line itself is
+    preserved.
+  - `insert_at_section` adds content `before` the heading, `after-heading`
+    (under the heading), or `append` (at the end of the section body).
+  - `list_sections` returns the heading outline of a note.
+  - `replace_in_note` does string or regex find-replace within one note,
+    with an optional `expectedCount` guard that aborts if the LLM's pattern
+    over- or under-matches.
+  - `edit_block` rewrites a paragraph tagged with `^id` while preserving
+    the anchor so existing `![[note#^id]]` transclusions still resolve.
+  - `get_note` grew three fragment-retrieval modes — `section`, `block`,
+    and `lines` — that return raw text without the frontmatter/tag
+    header so token usage stays tight on long notes.
+- **Bases support.** First filesystem-only Obsidian MCP server with native
+  `.base` support. New `list_bases`, `read_base`, and `query_base` tools
+  parse the YAML, evaluate a useful subset of the filter DSL
+  (`taggedWith()`, `file.hasTag()`, `file.inFolder()`,
+  `==`/`!=`/`>`/`>=`/`<`/`<=`/`contains`/`startsWith`/`endsWith`,
+  `and:`/`or:`/`not:`), apply view-level filters and ordering, and surface
+  unrecognized clauses as warnings rather than silently dropping rows.
+- **`rename_tag` tool.** Rebuilds inline `#tag` occurrences and frontmatter
+  `tags:` arrays (and comma-strings) across the entire vault. Defaults to
+  hierarchical mode so renaming `project` → `client` also rewrites
+  `project/alpha` → `client/alpha`. `dryRun: true` reports counts without
+  touching disk.
+- **`OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists.** Folder-
+  scoped permissions enforced at the single `resolveVaultPath` choke point.
+  Read and write are independent so an audit user can be read-only on most
+  of the vault but write-only to `Drafts/`. The startup log line and
+  `--help` advertise the active scope.
+- **MCP prompts.** New `daily-review`, `weekly-rollup`, `find-stale-notes`,
+  `extract-action-items`, and `build-moc` starter templates surfaced via
+  the prompts capability so clients (Claude Desktop, Cursor) can offer
+  them in their slash-command palettes.
+- **mtime-keyed content cache, persistent across restarts**
+  (`lib/index-cache.ts`). Vault-wide scans (`get_tags`, `search_notes`,
+  `search_by_tag`, anything that reads every note) now stat each file and
+  only re-read entries whose mtime has moved since the last query. The
+  snapshot is written to `<vault>/.obsidian/cache/mcp-pro-index-cache.json`
+  (debounced + flushed on shutdown via SIGINT/SIGTERM/beforeExit), so the
+  next process start hydrates from disk and serves a 4k-note vault from
+  cache after one stat-pass. Vault relocations invalidate the snapshot via
+  the embedded `vaultRoot` check; persistence can be turned off with
+  `OBSIDIAN_CACHE_DISABLED=1`.
+- **`searchNotes` split into a pure scanner + I/O wrapper.** The
+  `search_notes` tool now feeds the cache's content map into
+  `searchInContents`, so repeat searches with hot files skip re-reads and
+  hit only the in-memory matching loop. The library API `searchNotes`
+  retains its prior signature for non-tool callers.
+- **eslint** wired up via `eslint.config.js` (flat config, eslint v9 +
+  typescript-eslint v8). New scripts: `npm run lint`, `npm run lint:fix`.
+  First pass surfaced and fixed: 4 unused imports
+  (`http-server.test.ts`, `link-rewriter.ts`, `permissions.ts`), an
+  ambiguous multi-space indented-code regex in `markdown.ts`, and a
+  `let`-should-be-`const` in `sections.ts`. Lint passes clean now.
+- **`get_recent_notes`** tool. Lists notes sorted by mtime (most recent
+  first), with optional `since` filter accepting ISO dates
+  (`2026-04-01`, `2026-04-01T12:00:00Z`) or relative spans
+  (`24h`, `7d`, `2w`). Use to power "what changed this week" digests.
+- **`get_vault_stats`** tool. One-shot health snapshot: note count,
+  total bytes, total words, average bytes/words per note, unique tag
+  count, untagged-note count and %, plus the path of the most recently
+  modified note. Optionally folder-scoped. Reads through the mtime cache
+  so repeat calls cost stat-only.
+- **`resolve_alias`** tool. Translate a human-friendly title like
+  `"My Project"` into the actual note path by matching frontmatter
+  `aliases:` (case-insensitive). With `includeBasename: true` (default),
+  also matches notes whose filename equals the requested name —
+  Obsidian's resolution fallback when no alias matches.
+- **`list_attachments`** tool. Enumerates every non-md/canvas/base file
+  in the vault (images, PDFs, audio/video, anything pasted in). Returns
+  a sorted list plus a per-extension count summary. Optionally filtered
+  to a single extension.
+- **`find_unused_attachments`** tool. Locates attachments no note
+  references via `![[file]]` embeds or `[text](file)` markdown links —
+  flag for the vault hygiene pass. With `includeBytes: true`, also
+  reports total reclaimable bytes per file. Resolution mirrors
+  Obsidian's: exact relative path first, then basename match.
+- **Progress notifications** on long-running scans. When a client
+  passes `_meta.progressToken` on the tool call, `rename_tag` and
+  `find_unused_attachments` now emit throttled `notifications/progress`
+  events as they walk the vault, so clients can render a spinner / bar
+  instead of a frozen tool call. New `lib/progress.ts` helper. No-op
+  for clients that don't subscribe.
+- **`get_attachment` tool.** Reads an attachment file and returns its
+  bytes to the client. Images come back as `image` content blocks
+  (rendered inline by Claude / Cursor), audio as `audio` blocks, all
+  other types as base64 `resource` blocks with a `vault://` URI.
+  Default cap of 5 MB, hard cap 50 MB; markdown / canvas / base files
+  are explicitly rejected so callers don't pull text-format files
+  through the binary path. Includes a small `lib/mime.ts` extension
+  → MIME map covering the formats Obsidian users actually paste in.
+- **Semantic search.** First filesystem-only Obsidian MCP server with
+  full embedding-based retrieval that doesn't require the Smart
+  Connections plugin. Three new tools:
+  - `index_vault` chunks each note (heading-aware, with paragraph and
+    sliding-window fallbacks for oversized sections), embeds every
+    chunk via the configured provider, and persists to
+    `<vault>/.obsidian/cache/mcp-pro-embeddings.json`. Incremental:
+    notes whose content hash matches the prior pass are skipped;
+    pass `force: true` to re-embed everything (e.g. after switching
+    models). Emits progress notifications.
+  - `search_semantic` embeds the query, scores every chunk by cosine
+    similarity, deduplicates to one hit per note, and returns the
+    top-K with snippets.
+  - `find_similar_notes` walks an existing note's chunks against the
+    rest of the index — no live embedding call needed.
+
+  Pluggable providers via env (`OBSIDIAN_EMBEDDING_PROVIDER`,
+  `OBSIDIAN_EMBEDDING_MODEL`, `OBSIDIAN_EMBEDDING_URL`,
+  `OBSIDIAN_EMBEDDING_API_KEY`): Ollama (default, local,
+  `nomic-embed-text` model out of the box) or OpenAI. Switching
+  providers / models invalidates the cached vectors automatically via
+  the snapshot envelope. Tools register even when no provider is
+  configured so they're discoverable; calls return a configuration
+  hint until set up.
+- **Elicitation flow on permanent delete.** When the connected client
+  advertises `elicitation: { form: {} }`, `delete_note(permanent: true)`
+  asks the user to retype the note path before the unlink commits. Falls
+  through silently for clients that don't support elicitation; the
+  existing `destructiveHint: true` annotation still gives the host a
+  chance to confirm.
+
 ## [1.7.2] - 2026-05-01
 
 ### Fixed

@@ -61,6 +61,11 @@ export function sanitizeError(err: unknown): string {
  * doors.
  */
 export function escapeControlChars(s: string): string {
+  // The control-char range is the whole point of this function — escape
+  // anything below ASCII space plus DEL so log lines can't be smuggled
+  // newlines or terminal-control sequences. The eslint rule is right to
+  // flag this in general; here it's the explicit intent.
+  // eslint-disable-next-line no-control-regex
   return s.replace(/[\x00-\x1f\x7f]/g, (c) => {
     if (c === "\n") return "\\n";
     if (c === "\r") return "\\r";

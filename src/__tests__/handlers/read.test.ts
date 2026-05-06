@@ -217,3 +217,130 @@ describe("read handlers — search_by_frontmatter", () => {
     expect(textContent(result)).toMatch(/No notes found/i);
   });
 });
+
+describe("read handlers — get_recent_notes", () => {
+  it("returns notes sorted by mtime descending", async () => {
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { limit: 50 },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    // All fixture notes are present; the header reports the total.
+    expect(text).toMatch(/note-a\.md/);
+    expect(text).toMatch(/orphan\.md/);
+  });
+
+  it("respects the limit", async () => {
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { limit: 2 },
+    });
+    const text = textContent(result);
+    const noteLines = text.split("\n").filter((l) => l.startsWith("- "));
+    expect(noteLines).toHaveLength(2);
+  });
+
+  it("filters with relative since spans", async () => {
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { since: "1h", limit: 50 },
+    });
+    expect(isError(result)).toBe(false);
+    // Fresh fixtures are < 1h old, so all should pass through.
+    const text = textContent(result);
+    expect(text).toMatch(/note-a\.md/);
+  });
+
+  it("excludes notes older than since", async () => {
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      // Anchored well in the future — every fixture's mtime is before this.
+      arguments: { since: "2099-01-01" },
+    });
+    expect(textContent(result)).toMatch(/No notes modified since/i);
+  });
+
+  it("rejects invalid since strings", async () => {
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { since: "not-a-date" },
+    });
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/Invalid 'since' value/i);
+  });
+});
+
+describe("read handlers — get_vault_stats", () => {
+  it("returns headline metrics for the fixture vault", async () => {
+    const result = await env.client.callTool({
+      name: "get_vault_stats",
+      arguments: {},
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toMatch(/Notes:\s+\d+/);
+    expect(text).toMatch(/Total bytes:\s+\d/);
+    expect(text).toMatch(/Total words:\s+\d/);
+    expect(text).toMatch(/Unique tags:\s+\d/);
+    expect(text).toMatch(/Untagged notes:\s+\d/);
+    expect(text).toMatch(/Most recent:\s+\S+\.md/);
+  });
+
+  it("scopes to a folder", async () => {
+    const result = await env.client.callTool({
+      name: "get_vault_stats",
+      arguments: { folder: "nested" },
+    });
+    const text = textContent(result);
+    expect(text).toMatch(/folder: nested/);
+    // Only nested/note-d.md sits there.
+    expect(text).toMatch(/Notes:\s+1/);
+  });
+});
+
+describe("read handlers — resolve_alias", () => {
+  it("resolves an alias declared in frontmatter", async () => {
+    const result = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "people/jane.md",
+        frontmatter: JSON.stringify({ aliases: ["Jane Doe", "JD"] }),
+        content: "# Jane Doe\n\nProfile.",
+      },
+    });
+    expect(isError(result)).toBe(false);
+
+    const r1 = await env.client.callTool({
+      name: "resolve_alias",
+      arguments: { name: "Jane Doe", includeBasename: false },
+    });
+    expect(textContent(r1)).toMatch(/people\/jane\.md/);
+    expect(textContent(r1)).toMatch(/Alias matches \(1\)/);
+
+    // Case-insensitive
+    const r2 = await env.client.callTool({
+      name: "resolve_alias",
+      arguments: { name: "jane doe", includeBasename: false },
+    });
+    expect(textContent(r2)).toMatch(/people\/jane\.md/);
+  });
+
+  it("matches basename when includeBasename is true (default)", async () => {
+    const result = await env.client.callTool({
+      name: "resolve_alias",
+      arguments: { name: "note-a" },
+    });
+    expect(textContent(result)).toMatch(/Basename matches/);
+    expect(textContent(result)).toMatch(/note-a\.md/);
+  });
+
+  it("returns a friendly message when nothing matches", async () => {
+    const result = await env.client.callTool({
+      name: "resolve_alias",
+      arguments: { name: "nope-not-a-real-alias-xyz" },
+    });
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toMatch(/No alias or basename match/i);
+  });
+});

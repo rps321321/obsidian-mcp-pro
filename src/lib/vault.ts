@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import { mapConcurrent } from "./concurrency.js";
+import { assertAllowed, type AccessKind } from "./permissions.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 
 // Bounded fan-out for vault-wide scans. Higher values saturate the event loop
@@ -167,13 +168,64 @@ async function walkVault(
   return results;
 }
 
-export function resolveVaultPath(vaultPath: string, relativePath: string): string {
+/**
+ * Walk every file in the vault, then exclude the listed extensions.
+ * Used by attachment listing — Obsidian recognizes anything that isn't a
+ * markdown / canvas / base file as an attachment, so it's easier to drop
+ * the known text formats than enumerate every binary type a user might
+ * paste in.
+ */
+async function walkVaultExcluding(
+  baseDir: string,
+  excludedExtensions: string[],
+): Promise<string[]> {
+  const results: string[] = [];
+  const excluded = new Set(excludedExtensions.map((e) => e.toLowerCase()));
+
+  async function walk(dir: string, relPrefix: string): Promise<void> {
+    let entries: import("fs").Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+    for (const entry of entries) {
+      const name = entry.name;
+      if (entry.isDirectory()) {
+        if (EXCLUDED_SET.has(name.toLowerCase())) continue;
+        const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
+        await walk(path.join(dir, name), nextPrefix);
+      } else if (entry.isFile()) {
+        // Skip dotfiles entirely — `.DS_Store`, `.gitkeep`, editor swap
+        // files. They're noise in an attachment listing.
+        if (name.startsWith(".")) continue;
+        const lower = name.toLowerCase();
+        const dotIdx = lower.lastIndexOf(".");
+        const ext = dotIdx >= 0 ? lower.slice(dotIdx) : "";
+        if (excluded.has(ext)) continue;
+        const relPath = relPrefix === "" ? name : `${relPrefix}/${name}`;
+        results.push(relPath);
+      }
+    }
+  }
+
+  await walk(baseDir, "");
+  return results;
+}
+
+export function resolveVaultPath(
+  vaultPath: string,
+  relativePath: string,
+  access: AccessKind = "read",
+): string {
   if (!vaultPath) {
     throw new Error("Vault path is not configured");
   }
   if (relativePath.includes('\0')) {
     throw new Error("Invalid path: contains null byte");
   }
+  assertAllowed(relativePath, access);
   const resolved = path.resolve(vaultPath, relativePath);
   const resolvedVault = path.resolve(vaultPath);
   if (!resolved.startsWith(resolvedVault + path.sep) && resolved !== resolvedVault) {
@@ -250,8 +302,9 @@ async function assertRealPathWithinVault(
 export async function resolveVaultPathSafe(
   vaultPath: string,
   relativePath: string,
+  access: AccessKind = "read",
 ): Promise<string> {
-  const resolved = resolveVaultPath(vaultPath, relativePath);
+  const resolved = resolveVaultPath(vaultPath, relativePath, access);
   await assertRealPathWithinVault(resolved, vaultPath);
   return resolved;
 }
@@ -297,7 +350,7 @@ export async function writeNote(
   content: string,
   options?: { exclusive?: boolean },
 ): Promise<void> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     if (options?.exclusive) {
@@ -356,7 +409,7 @@ export async function updateNote(
   relativePath: string,
   transform: (existing: string) => string | Promise<string>,
 ): Promise<void> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
     const next = await transform(existing);
@@ -369,7 +422,7 @@ export async function appendToNote(
   relativePath: string,
   content: string,
 ): Promise<void> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
     const separator = existing.endsWith("\n") ? "" : "\n";
@@ -413,7 +466,7 @@ export async function prependToNote(
   relativePath: string,
   content: string,
 ): Promise<void> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
 
@@ -466,7 +519,7 @@ export async function deleteNote(
 ): Promise<DeleteNoteResult> {
   const permanent = options.permanent === true;
   const removeReferences = permanent && options.removeReferences === true;
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
 
   const performDelete = async (): Promise<DeleteNoteResult> => {
     // Build the rewrite plan from the *pre-delete* vault state — resolution
@@ -544,8 +597,8 @@ export async function moveNote(
   options: MoveNoteOptions = {},
 ): Promise<MoveNoteResult> {
   const updateLinks = options.updateLinks !== false;
-  const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath);
-  const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath);
+  const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath, "write");
+  const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath, "write");
   const doRename = async (): Promise<void> => {
     try {
       await fs.access(fullNewPath);
@@ -612,6 +665,56 @@ export async function moveNote(
   return performMove();
 }
 
+/**
+ * Pure scanner: search a pre-loaded set of note contents for `query`. Used by
+ * both `searchNotes` (which loads its own content) and the `search_notes`
+ * tool (which loads via the mtime cache). Keeping the matching logic
+ * separate from the I/O loop lets the tool avoid duplicate reads when the
+ * same vault has been scanned recently.
+ */
+export function searchInContents(
+  notes: readonly string[],
+  contents: ReadonlyMap<string, string>,
+  query: string,
+  options?: { caseSensitive?: boolean; maxResults?: number },
+): SearchResult[] {
+  const caseSensitive = options?.caseSensitive ?? false;
+  const maxResults = options?.maxResults ?? 100;
+  const searchQuery = caseSensitive ? query : query.toLowerCase();
+
+  const results: SearchResult[] = [];
+  for (const notePath of notes) {
+    const content = contents.get(notePath);
+    if (content === undefined) continue;
+
+    const lines = content.split("\n");
+    const matches: SearchMatch[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const compareLine = caseSensitive ? line : line.toLowerCase();
+      let startIndex = 0;
+      while (true) {
+        const col = compareLine.indexOf(searchQuery, startIndex);
+        if (col === -1) break;
+        matches.push({ line: i + 1, content: line.trim(), column: col });
+        startIndex = col + searchQuery.length;
+      }
+    }
+    if (matches.length === 0) continue;
+    results.push({
+      path: notePath,
+      relativePath: notePath,
+      matches,
+      score: matches.length,
+    });
+  }
+  // Primary: match count (desc). Secondary: relative path (asc) — otherwise
+  // tie-breaking order depends on iteration timing, which makes results for
+  // equal-score queries non-deterministic between runs.
+  results.sort((a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath));
+  return results.slice(0, maxResults);
+}
+
 export async function searchNotes(
   vaultPath: string,
   query: string,
@@ -621,68 +724,26 @@ export async function searchNotes(
     folder?: string;
   },
 ): Promise<SearchResult[]> {
-  const caseSensitive = options?.caseSensitive ?? false;
-  const maxResults = options?.maxResults ?? 100;
-
   const notes = await listNotes(vaultPath, options?.folder);
-  const searchQuery = caseSensitive ? query : query.toLowerCase();
 
   // Scan notes in parallel with bounded concurrency. Sequential iteration
   // would pay one realpath syscall per note on every query — unusable on
-  // 10k+ note vaults. `mapConcurrent` preserves ordering so we can still
-  // stop early once `maxResults` is satisfied deterministically.
-  //
-  // Note: errors are swallowed per-item (documented `mapConcurrent` contract)
-  // so one unreadable note doesn't abort the search. We intentionally do NOT
-  // log the relative note path here — it used to go to stderr and could leak
-  // vault layout into shared logs.
-  const perNote = await mapConcurrent(
-    notes,
-    SCAN_CONCURRENCY,
-    async (notePath) => {
+  // 10k+ note vaults. Errors are swallowed per-item (documented
+  // `mapConcurrent` contract) so one unreadable note doesn't abort the
+  // search. We intentionally do NOT log the relative note path here — it
+  // used to go to stderr and could leak vault layout into shared logs.
+  const contents = new Map<string, string>();
+  await mapConcurrent(notes, SCAN_CONCURRENCY, async (notePath) => {
+    try {
       const content = await readNote(vaultPath, notePath);
-      const lines = content.split("\n");
-      const matches: SearchMatch[] = [];
+      contents.set(notePath, content);
+    } catch {
+      // ignore per-file failures
+    }
+    return undefined;
+  });
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const compareLine = caseSensitive ? line : line.toLowerCase();
-        let startIndex = 0;
-
-        while (true) {
-          const col = compareLine.indexOf(searchQuery, startIndex);
-          if (col === -1) break;
-
-          matches.push({
-            line: i + 1,
-            content: line.trim(),
-            column: col,
-          });
-          startIndex = col + searchQuery.length;
-        }
-      }
-
-      if (matches.length === 0) return undefined;
-      // Don't leak absolute host path to MCP clients — relative is sufficient.
-      const result: SearchResult = {
-        path: notePath,
-        relativePath: notePath,
-        matches,
-        score: matches.length,
-      };
-      return result;
-    },
-  );
-
-  const results: SearchResult[] = [];
-  for (const r of perNote) {
-    if (r) results.push(r);
-  }
-  // Primary: match count (desc). Secondary: relative path (asc) — otherwise
-  // tie-breaking order depends on `mapConcurrent` completion timing, which
-  // makes results for equal-score queries non-deterministic between runs.
-  results.sort((a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath));
-  return results.slice(0, maxResults);
+  return searchInContents(notes, contents, query, options);
 }
 
 export async function getNoteStats(
@@ -713,6 +774,55 @@ export async function listCanvasFiles(
   return canvasFiles.sort();
 }
 
+export async function listBaseFiles(
+  vaultPath: string,
+): Promise<string[]> {
+  const entries = await walkVault(await getRealVaultRoot(vaultPath), [".base"]);
+  const out: string[] = [];
+  for (const rel of entries) {
+    if (isExcluded(rel)) continue;
+    out.push(rel);
+  }
+  return out.sort();
+}
+
+/**
+ * Enumerate every attachment in the vault — every file that isn't a
+ * markdown note, canvas, or Base. Attachments are typically images, PDFs,
+ * audio/video clips, code snippets dropped in via paste-as-file, etc.
+ */
+export async function listAttachments(
+  vaultPath: string,
+): Promise<string[]> {
+  const entries = await walkVaultExcluding(
+    await getRealVaultRoot(vaultPath),
+    [".md", ".canvas", ".base"],
+  );
+  const out: string[] = [];
+  for (const rel of entries) {
+    if (isExcluded(rel)) continue;
+    out.push(rel);
+  }
+  return out.sort();
+}
+
+export async function getAttachmentStats(
+  vaultPath: string,
+  relativePath: string,
+): Promise<{ size: number; modified: Date | null }> {
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const stats = await fs.stat(fullPath);
+  return { size: stats.size, modified: stats.mtime ?? null };
+}
+
+export async function readBaseFile(
+  vaultPath: string,
+  relativePath: string,
+): Promise<string> {
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  return fs.readFile(fullPath, "utf-8");
+}
+
 export async function readCanvasFile(
   vaultPath: string,
   relativePath: string,
@@ -740,7 +850,7 @@ export async function writeCanvasFile(
   relativePath: string,
   data: CanvasData,
 ): Promise<void> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await atomicWriteFile(fullPath, JSON.stringify(data, null, 2));
@@ -762,7 +872,7 @@ export async function updateCanvasFile(
   relativePath: string,
   transform: (data: CanvasData) => CanvasData | Promise<CanvasData>,
 ): Promise<void> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     const raw = await fs.readFile(fullPath, "utf-8");
     let parsed: unknown;
