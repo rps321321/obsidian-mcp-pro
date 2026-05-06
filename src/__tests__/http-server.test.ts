@@ -270,8 +270,26 @@ describe("HTTP server — /version", () => {
     handle = await startOnEphemeral({ port, version: "1.2.3" });
     const res = await fetch(`http://127.0.0.1:${handle.port}/health`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; version: string };
+    const body = (await res.json()) as { status: string; version: string; sessions?: number };
     expect(body.status).toBe("ok");
     expect(body.version).toBe("1.2.3");
+    // Without a bearer token configured, the live session count is part
+    // of the /health response so local-only operators can see usage.
+    expect(typeof body.sessions).toBe("number");
+  });
+
+  // Regression for the v1.8.1-audit finding: when a Bearer token is
+  // configured, /health must NOT leak the live session count to
+  // unauthenticated callers (the endpoint is exempt from auth so monitors
+  // can still reach it). Status + version stay; sessions disappears.
+  it("/health omits the session count when bearerToken is set", async () => {
+    const port = pickPort();
+    handle = await startOnEphemeral({ port, bearerToken: "secret", version: "1.2.3" });
+    const res = await fetch(`http://127.0.0.1:${handle.port}/health`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; version: string; sessions?: number };
+    expect(body.status).toBe("ok");
+    expect(body.version).toBe("1.2.3");
+    expect(body.sessions).toBeUndefined();
   });
 });

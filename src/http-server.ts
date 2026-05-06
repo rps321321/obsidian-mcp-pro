@@ -87,19 +87,23 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-// Constant-time string compare. `timingSafeEqual` requires equal-length
-// buffers, so pad one side to the other's length — this still reveals the
-// expected token length, but not the byte content, and avoids the early-exit
-// behavior of `!==`.
+// Constant-time string compare that does not leak the expected token's
+// length. Both inputs are padded to a fixed comparison width (the longer
+// of the two) before `timingSafeEqual`, so the compare time is the same
+// whether or not the supplied token's length matches the expected token.
+// Length-mismatch is recorded separately and returned without an early
+// exit, so an attacker can't binary-search the expected length via timing.
 function constantTimeEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a);
   const bBuf = Buffer.from(b);
-  if (aBuf.length !== bBuf.length) {
-    // Still compare same-length buffers so the compare takes similar time.
-    timingSafeEqual(aBuf, Buffer.alloc(aBuf.length));
-    return false;
-  }
-  return timingSafeEqual(aBuf, bBuf);
+  const lengthsMatch = aBuf.length === bBuf.length;
+  const width = Math.max(aBuf.length, bBuf.length, 1);
+  const aPad = Buffer.alloc(width);
+  const bPad = Buffer.alloc(width);
+  aBuf.copy(aPad);
+  bBuf.copy(bPad);
+  const bytesMatch = timingSafeEqual(aPad, bPad);
+  return lengthsMatch && bytesMatch;
 }
 
 function setCors(
@@ -258,11 +262,16 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     if (url.pathname !== "/mcp") {
       if (url.pathname === "/health") {
-        sendJson(res, 200, {
+        // When a Bearer token is configured (production deployments),
+        // `/health` stays unauthenticated for monitoring but must not leak
+        // operational state to anonymous probes. Drop the live session
+        // count in that mode; locally it's still useful for debugging.
+        const body: Record<string, unknown> = {
           status: "ok",
-          sessions: transports.size,
           version: opts.version ?? "",
-        });
+        };
+        if (!opts.bearerToken) body.sessions = transports.size;
+        sendJson(res, 200, body);
         return;
       }
       if (url.pathname === "/version") {
