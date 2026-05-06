@@ -56,30 +56,27 @@ function createCodeBlockTracker(): (line: string) => boolean {
   let prevWasBlank = true; // doc start qualifies for "after blank line" rule
   return (line: string): boolean => {
     if (insideFence) {
+      // Per CommonMark 4.5, a closing fence may be indented at most 3
+      // spaces. The previous implementation used `line.trimStart()` which
+      // accepted arbitrary indentation, so a 4-space-indented line of
+      // backticks inside a code block would prematurely end the fence and
+      // expose subsequent content to wikilink/markdown-link rewriting.
       const closePattern = new RegExp(
-        `^${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${fenceLength},}\\s*$`,
+        `^ {0,3}${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${fenceLength},}\\s*$`,
       );
-      if (closePattern.test(line.trimStart())) {
+      if (closePattern.test(line)) {
         insideFence = false;
       }
       prevWasBlank = false;
       return true;
     }
-    const trimmed = line.trimStart();
-    const backtickMatch = trimmed.match(/^(`{3,})/);
-    const tildeMatch = trimmed.match(/^(~{3,})/);
-    if (backtickMatch) {
+    // Opening fence is also limited to 3 leading spaces; deeper indentation
+    // is an indented code block, not a fence opener.
+    const fenceLine = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceLine) {
       insideFence = true;
-      fenceChar = "`";
-      fenceLength = backtickMatch[1].length;
-      insideIndentedCode = false;
-      prevWasBlank = false;
-      return true;
-    }
-    if (tildeMatch) {
-      insideFence = true;
-      fenceChar = "~";
-      fenceLength = tildeMatch[1].length;
+      fenceChar = fenceLine[1][0];
+      fenceLength = fenceLine[1].length;
       insideIndentedCode = false;
       prevWasBlank = false;
       return true;
@@ -308,11 +305,13 @@ export interface MarkdownLinkSpan {
 export function extractMarkdownLinkSpans(content: string): MarkdownLinkSpan[] {
   const out: MarkdownLinkSpan[] = [];
   const isInsideCodeBlock = createCodeBlockTracker();
-  // Permit a `!` embed prefix, then `[text](url)`. URLs without spaces; an
-  // optional ` "title"` suffix is captured separately. Bare `()` aren't
-  // supported in URLs (Obsidian itself encodes them) — keeping the URL char
-  // class strict avoids over-matching paragraph parens.
-  const re = /(!)?\[([^\]\n]*)\]\(([^\s)]+)(\s+"[^"\n]*")?\)/g;
+  // Permit a `!` embed prefix, then `[text](url)`. The label allows
+  // CommonMark escape sequences `\]` so a hand-edited link like
+  // `[foo\]bar](note.md)` is matched. URLs without spaces; an optional
+  // ` "title"` suffix is captured separately. Bare `()` aren't supported
+  // in URLs (Obsidian itself encodes them) — keeping the URL char class
+  // strict avoids over-matching paragraph parens.
+  const re = /(!)?\[((?:\\.|[^\]\n\\])*)\]\(([^\s)]+)(\s+"[^"\n]*")?\)/g;
 
   let lineStart = 0;
   for (const line of content.split("\n")) {
@@ -531,14 +530,30 @@ export function resolveWikilink(
     if (withoutExt === normalizedLinkLower) return notePath;
   }
 
-  // 2. Path-suffix match
+  // 2. Path-suffix match. Collect every candidate first so we can apply
+  // the same proximity tie-break as basename match below — otherwise a
+  // case-only collision like `Projects/Note.md` vs `Archive/note.md`
+  // would short-circuit to whichever appears first in `allNotePaths`
+  // even when the linking note clearly belongs to one of the two.
   if (normalizedLink.includes("/")) {
+    const suffixCandidates: string[] = [];
     for (const notePath of allNotePaths) {
       const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
       if (withoutExt.endsWith(normalizedLinkLower)) {
         const prefix = withoutExt.slice(0, withoutExt.length - normalizedLinkLower.length);
-        if (prefix === "" || prefix.endsWith("/")) return notePath;
+        if (prefix === "" || prefix.endsWith("/")) suffixCandidates.push(notePath);
       }
+    }
+    if (suffixCandidates.length === 1) return suffixCandidates[0];
+    if (suffixCandidates.length > 1) {
+      const sourceDir = path.dirname(currentNotePath).replace(/\\/g, "/");
+      suffixCandidates.sort((a, b) => {
+        const da = sharedPathDepth(sourceDir, path.dirname(a).replace(/\\/g, "/"));
+        const db = sharedPathDepth(sourceDir, path.dirname(b).replace(/\\/g, "/"));
+        if (da !== db) return db - da;
+        return a.length - b.length;
+      });
+      return suffixCandidates[0];
     }
   }
 

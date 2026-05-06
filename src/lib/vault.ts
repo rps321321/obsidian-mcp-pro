@@ -45,11 +45,19 @@ function lockKey(fullPath: string): string {
   return CASE_INSENSITIVE_FS ? fullPath.toLowerCase() : fullPath;
 }
 
-// Synthetic lock key used to serialize vault-wide reference-rewriting
-// operations (move_note + delete_note with `removeReferences: true`).
-// Distinct from any real filesystem path because of the `vault-rewrite:`
-// prefix, so it never collides with `lockKey(fullPath)`.
-function vaultRewriteLockKey(vaultPath: string): string {
+// Synthetic lock key used to serialize vault-wide bulk-write operations
+// (move_note + delete_note with `removeReferences: true`, plus rename_tag
+// which scans every note and applies `updateNote` calls). Distinct from
+// any real filesystem path because of the `vault-rewrite:` prefix, so it
+// never collides with `lockKey(fullPath)`.
+//
+// Exported so other tools that also do plan-or-scan + per-file-apply over
+// the whole vault can serialize against the rewrite path. Without this,
+// move_note's `planMoveRewrites` (lockless read of every referrer) can see
+// stale bytes shifted by an in-flight `rename_tag`, then `applyRewrites`
+// reports those files as `failedReferrers` with "content changed during
+// move" and the link is left stale.
+export function vaultRewriteLockKey(vaultPath: string): string {
   return `vault-rewrite:${lockKey(path.resolve(vaultPath))}`;
 }
 /**

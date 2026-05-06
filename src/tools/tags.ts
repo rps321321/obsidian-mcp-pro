@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes, readNote, updateNote } from "../lib/vault.js";
+import { listNotes, readNote, updateNote, withFileLock, vaultRewriteLockKey } from "../lib/vault.js";
 import { extractTags } from "../lib/markdown.js";
 import { rewriteAllTags } from "../lib/tag-rewriter.js";
 import { readAllCached } from "../lib/index-cache.js";
@@ -232,54 +232,68 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         let processed = 0;
         const failed: Array<{ path: string; error: string }> = [];
 
-        await mapConcurrent(
-          notes,
-          8,
-          async (notePath) => {
-            try {
-              if (dryRun) {
-                // No write path — a single read outside any lock is fine
-                // because we only report counts.
-                const original = await readNote(vaultPath, notePath);
-                const result = rewriteAllTags(original, opts);
-                if (result.inlineCount + result.frontmatterCount > 0) {
-                  updatedFiles++;
-                  totalInline += result.inlineCount;
-                  totalFrontmatter += result.frontmatterCount;
+        const runScan = async (): Promise<void> => {
+          await mapConcurrent(
+            notes,
+            8,
+            async (notePath) => {
+              try {
+                if (dryRun) {
+                  // No write path — a single read outside any lock is fine
+                  // because we only report counts.
+                  const original = await readNote(vaultPath, notePath);
+                  const result = rewriteAllTags(original, opts);
+                  if (result.inlineCount + result.frontmatterCount > 0) {
+                    updatedFiles++;
+                    totalInline += result.inlineCount;
+                    totalFrontmatter += result.frontmatterCount;
+                  }
+                } else {
+                  // Apply the rewrite inside the per-file lock so a concurrent
+                  // write between read and write can't be silently overwritten.
+                  // `updateNote` re-reads under the lock and feeds `existing`
+                  // into our transform, then atomically renames the result.
+                  let inline = 0;
+                  let frontmatter = 0;
+                  let changed = false;
+                  await updateNote(vaultPath, notePath, (existing) => {
+                    const result = rewriteAllTags(existing, opts);
+                    inline = result.inlineCount;
+                    frontmatter = result.frontmatterCount;
+                    if (inline + frontmatter === 0) return existing;
+                    changed = result.content !== existing;
+                    return result.content;
+                  });
+                  if (inline + frontmatter > 0 && changed) {
+                    updatedFiles++;
+                    totalInline += inline;
+                    totalFrontmatter += frontmatter;
+                  }
                 }
-              } else {
-                // Apply the rewrite inside the per-file lock so a concurrent
-                // write between read and write can't be silently overwritten.
-                // `updateNote` re-reads under the lock and feeds `existing`
-                // into our transform, then atomically renames the result.
-                let inline = 0;
-                let frontmatter = 0;
-                let changed = false;
-                await updateNote(vaultPath, notePath, (existing) => {
-                  const result = rewriteAllTags(existing, opts);
-                  inline = result.inlineCount;
-                  frontmatter = result.frontmatterCount;
-                  if (inline + frontmatter === 0) return existing;
-                  changed = result.content !== existing;
-                  return result.content;
-                });
-                if (inline + frontmatter > 0 && changed) {
-                  updatedFiles++;
-                  totalInline += inline;
-                  totalFrontmatter += frontmatter;
-                }
+              } catch (err) {
+                failed.push({ path: notePath, error: (err as Error).message });
               }
-            } catch (err) {
-              failed.push({ path: notePath, error: (err as Error).message });
-            }
-            processed++;
-            await reportProgress(processed, notes.length, `Scanned ${processed}/${notes.length} notes`);
-            return undefined;
-          },
-          (err, notePath) => {
-            log.warn("rename_tag: note read failed", { note: notePath, err: err as Error });
-          },
-        );
+              processed++;
+              await reportProgress(processed, notes.length, `Scanned ${processed}/${notes.length} notes`);
+              return undefined;
+            },
+            (err, notePath) => {
+              log.warn("rename_tag: note read failed", { note: notePath, err: err as Error });
+            },
+          );
+        };
+
+        // Serialize the bulk-write phase under the same vault-level lock
+        // that move_note / delete_note (with removeReferences) take. Without
+        // this, an in-flight rename_tag could shift bytes mid-plan in a
+        // concurrent move_note, surfacing as "content changed during move"
+        // failures with stale links left behind. Dry-run skips the lock —
+        // it doesn't write — and so can't conflict.
+        if (!dryRun) {
+          await withFileLock(vaultRewriteLockKey(vaultPath), runScan);
+        } else {
+          await runScan();
+        }
 
         const verb = dryRun ? "Would rewrite" : "Rewrote";
         const lines = [

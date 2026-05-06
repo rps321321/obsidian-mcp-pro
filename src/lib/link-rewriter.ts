@@ -78,38 +78,36 @@ export async function planMoveRewrites(
   // the output form (basename vs path) that matches Obsidian's behavior.
   const postMoveNotes = preMoveNotes.map((n) => (n === oldPath ? newPath : n));
 
-  // Build an alias map from the pre-move state. Mirrors the logic in
-  // tools/links.ts so resolution behavior is identical.
-  const aliasMap = new Map<string, string>();
+  // Single-pass note read. The previous implementation walked every note
+  // twice (once to build the alias map, once to record edits), doubling
+  // I/O on large vaults. We now load each note's content into a Map once
+  // and reuse it for both the alias build and the edit-plan walk. The
+  // alias build is synchronous in-memory, so it can complete before the
+  // edit walk starts without a separate I/O pass.
+  const contents = new Map<string, string>();
   await mapConcurrent(preMoveNotes, SCAN_CONCURRENCY, async (notePath) => {
-    let content: string;
     try {
-      content = await readNote(vaultPath, notePath);
-    } catch {
-      return undefined;
-    }
-    for (const alias of extractAliases(content)) {
-      const key = alias.toLowerCase();
-      if (key) aliasMap.set(key, notePath);
-    }
-    return undefined;
-  });
-
-  const notesPlan = new Map<string, SpanEdit[]>();
-
-  // Markdown file pass.
-  await mapConcurrent(preMoveNotes, SCAN_CONCURRENCY, async (notePath) => {
-    let content: string;
-    try {
-      content = await readNote(vaultPath, notePath);
+      contents.set(notePath, await readNote(vaultPath, notePath));
     } catch (err) {
       log.warn("link-rewriter: read failed during plan", {
         note: notePath,
         err: err as Error,
       });
-      return undefined;
     }
+    return undefined;
+  });
 
+  const aliasMap = new Map<string, string>();
+  for (const [notePath, content] of contents) {
+    for (const alias of extractAliases(content)) {
+      const key = alias.toLowerCase();
+      if (key) aliasMap.set(key, notePath);
+    }
+  }
+
+  const notesPlan = new Map<string, SpanEdit[]>();
+
+  for (const [notePath, content] of contents) {
     const edits: SpanEdit[] = [];
 
     // Wikilinks.
@@ -162,39 +160,45 @@ export async function planMoveRewrites(
 
     if (edits.length > 0) {
       // Edits within a file may have been produced in interleaved order
-      // (wikilinks then markdown links). Sort ascending so the apply step can
-      // walk back-to-front cleanly.
+      // (wikilinks then markdown links). Sort ascending so the apply step
+      // can walk back-to-front cleanly.
       edits.sort((a, b) => a.start - b.start);
       notesPlan.set(notePath, edits);
     }
-    return undefined;
-  });
+  }
 
   // Canvas pass — `nodes[].file` is the structured equivalent of a wikilink,
   // and Obsidian stores the vault-relative path verbatim. Match by exact
-  // (case-insensitive) path equality on the old path.
+  // (case-insensitive) path equality on the old path. Use mapConcurrent's
+  // return value rather than a shared push-target so the array isn't
+  // mutated from concurrent callbacks.
   const canvasPaths = await listCanvasFiles(vaultPath);
   const oldLower = oldPath.toLowerCase();
-  const canvasesToRewrite: string[] = [];
-  await mapConcurrent(canvasPaths, SCAN_CONCURRENCY, async (cp) => {
-    let data: CanvasData;
-    try {
-      data = await readCanvasFile(vaultPath, cp);
-    } catch (err) {
-      log.warn("link-rewriter: canvas read failed during plan", {
-        note: cp,
-        err: err as Error,
-      });
-      return undefined;
-    }
-    for (const node of data.nodes) {
-      if (typeof node.file === "string" && node.file.toLowerCase() === oldLower) {
-        canvasesToRewrite.push(cp);
+  const canvasMatches = await mapConcurrent<string, string | undefined>(
+    canvasPaths,
+    SCAN_CONCURRENCY,
+    async (cp) => {
+      let data: CanvasData;
+      try {
+        data = await readCanvasFile(vaultPath, cp);
+      } catch (err) {
+        log.warn("link-rewriter: canvas read failed during plan", {
+          note: cp,
+          err: err as Error,
+        });
         return undefined;
       }
-    }
-    return undefined;
-  });
+      for (const node of data.nodes) {
+        if (typeof node.file === "string" && node.file.toLowerCase() === oldLower) {
+          return cp;
+        }
+      }
+      return undefined;
+    },
+  );
+  const canvasesToRewrite: string[] = canvasMatches.filter(
+    (c): c is string => typeof c === "string",
+  );
 
   return {
     notes: notesPlan,
@@ -231,21 +235,27 @@ export async function planDeleteRewrites(
   deletedPath: string,
   preDeleteNotes: string[],
 ): Promise<RewritePlan> {
-  // Build alias map from the pre-delete state. Same logic as planMoveRewrites.
-  const aliasMap = new Map<string, string>();
+  // Single-pass note read — same I/O optimization as planMoveRewrites.
+  const contents = new Map<string, string>();
   await mapConcurrent(preDeleteNotes, SCAN_CONCURRENCY, async (notePath) => {
-    let content: string;
     try {
-      content = await readNote(vaultPath, notePath);
-    } catch {
-      return undefined;
+      contents.set(notePath, await readNote(vaultPath, notePath));
+    } catch (err) {
+      log.warn("link-rewriter: read failed during delete plan", {
+        note: notePath,
+        err: err as Error,
+      });
     }
+    return undefined;
+  });
+
+  const aliasMap = new Map<string, string>();
+  for (const [notePath, content] of contents) {
     for (const alias of extractAliases(content)) {
       const key = alias.toLowerCase();
       if (key) aliasMap.set(key, notePath);
     }
-    return undefined;
-  });
+  }
 
   const notesPlan = new Map<string, SpanEdit[]>();
 
@@ -256,22 +266,11 @@ export async function planDeleteRewrites(
     deletedPath.replace(/\.md$/i, "").split("/").pop() ??
     deletedPath.replace(/\.md$/i, "");
 
-  await mapConcurrent(preDeleteNotes, SCAN_CONCURRENCY, async (notePath) => {
+  for (const [notePath, content] of contents) {
     // Skip the file being deleted itself — it's about to disappear, so
     // editing its body is wasted work (and the FS write would race the
     // unlink). The `removeReferences` path only edits *other* notes.
-    if (notePath === deletedPath) return undefined;
-
-    let content: string;
-    try {
-      content = await readNote(vaultPath, notePath);
-    } catch (err) {
-      log.warn("link-rewriter: read failed during delete plan", {
-        note: notePath,
-        err: err as Error,
-      });
-      return undefined;
-    }
+    if (notePath === deletedPath) continue;
 
     const edits: SpanEdit[] = [];
 
@@ -309,8 +308,7 @@ export async function planDeleteRewrites(
       edits.sort((a, b) => a.start - b.start);
       notesPlan.set(notePath, edits);
     }
-    return undefined;
-  });
+  }
 
   return {
     notes: notesPlan,
@@ -351,10 +349,21 @@ export async function applyRewrites(
           // Re-read inside the lock so we apply edits to current content.
           // applyEditsBackToFront verifies each edit's `expected` slice
           // matches before splicing — a parallel `write_note` that landed
-          // between plan and apply will fail the comparison and we report
-          // the file rather than corrupting it.
+          // between plan and apply will fail the comparison.
           const current = await fs.readFile(fullPath, "utf-8");
-          const next = applyEditsBackToFront(current, edits);
+          let next = applyEditsBackToFront(current, edits);
+          if (next === null) {
+            // Single bounded retry: the offsets drifted because content
+            // was added or removed elsewhere in the file (Obsidian sync,
+            // text editor, concurrent rename_tag — anything that shifts
+            // byte positions without touching the link itself). If every
+            // edit's `expected` substring still appears exactly once in
+            // the current content, we splice at the new positions. If
+            // any expected slice is missing or ambiguous (>1 match), we
+            // surface the failure rather than risk picking the wrong
+            // occurrence.
+            next = retryEditsByContent(current, edits);
+          }
           if (next === null) {
             failed.push({
               path: notePath,
@@ -432,6 +441,44 @@ function applyEditsBackToFront(
       return null;
     }
     out = out.slice(0, e.start) + e.replacement + out.slice(e.end);
+  }
+  return out;
+}
+
+/** Bounded retry for the case where `applyEditsBackToFront` failed because
+ *  an unrelated edit (Obsidian sync, text editor, concurrent rename_tag)
+ *  shifted byte offsets without touching the links themselves. For each
+ *  planned edit we look for its `expected` substring in the current
+ *  content. If every expected slice still appears exactly once, we splice
+ *  at the new positions and return the rewritten content. If any expected
+ *  slice is missing, ambiguous (>1 match), or would cause overlapping
+ *  splices, we return null and the caller surfaces the failure rather
+ *  than picking the wrong occurrence. */
+function retryEditsByContent(
+  content: string,
+  edits: SpanEdit[],
+): string | null {
+  type Match = { start: number; end: number; replacement: string };
+  const matches: Match[] = [];
+  for (const e of edits) {
+    const first = content.indexOf(e.expected);
+    if (first < 0) return null;
+    const second = content.indexOf(e.expected, first + 1);
+    if (second >= 0) return null;
+    matches.push({
+      start: first,
+      end: first + e.expected.length,
+      replacement: e.replacement,
+    });
+  }
+  matches.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < matches.length; i++) {
+    if (matches[i].start < matches[i - 1].end) return null;
+  }
+  let out = content;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const m = matches[i];
+    out = out.slice(0, m.start) + m.replacement + out.slice(m.end);
   }
   return out;
 }

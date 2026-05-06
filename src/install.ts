@@ -107,6 +107,15 @@ export function runInstall(options: InstallOptions): void {
     env.OBSIDIAN_VAULT_PATH = path.resolve(options.vaultPath);
   }
   if (options.vaultName) {
+    // `vaultName` lands in a JSON env var consumed by Claude Desktop /
+    // Cursor. The CLI usage path is safe, but `runInstall` is also a
+    // public API — programmatic callers passing untrusted input could
+    // smuggle null bytes or newlines that corrupt downstream env or
+    // process-spawn handling. Reject any control character.
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f]/.test(options.vaultName)) {
+      throw new Error("vaultName contains control characters; refusing to write");
+    }
     env.OBSIDIAN_VAULT_NAME = options.vaultName;
   }
 
@@ -121,7 +130,17 @@ export function runInstall(options: InstallOptions): void {
   servers[serverName] = entry;
 
   const backup = backupConfig(configPath);
-  writeConfig(configPath, config);
+  try {
+    writeConfig(configPath, config);
+  } catch (err) {
+    // Surface the backup path so the user can recover after a failed
+    // write. Without this hint, the user gets a generic error and has to
+    // hunt for the .bak.<timestamp> file themselves.
+    if (backup) {
+      console.error(`\nWrite failed. Your previous config is preserved at: ${backup}`);
+    }
+    throw err;
+  }
 
   console.log(`\n✓ Installed successfully.`);
   if (backup) console.log(`  Previous config backed up to: ${backup}`);

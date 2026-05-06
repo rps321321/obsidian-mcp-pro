@@ -267,11 +267,14 @@ describe("moveNote — wikilink rewriting", () => {
 });
 
 describe("applyRewrites — TOCTOU safety", () => {
-  it("aborts a referrer rewrite when bytes shift between plan and apply", async () => {
+  it("rewrites the link via content-search retry when offsets shift but the link itself is unchanged", async () => {
     // Race: plan is built against `ref.md` v1, then a parallel `write_note`
     // prepends a paragraph and shifts every wikilink offset before
-    // `applyRewrites` runs. Bounds-only validation would still pass and we'd
-    // splice the wrong bytes; the `expected` check catches it.
+    // `applyRewrites` runs. The first-pass `expected` byte-slice check
+    // detects the offset drift. The retry layer (added in v1.8.2) then
+    // searches the current content for the unique `expected` substring
+    // and splices at the new position — the link is preserved through
+    // the race instead of being silently left stale.
     await seed("inbox/idea.md", "# Idea");
     await seed("ref.md", "See [[inbox/idea]] please.");
 
@@ -289,12 +292,41 @@ describe("applyRewrites — TOCTOU safety", () => {
 
     const result = await applyRewrites(vaultDir, plan);
 
+    expect(result.updated).toEqual(["ref.md"]);
+    expect(result.failed).toEqual([]);
+
+    const finalContent = await fs.readFile(path.join(vaultDir, "ref.md"), "utf-8");
+    expect(finalContent).toContain("[[archive/idea]]");
+    expect(finalContent).toContain("Inserted paragraph that shifts everything.");
+  });
+
+  it("falls back to failure when the planned `expected` substring no longer appears", async () => {
+    // The retry can only resolve drift, not in-place mutation. If the
+    // link itself was rewritten (not just moved), the expected substring
+    // disappears from the file and the retry returns null — apply
+    // surfaces the failure rather than picking a wrong occurrence.
+    await seed("inbox/idea.md", "# Idea");
+    await seed("ref.md", "See [[inbox/idea]] please.");
+
+    const preMoveNotes = await listNotes(vaultDir);
+    const plan = await planMoveRewrites(
+      vaultDir,
+      "inbox/idea.md",
+      "archive/idea.md",
+      preMoveNotes,
+    );
+
+    // Mutate the wikilink itself — the planned `expected` slice is gone.
+    const racedContent = "See [[completely-different]] please.";
+    await fs.writeFile(path.join(vaultDir, "ref.md"), racedContent, "utf-8");
+
+    const result = await applyRewrites(vaultDir, plan);
+
     expect(result.updated).toEqual([]);
     expect(result.failed).toEqual([
       { path: "ref.md", error: "content changed during move; references not updated" },
     ]);
 
-    // Crucially: ref.md was not corrupted by a misaligned splice.
     const finalContent = await fs.readFile(path.join(vaultDir, "ref.md"), "utf-8");
     expect(finalContent).toBe(racedContent);
   });

@@ -7,6 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-05-06
+
+### Fixed (concurrency, correctness, info-leak hardening from a deeper-dive audit)
+
+- **`rename_tag` (and any future vault-wide bulk writer) now hold the
+  same vault-level rewrite lock as `move_note` / `delete_note`.** The
+  v1.8.1 fix closed the in-tool TOCTOU but left a cross-tool race:
+  running `rename_tag` and `move_note` concurrently could shift bytes
+  in a referrer mid-plan, then `applyRewrites` would surface
+  "content changed during move; references not updated" with stale
+  links left behind. `vaultRewriteLockKey` is now exported and
+  acquired by `rename_tag`'s write phase. A regression test runs both
+  tools in parallel and asserts no failed referrers.
+- **CommonMark fenced-code indentation now matches the spec (max 3
+  spaces).** The previous regex used `line.trimStart()`, accepting
+  arbitrary leading whitespace before a closing fence. A note with
+  4-space-indented backticks inside a code block could prematurely
+  close the fence and expose subsequent content (containing
+  wikilinks) to rewriting. Both opening and closing fences are now
+  checked with `^ {0,3}` per CommonMark §4.5.
+- **`planMoveRewrites` and `planDeleteRewrites` now read each note
+  exactly once.** Previous implementation made two passes over the
+  vault (alias-map build + reference scan). On a 10k-note vault that
+  was 2x the I/O during a rename. The single-pass version reads
+  everything into a `Map`, then runs both passes in-memory.
+- **`applyRewrites` now retries failed edits via content search.**
+  When `applyEditsBackToFront` rejects an edit because bytes drifted
+  (an Obsidian sync, text editor, or concurrent rename_tag inserted
+  text elsewhere in the file), the apply step searches the current
+  content for the planned `expected` substring. If it appears
+  exactly once, the edit splices at the new position. If it's
+  missing or ambiguous, the failure is surfaced as before — no risk
+  of picking a wrong occurrence.
+- **`/health` no longer leaks the live session count to
+  unauthenticated callers when a Bearer token is configured.** The
+  endpoint stays unauthenticated for monitoring (status + version
+  always present), but the `sessions` field is dropped in
+  authenticated deployments so anonymous probes can't enumerate
+  usage patterns. Local-only setups (no token) still see
+  `sessions`. Regression test asserts both modes.
+- **`constantTimeEqual` no longer leaks the expected token length.**
+  Both supplied and expected tokens are now padded to a fixed
+  comparison width before `timingSafeEqual`, so the call duration
+  is the same whether or not the lengths match. The length check
+  is recorded separately and combined with the byte compare without
+  an early exit, so an attacker can't binary-search the expected
+  length via timing.
+- **`resolveWikilink` path-suffix match now applies the same
+  proximity tie-break as basename match.** When two notes shared a
+  path-suffix (case-only collision on case-insensitive FS, or a
+  symlinked subtree), the previous implementation returned whichever
+  appeared first in `listNotes` order. The fix collects all
+  candidates and picks the one whose folder shares the deepest
+  prefix with the linking note, then breaks ties on shortest path.
+- **`extractMarkdownLinkSpans` now matches CommonMark-escaped `]`
+  inside link labels.** A hand-edited link like `[foo\]bar](x.md)`
+  was previously skipped during a move rewrite, leaving the link
+  stale. Regex extended to allow `\\.` escape sequences in the
+  label.
+- **`runInstall` rejects `vaultName` values containing control
+  characters.** The CLI path is safe, but the public API used to
+  accept null bytes / newlines that could corrupt the downstream
+  Claude Desktop / Cursor JSON config or env-spawn handling.
+- **`runInstall` now surfaces the backup path when `writeConfig`
+  fails.** Previously the user got a generic error and had to find
+  their `.bak.<timestamp>` themselves.
+- **`canvasesToRewrite` is built from `mapConcurrent`'s return value
+  instead of a shared mutable array.** Currently safe (Node is
+  single-threaded), but a latent footgun if the helper ever moves to
+  worker_threads.
+
+### Tooling
+
+- **`npm audit fix` clean.** Resolved 4 moderate-severity advisories
+  in transitive devDependencies (`hono`, `postcss`, `ip-address`,
+  `express-rate-limit`, all reached through vitest). Production
+  dependencies were already clean. The `files` field publishes only
+  `build/`, `README.md`, `LICENSE`, so devDeps never shipped to npm
+  consumers.
+
+### Tests
+
+- **449 tests passing (was 444).** New regression coverage for
+  rename_tag concurrency lock (HIGH #1), `/health` bearer-mode
+  session-count omission, and the bytes-shifted retry path in
+  `applyRewrites`.
+
 ## [1.8.1] - 2026-05-06
 
 ### Security

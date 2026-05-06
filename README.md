@@ -15,7 +15,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-444_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tests](https://img.shields.io/badge/tests-449_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
 [![Tool Quality](https://img.shields.io/badge/Glama-23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, manipulate canvases, query Bases, edit by heading or block reference, run semantic search, and pull binary attachments. All through the [Model Context Protocol](https://modelcontextprotocol.io/).
@@ -585,7 +585,7 @@ src/
 npm test
 ```
 
-444 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
+449 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
 
 ```bash
 npm run lint       # eslint v9 + typescript-eslint v8 (flat config)
@@ -596,7 +596,40 @@ npm run lint:fix   # auto-fix
 
 ## What's New
 
-**v1.8.1** is a security and correctness patch on top of 1.8.0:
+**v1.8.2** rolls in a deeper-dive audit pass on top of 1.8.1:
+
+- **`rename_tag` and other vault-wide bulk writers now hold the same
+  rewrite lock as `move_note` / `delete_note`.** Closes a cross-tool
+  TOCTOU where running tag-rename concurrently with a move could
+  surface "content changed during move" failures and leave stale
+  links.
+- **`applyRewrites` retries failed edits via content search.** When
+  bytes shift between plan and apply (Obsidian sync, text editor,
+  concurrent tool), the apply step now finds the unique `expected`
+  substring at its new position and splices there. If ambiguous or
+  missing, the failure is still surfaced rather than corrupting the
+  file.
+- **`planMoveRewrites` and `planDeleteRewrites` now read each note
+  exactly once.** The previous two-pass implementation doubled I/O
+  on rename / delete operations across large vaults.
+- **CommonMark fenced-code indentation now matches the spec.** Lines
+  with more than 3 leading spaces no longer falsely close a fenced
+  block (and don't expose subsequent content to wikilink rewriting).
+- **`/health` no longer leaks the live session count when a Bearer
+  token is configured.** Status + version stay public for monitoring;
+  `sessions` is dropped in authenticated deployments. Local-only
+  setups still see it.
+- **`constantTimeEqual` is now fully length-safe** (pads both inputs
+  to a fixed width before comparing), and the regex / parser hardening
+  list also closed: `resolveWikilink` proximity tie-break for
+  path-suffix matches, escaped `]` in markdown link labels, control-
+  character validation on `runInstall.vaultName`, backup-path hint on
+  install write failure, and `mapConcurrent` return-value usage in the
+  canvas planner.
+- **`npm audit` clean.** Resolved 4 moderate-severity advisories in
+  transitive devDependencies. Production deps were already clean.
+
+**v1.8.1** was a security and correctness patch on top of 1.8.0:
 
 - **CRITICAL: permission allowlist bypass via `..` segments closed.**
   v1.8.0 evaluated `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS`

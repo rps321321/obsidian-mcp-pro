@@ -114,3 +114,67 @@ describe("tag handlers — search_by_tag", () => {
     expect(text).toMatch(/Found 1 note with tag #review/);
   });
 });
+
+describe("tag handlers — rename_tag", () => {
+  it("rewrites both inline #tag and frontmatter tags vault-wide", async () => {
+    const result = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "review", newName: "audit" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toMatch(/Rewrote #review → #audit/);
+    expect(text).toMatch(/Files affected: \d+/);
+
+    // Verify by searching for the new tag.
+    const search = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "audit" },
+    });
+    expect(textContent(search)).toContain("note-a.md");
+    expect(textContent(search)).toContain("note-b.md");
+  });
+
+  it("dryRun reports counts without writing", async () => {
+    const dry = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "draft", newName: "wip", dryRun: true },
+    });
+    expect(textContent(dry)).toMatch(/Would rewrite #draft → #wip/);
+
+    // Note still has #draft (no write happened).
+    const search = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "draft" },
+    });
+    expect(textContent(search)).toContain("note-a.md");
+  });
+
+  // Regression for the v1.8.1-audit HIGH finding: rename_tag must hold
+  // the vault-wide rewrite lock so a concurrent move_note's plan/apply
+  // pipeline can't see bytes shifting underneath it. Without the lock,
+  // running rename_tag and move_note in parallel surfaces "content
+  // changed during move" failures and leaves stale links. We assert by
+  // running both concurrently and checking the move's `failedReferrers`
+  // is empty.
+  it("does not race move_note when both run concurrently on the same vault", async () => {
+    const [moveResult, renameResult] = await Promise.all([
+      env.client.callTool({
+        name: "move_note",
+        arguments: { oldPath: "note-c.md", newPath: "archive/note-c.md" },
+      }),
+      env.client.callTool({
+        name: "rename_tag",
+        arguments: { oldName: "review", newName: "audit" },
+      }),
+    ]);
+    expect(isError(moveResult)).toBe(false);
+    expect(isError(renameResult)).toBe(false);
+    // The move's success message includes "Updated references" or
+    // "Moved" — what matters is that we don't surface failed referrers
+    // from the bytes-shifted-under-us race.
+    const moveText = textContent(moveResult);
+    expect(moveText).not.toMatch(/could not be updated/);
+    expect(moveText).not.toMatch(/content changed during move/);
+  });
+});
