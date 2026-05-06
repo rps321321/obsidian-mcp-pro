@@ -403,6 +403,12 @@ export async function writeNote(
  * writes the result while holding the per-file lock for the full sequence.
  * Prevents lost updates when concurrent callers would otherwise read the same
  * base and overwrite each other's changes.
+ *
+ * Skips the write when the transform returns the existing content unchanged.
+ * Without this guard, no-op tools (e.g. `replace_in_note` with zero matches,
+ * `rename_tag` on a note that contains no occurrences) would still call
+ * `atomicWriteFile`, bumping mtime and invalidating downstream caches
+ * (index-cache, embedding-store) for files we didn't actually modify.
  */
 export async function updateNote(
   vaultPath: string,
@@ -413,6 +419,7 @@ export async function updateNote(
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
     const next = await transform(existing);
+    if (next === existing) return;
     await atomicWriteFile(fullPath, next);
   });
 }

@@ -15,7 +15,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-438_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tests](https://img.shields.io/badge/tests-444_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
 [![Tool Quality](https://img.shields.io/badge/Glama-23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, manipulate canvases, query Bases, edit by heading or block reference, run semantic search, and pull binary attachments. All through the [Model Context Protocol](https://modelcontextprotocol.io/).
@@ -585,7 +585,7 @@ src/
 npm test
 ```
 
-438 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
+444 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
 
 ```bash
 npm run lint       # eslint v9 + typescript-eslint v8 (flat config)
@@ -596,7 +596,31 @@ npm run lint:fix   # auto-fix
 
 ## What's New
 
-**Unreleased** brings the largest feature drop since v1.0:
+**v1.8.1** is a security and correctness patch on top of 1.8.0:
+
+- **CRITICAL: permission allowlist bypass via `..` segments closed.**
+  v1.8.0 evaluated `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS`
+  against the raw user-supplied path before `path.resolve` collapsed
+  `..`. An input like `Allowed/../OtherFolder/note.md` slipped past
+  the prefix check. `assertAllowed` now collapses `..` via
+  `path.posix.normalize` and rejects any path that climbs above its
+  starting point. Six regression tests cover the bypass classes.
+- **HIGH: HTTP timeout on every embedding-provider fetch
+  (`AbortSignal.timeout(30s)`)**, TOCTOU race in `rename_tag`
+  closed by moving the rewrite inside `updateNote`'s transform, and
+  `search_semantic` / `find_similar_notes` now invalidate stale
+  vectors when the active provider/model differs from what produced
+  the index.
+- **MEDIUM: depth guard on Bases filter recursion**, `updateNote`
+  skips the disk write when the transform returns unchanged content
+  (no more spurious mtime bumps on no-op tools), and
+  embedding-provider error bodies are truncated to 200 chars before
+  being interpolated into thrown errors.
+- **LOW: empty `accept` elicitation responses are now cancellations,
+  not errors**, and the in-memory mtime cache snapshot orders by
+  content length so small entries fill the budget first.
+
+**v1.8.0** was the largest feature drop since v1.0:
 
 - **Surgical edits by heading and block id.** `update_section`, `insert_at_section`, `list_sections`, `replace_in_note`, `edit_block`, plus fragment retrieval modes on `get_note` (`section`, `block`, `lines`).
 - **Bases support.** `list_bases`, `read_base`, `query_base` for Obsidian's database-view files. First filesystem-only MCP server to ship native Bases.

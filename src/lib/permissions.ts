@@ -1,3 +1,5 @@
+import path from "path";
+
 /**
  * Folder-scoped read/write allowlist. Configured via env vars:
  *   OBSIDIAN_READ_PATHS   colon-or-comma separated vault-relative folders
@@ -11,6 +13,13 @@
  * Path matching is case-insensitive on Windows and macOS to align with the
  * vault's filesystem semantics, and case-sensitive on Linux. Paths are
  * normalized to forward slashes and stripped of leading/trailing separators.
+ *
+ * Critically: `..` segments are collapsed BEFORE the prefix check. v1.8.0
+ * called `assertAllowed` on the raw user-supplied path, then later let
+ * `path.resolve` collapse `..` segments. A path like
+ * `Allowed/../OtherFolder/note.md` slipped past the prefix check (string
+ * starts with `Allowed/`) and resolved to a different folder. The
+ * normalization step in `normalizeRel` here closes that gap.
  */
 
 const CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin";
@@ -64,6 +73,24 @@ function eq(a: string, b: string): boolean {
   return CASE_INSENSITIVE ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
+/**
+ * Convert a user-supplied path to a vault-relative form with `..` segments
+ * syntactically collapsed. Returns `null` when the input tries to climb
+ * above its starting point (i.e. above the vault root) — callers treat this
+ * as a hard-deny.
+ */
+function normalizeRel(input: string): string | null {
+  const slashed = input.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (slashed === "") return "";
+  const normalized = path.posix.normalize(slashed);
+  // After normalization: `..` or `../...` means the input climbed above the
+  // vault root via `..` segments. Reject. (`./x` collapses to `x`; `x/y/..`
+  // collapses to `x` and is allowed.)
+  if (normalized === ".." || normalized.startsWith("../")) return null;
+  if (normalized === ".") return "";
+  return normalized.replace(/^\/+|\/+$/g, "");
+}
+
 function isUnder(rel: string, folder: string): boolean {
   const r = rel.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
   if (folder === "") return true;
@@ -81,13 +108,19 @@ function isUnder(rel: string, folder: string): boolean {
 export function assertAllowed(relativePath: string, kind: AccessKind): void {
   const list = kind === "read" ? active.readPaths : active.writePaths;
   if (!list || list.length === 0) return;
-  const rel = relativePath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const envName = kind === "read" ? "OBSIDIAN_READ_PATHS" : "OBSIDIAN_WRITE_PATHS";
+  const list_ = list.map((f) => f || "<vault root>").join(", ");
+  const rel = normalizeRel(relativePath);
+  if (rel === null) {
+    throw new Error(
+      `Access denied: "${relativePath}" escapes the configured ${envName} allowlist (${list_})`,
+    );
+  }
   for (const folder of list) {
     if (isUnder(rel, folder)) return;
   }
-  const list_ = list.map((f) => f || "<vault root>").join(", ");
   throw new Error(
-    `Access denied: "${relativePath}" is outside the configured ${kind === "read" ? "OBSIDIAN_READ_PATHS" : "OBSIDIAN_WRITE_PATHS"} allowlist (${list_})`,
+    `Access denied: "${relativePath}" is outside the configured ${envName} allowlist (${list_})`,
   );
 }
 

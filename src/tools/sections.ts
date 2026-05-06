@@ -56,7 +56,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         if (headingPath.length === 0) return errorResult("section must not be empty");
 
         let resolvedHeading = "";
-        let bodyLength = 0;
+        let bodyBytes = 0;
         await updateNote(vaultPath, notePath, (existing) => {
           const found = findSection(existing, headingPath);
           if (!found) {
@@ -64,11 +64,14 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           }
           resolvedHeading = found.heading.text;
           const updated = replaceSectionBody(existing, found, newBody);
-          bodyLength = newBody.length;
+          // Count bytes, not UTF-16 code units, so the message is accurate
+          // for unicode bodies. `string.length` would understate emoji
+          // and overstate astral characters by a factor of two.
+          bodyBytes = Buffer.byteLength(newBody, "utf-8");
           return updated;
         });
         return textResult(
-          `Updated section "${resolvedHeading}" in ${notePath} (${bodyLength} bytes of new body)`,
+          `Updated section "${resolvedHeading}" in ${notePath} (${bodyBytes} bytes of new body)`,
         );
       } catch (err) {
         log.error("update_section failed", { tool: "update_section", err: err as Error });

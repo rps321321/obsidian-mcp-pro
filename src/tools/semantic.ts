@@ -261,10 +261,15 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           );
         }
         await loadStore(vaultPath);
+        // Drop the persisted index if the active provider/model differs
+        // from what produced the cached vectors. Without this, a query
+        // embedded with model B would be cosine-scored against vectors
+        // from model A and silently return meaningless results.
+        invalidateIfIncompatible(vaultPath, provider.id, provider.model);
         const snap = snapshotForTests(vaultPath);
         if (snap.totalChunks === 0) {
           return errorResult(
-            "Embedding index is empty. Run `index_vault` to build it before searching semantically.",
+            `Embedding index is empty${snap.providerId === null ? "" : " for the active provider/model"}. Run \`index_vault\` to build it before searching semantically.`,
           );
         }
 
@@ -323,7 +328,14 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
     async ({ path: notePath, limit }) => {
       try {
         await loadStore(vaultPath);
-        const ownChunks = await getNoteEmbeddings(vaultPath, notePath);
+        // If the active provider/model differs from what produced the
+        // cached vectors, drop them: scores between mismatched models are
+        // meaningless. The user must re-run `index_vault` afterwards.
+        const provider = getActiveProvider();
+        if (provider) {
+          invalidateIfIncompatible(vaultPath, provider.id, provider.model);
+        }
+        const ownChunks = getNoteEmbeddings(vaultPath, notePath);
         if (ownChunks.length === 0) {
           return errorResult(
             `No embeddings found for "${notePath}". Run \`index_vault\` first (or check the path is correct).`,

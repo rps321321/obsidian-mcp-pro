@@ -186,8 +186,15 @@ async function flushVaultCache(vaultPath: string, state: VaultCacheState): Promi
     };
     let total = 0;
     // Build the JSON-serializable view. Skip pathologically large entries
-    // so a single binary-ish note can't blow the cache file.
-    for (const [rel, entry] of state.entries) {
+    // so a single binary-ish note can't blow the cache file. Sort by content
+    // length ascending so that small entries fill the budget first — Map
+    // iteration order is insertion order, which would otherwise let a single
+    // multi-MB note inserted early starve dozens of small notes from the
+    // snapshot every flush.
+    const sorted = Array.from(state.entries.entries()).sort(
+      (a, b) => a[1].content.length - b[1].content.length,
+    );
+    for (const [rel, entry] of sorted) {
       total += entry.content.length;
       if (total > MAX_PERSISTED_BYTES) break;
       snapshot.entries[rel] = {
