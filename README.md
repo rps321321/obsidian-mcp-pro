@@ -4,9 +4,9 @@
 
 ⭐ **Please [star us on GitHub](https://github.com/rps321321/obsidian-mcp-pro), it helps us reach more users!**
 
-[![Patreon](https://img.shields.io/badge/Support_on-Patreon-FF424D?logo=patreon&logoColor=white)](https://patreon.com/obsidianmcppro)
+[![Patreon](https://img.shields.io/badge/Support_on-Patreon-FF424D?logo=patreon&logoColor=white)](https://patreon.com/obsidianmcppro) [![Ko-fi](https://img.shields.io/badge/Tip_on-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/rps321)
 
-💙 **Support this project.** obsidian-mcp-pro is free and open-source. If it saves you time, consider [becoming a patron](https://patreon.com/obsidianmcppro). Patrons get release notes early, priority on bug reports, and (optionally) their name in the README.
+💙 **Support this project.** obsidian-mcp-pro is free and open-source. If it saves you time, consider [becoming a patron](https://patreon.com/obsidianmcppro) for ongoing support, or [tipping on Ko-fi](https://ko-fi.com/rps321) for a one-time thanks. Patrons get release notes early, priority on bug reports, and (optionally) their name in the README.
 
 [![obsidian-mcp-pro MCP server](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro/badges/card.svg)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
