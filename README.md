@@ -1,6 +1,10 @@
-# obsidian-mcp-pro
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rps321321/obsidian-mcp-pro/master/assets/logo.png" alt="obsidian-mcp-pro" width="180" />
+</p>
 
-**The most feature-complete MCP server for Obsidian vaults.**
+<h1 align="center">obsidian-mcp-pro</h1>
+
+<p align="center"><strong>The most feature-complete MCP server for Obsidian vaults.</strong></p>
 
 ⭐ **Please [star us on GitHub](https://github.com/rps321321/obsidian-mcp-pro), it helps us reach more users!**
 
