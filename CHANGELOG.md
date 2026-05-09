@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.6] - 2026-05-09
+
+### Changed
+
+- **README header replaced with a full-width project banner** (2500x1000 PNG: logo + title + tagline + chips on a navy/indigo gradient). Renders identically on GitHub and npmjs.com via the raw GitHub URL. Replaces the small 180px-centered logo introduced in 1.8.5.
+
+### Added
+
+- `assets/banner.png` (2500x1000) sized to Patreon's official cover-photo recommendation.
+- `assets/github-social.png` (1280x640) sized to GitHub's official social-preview recommendation, for repo Settings > Social preview.
+
+## [1.8.5] - 2026-05-09
+
+### Added
+
+- **Project logo** (`assets/logo.png`, 1024x1024) and source SVG (`assets/logo.svg`) committed to the repo. README now displays the logo above the title via the raw GitHub URL so npmjs.com renders it the same as GitHub.
+
+## [1.8.4] - 2026-05-09
+
+### Added
+
+- **Ko-fi badge restored** alongside Patreon in the README. The pair (recurring + one-off) is the standard creator-support setup.
+
+## [1.8.3] - 2026-05-09
+
+### Changed
+
+- **Sponsorship link in README switched from Ko-fi to Patreon.** Patreon offers tiered support and a clean recurring-revenue path that Stripe Connect blocks for the maintainer's payout region (Serbia). New URL: <https://patreon.com/obsidianmcppro>.
+
+### Removed
+
+- Ko-fi badge and prose mention removed (later restored in 1.8.4 alongside Patreon).
+
 ## [1.8.2] - 2026-05-06
 
 ### Fixed (concurrency, correctness, info-leak hardening from a deeper-dive audit)
