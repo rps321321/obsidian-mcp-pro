@@ -133,7 +133,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           if (!payload.endsWith("\n")) payload += "\n";
           return before + payload + after;
         });
-        return textResult(`Inserted ${content.length} bytes into "${resolvedHeading}" (${position}) in ${notePath}`);
+        return textResult(`Inserted ${Buffer.byteLength(content, "utf-8")} bytes into "${resolvedHeading}" (${position}) in ${notePath}`);
       } catch (err) {
         log.error("insert_at_section failed", { tool: "insert_at_section", err: err as Error });
         return errorResult(`Error inserting at section: ${sanitizeError(err)}`);
@@ -196,19 +196,67 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
       },
     },
     async ({ path: notePath, find, replace, regex, flags, expectedCount }) => {
+      // Defense in depth: arbitrary regex from LLM input is inherently risky.
+      // The validation below caps obvious foot-guns (bad flags, huge patterns,
+      // huge inputs) but true bulletproofing against catastrophic backtracking
+      // requires a linear-time engine (re2) or running the match in a worker
+      // thread we can kill. We do neither here, so callers should still treat
+      // `regex: true` as a privileged operation.
+      const FIND_MAX_LEN = 4096;
+      const INPUT_MAX_LEN = 1_000_000;
+      const ALLOWED_FLAGS = new Set(["g", "i", "m", "s", "u", "y"]);
+
       try {
+        let pattern: RegExp;
+        if (regex) {
+          if (find.length > FIND_MAX_LEN) {
+            return errorResult(
+              `Error replacing in note: find pattern too long (${find.length} > ${FIND_MAX_LEN} chars). Use a more targeted pattern.`,
+            );
+          }
+          const f = flags ?? "g";
+          // Validate flags against a strict allowlist before we hand them to
+          // the engine; reject duplicates and unknown chars with a clear msg.
+          const seen = new Set<string>();
+          for (const ch of f) {
+            if (!ALLOWED_FLAGS.has(ch)) {
+              return errorResult(
+                `Error replacing in note: invalid regex flag '${ch}'. Allowed flags: g, i, m, s, u, y.`,
+              );
+            }
+            if (seen.has(ch)) {
+              return errorResult(
+                `Error replacing in note: duplicate regex flag '${ch}'.`,
+              );
+            }
+            seen.add(ch);
+          }
+          if (!f.includes("g")) {
+            return errorResult(
+              "Error replacing in note: regex flags must include 'g' for replace_in_note.",
+            );
+          }
+          try {
+            pattern = new RegExp(find, f);
+          } catch (syntaxErr) {
+            return errorResult(
+              `Error replacing in note: invalid regex pattern: ${sanitizeError(syntaxErr)}`,
+            );
+          }
+        } else {
+          const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          pattern = new RegExp(escaped, "g");
+        }
+
         let count = 0;
         await updateNote(vaultPath, notePath, (existing) => {
-          let pattern: RegExp;
-          if (regex) {
-            const f = flags ?? "g";
-            if (!f.includes("g")) {
-              throw new Error("regex flags must include 'g' for replace_in_note");
-            }
-            pattern = new RegExp(find, f);
-          } else {
-            const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            pattern = new RegExp(escaped, "g");
+          // Cap the input size we apply the regex to — refusing the work is
+          // far better than holding the per-file write lock while the engine
+          // backtracks against a pathological pattern.
+          if (existing.length > INPUT_MAX_LEN) {
+            throw new Error(
+              `note is too large for replace_in_note (${existing.length} > ${INPUT_MAX_LEN} chars). Use a more targeted tool.`,
+            );
           }
           const matches = existing.match(pattern);
           count = matches ? matches.length : 0;
@@ -222,7 +270,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         });
         return textResult(
           count === 0
-            ? `No matches in ${notePath} — file unchanged.`
+            ? `No matches in ${notePath} - file unchanged.`
             : `Replaced ${count} match(es) in ${notePath}.`,
         );
       } catch (err) {
@@ -246,7 +294,15 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
       },
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note."),
-        block: z.string().min(1).describe("Block id (without the leading `^`)."),
+        block: z
+          .string()
+          .min(1)
+          // Normalize so callers passing `^myid` are treated identically to
+          // `myid`. The trailing length check after stripping prevents `"^"`
+          // alone from sneaking through the min(1) at the wire.
+          .transform((s) => s.replace(/^\^+/, ""))
+          .refine((s) => s.length > 0, { message: "block id must not be empty after stripping leading '^'" })
+          .describe("Block id with or without the leading `^` (e.g. `myid` or `^myid`)."),
         newContent: z.string().describe("Replacement content. The `^id` anchor is appended automatically."),
       },
     },

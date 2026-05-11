@@ -96,19 +96,33 @@ interface PersistedSnapshot {
 
 async function loadFromDisk(vaultPath: string, state: VaultCacheState): Promise<void> {
   if (state.loaded) return;
-  state.loaded = true;
-  if (!isPersistenceEnabled()) return;
+  if (!isPersistenceEnabled()) {
+    state.loaded = true;
+    return;
+  }
 
   const file = cacheFilePath(vaultPath);
   let raw: string;
   try {
     raw = await fs.readFile(file, "utf-8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      // No snapshot yet — that's the normal first-run case. Mark loaded so we
+      // don't keep stat'ing a missing file on every readAllCached call.
+      state.loaded = true;
+    } else {
+      // Transient error (EACCES, EIO, EBUSY, …): leave loaded=false so the
+      // next call can retry. Otherwise a single permission blip would force
+      // the cache to run cold for the rest of the session.
       log.warn("index-cache: failed to read snapshot", { file, err: err as Error });
     }
     return;
   }
+  // Past the read — whatever happens below (parse, shape check, vault-root
+  // mismatch), the snapshot file is reachable and we've consumed it for this
+  // session.
+  state.loaded = true;
   let snapshot: PersistedSnapshot;
   try {
     snapshot = JSON.parse(raw) as PersistedSnapshot;
@@ -170,56 +184,77 @@ function scheduleFlush(vaultPath: string, state: VaultCacheState): void {
 
 async function flushVaultCache(vaultPath: string, state: VaultCacheState): Promise<void> {
   if (!isPersistenceEnabled()) return;
-  // Serialize concurrent flushes — without this, two debounce timers firing
-  // close together could both write to the same file.
+  // If another caller is already mid-flush, wait for that write to finish
+  // and then re-check `dirty`. The previous version returned immediately
+  // after awaiting, which lost any writes that arrived between the in-flight
+  // flush's snapshot-capture and the second caller arriving — on shutdown
+  // via flushAllCachesAsync those writes were silently dropped.
+  if (state.pendingFlush) {
+    await state.pendingFlush;
+    // Fall through — do NOT return. We may need to start a fresh flush for
+    // writes that the in-flight flush didn't capture.
+  }
+  // Another caller may have already claimed a follow-up flush while we were
+  // awaiting above. Defer to it.
   if (state.pendingFlush) {
     await state.pendingFlush;
     return;
   }
   if (!state.dirty) return;
-  state.pendingFlush = (async () => {
-    state.dirty = false;
-    const snapshot: PersistedSnapshot = {
-      version: CACHE_FILE_VERSION,
-      vaultRoot: path.resolve(vaultPath),
-      entries: {},
-    };
-    let total = 0;
-    // Build the JSON-serializable view. Skip pathologically large entries
-    // so a single binary-ish note can't blow the cache file. Sort by content
-    // length ascending so that small entries fill the budget first — Map
-    // iteration order is insertion order, which would otherwise let a single
-    // multi-MB note inserted early starve dozens of small notes from the
-    // snapshot every flush.
-    const sorted = Array.from(state.entries.entries()).sort(
-      (a, b) => a[1].content.length - b[1].content.length,
-    );
-    for (const [rel, entry] of sorted) {
-      total += entry.content.length;
-      if (total > MAX_PERSISTED_BYTES) break;
-      snapshot.entries[rel] = {
-        fullPath: entry.fullPath,
-        content: entry.content,
-        mtimeMs: entry.mtimeMs,
-      };
-    }
-    const file = cacheFilePath(vaultPath);
-    const dir = path.dirname(file);
-    try {
-      await fs.mkdir(dir, { recursive: true });
-      const tmp = `${file}.${process.pid}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(snapshot), "utf-8");
-      await fs.rename(tmp, file);
-    } catch (err) {
-      // Mark dirty again so a later flush can retry.
-      state.dirty = true;
-      log.warn("index-cache: failed to persist snapshot", { file, err: err as Error });
-    }
-  })();
+  state.pendingFlush = doFlush(vaultPath, state);
   try {
     await state.pendingFlush;
   } finally {
     state.pendingFlush = null;
+  }
+}
+
+async function doFlush(vaultPath: string, state: VaultCacheState): Promise<void> {
+  // Capture the snapshot synchronously, before any await, so concurrent
+  // writes after this point cleanly flip `dirty` back to true and a future
+  // flush picks them up. Clearing `dirty` before the snapshot would race
+  // with such writes; clearing it after the write completes would leave
+  // dirty=false for in-snapshot data while the snapshot was being written
+  // (also racy in the other direction). Clear it here, between snapshot
+  // build and the async write.
+  const snapshot: PersistedSnapshot = {
+    version: CACHE_FILE_VERSION,
+    vaultRoot: path.resolve(vaultPath),
+    entries: {},
+  };
+  let total = 0;
+  // Build the JSON-serializable view. Skip pathologically large entries
+  // so a single binary-ish note can't blow the cache file. Sort by content
+  // length ascending so that small entries fill the budget first - Map
+  // iteration order is insertion order, which would otherwise let a single
+  // multi-MB note inserted early starve dozens of small notes from the
+  // snapshot every flush.
+  const sorted = Array.from(state.entries.entries()).sort(
+    (a, b) => a[1].content.length - b[1].content.length,
+  );
+  for (const [rel, entry] of sorted) {
+    total += entry.content.length;
+    if (total > MAX_PERSISTED_BYTES) break;
+    snapshot.entries[rel] = {
+      fullPath: entry.fullPath,
+      content: entry.content,
+      mtimeMs: entry.mtimeMs,
+    };
+  }
+  // Snapshot is captured. From this point any setEntry will flip dirty back
+  // to true and the next flushVaultCache call will see it.
+  state.dirty = false;
+  const file = cacheFilePath(vaultPath);
+  const dir = path.dirname(file);
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(snapshot), "utf-8");
+    await fs.rename(tmp, file);
+  } catch (err) {
+    // Write failed - re-mark dirty so the next flush retries this data.
+    state.dirty = true;
+    log.warn("index-cache: failed to persist snapshot", { file, err: err as Error });
   }
 }
 

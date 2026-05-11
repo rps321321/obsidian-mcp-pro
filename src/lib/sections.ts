@@ -47,19 +47,23 @@ function newFenceState(): FenceState {
 }
 
 function updateFence(state: FenceState, line: string): boolean {
-  const trimmed = line.trimStart();
+  // CommonMark 4.5: both opening and closing fences accept at most 3 leading
+  // spaces. A 4-space-indented run of backticks is part of an indented code
+  // block, not a fence delimiter. Previously this used `line.trimStart()`,
+  // which accepted arbitrary indentation and so a deeply-indented ``` would
+  // prematurely close a fence and corrupt section / block-id boundaries.
   if (state.insideFence) {
     const closePattern = new RegExp(
-      `^${state.fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${state.fenceLength},}\\s*$`,
+      `^ {0,3}${state.fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${state.fenceLength},}\\s*$`,
     );
-    if (closePattern.test(trimmed)) {
+    if (closePattern.test(line)) {
       state.insideFence = false;
       state.fenceChar = "";
       state.fenceLength = 0;
     }
     return true;
   }
-  const m = trimmed.match(/^(`{3,}|~{3,})/);
+  const m = line.match(/^ {0,3}(`{3,}|~{3,})/);
   if (m) {
     state.insideFence = true;
     state.fenceChar = m[1][0];

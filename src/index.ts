@@ -43,7 +43,7 @@ interface CliOptions {
   installServerName?: string;
 }
 
-function parseArgs(argv: string[]): CliOptions {
+export function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
     command: "serve",
     transport: "stdio",
@@ -78,8 +78,17 @@ function parseArgs(argv: string[]): CliOptions {
       opts.host = a.slice("--host=".length);
     } else if (a === "--token" && argv[i + 1]) {
       opts.bearerToken = argv[++i];
+      // Redact the secret from process.argv so it doesn't leak via `ps`,
+      // /proc/<pid>/cmdline, or crash dumps. Mutate both the local argv copy
+      // and process.argv (which a caller may pass a slice of).
+      argv[i] = "***";
+      const pIdx = process.argv.indexOf(opts.bearerToken);
+      if (pIdx !== -1) process.argv[pIdx] = "***";
     } else if (a.startsWith("--token=")) {
       opts.bearerToken = a.slice("--token=".length);
+      argv[i] = "--token=***";
+      const pIdx = process.argv.indexOf(a);
+      if (pIdx !== -1) process.argv[pIdx] = "--token=***";
     } else if (a === "--allow-origin" && argv[i + 1]) {
       opts.allowedOrigins = argv[++i].split(",").map((s) => s.trim()).filter(Boolean);
     } else if (a.startsWith("--allow-origin=")) {
@@ -141,7 +150,7 @@ Serve options:
   --transport=<stdio|http>                  Transport to use (default: stdio)
   --host=<addr>                             HTTP bind host (default: 127.0.0.1)
   --port=<n>                                HTTP port (default: 3333)
-  --token=<secret>                          Require Bearer <secret> (or env MCP_HTTP_TOKEN)
+  --token=<secret>                          Require Bearer <secret> (prefer env MCP_HTTP_TOKEN to avoid leaking via ps/cmdline)
   --allow-origin=<origins>                  Comma-separated CORS allowlist (default: *)
   --rate-limit=<n>                          Max requests per minute per IP (default: unlimited)
 
@@ -285,15 +294,11 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
         ],
       };
     } catch {
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: "text/markdown",
-            text: `No daily note found for today (expected at ${notePath})`,
-          },
-        ],
-      };
+      // Throw rather than return synthetic 200 content. A successful resource
+      // response with body "No daily note found..." is indistinguishable to
+      // MCP clients from a real note whose first line happens to say the
+      // same thing — clients need a proper error so they can branch on it.
+      throw new Error(`No daily note found for today (expected at ${notePath})`);
     }
   });
 

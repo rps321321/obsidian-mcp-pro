@@ -5,8 +5,8 @@ import matter from "gray-matter";
  *   1. Inline `#tag` tokens in the body
  *   2. The `tags:` (or `Tags:`/`tag:`) field in YAML frontmatter
  *
- * Hierarchical mode also rewrites nested tags: renaming `project` → `client`
- * with hierarchical=true also rewrites `project/alpha` → `client/alpha`.
+ * Hierarchical mode also rewrites nested tags: renaming `project` -> `client`
+ * with hierarchical=true also rewrites `project/alpha` -> `client/alpha`.
  *
  * Renaming preserves surrounding whitespace, code-block exclusions, and the
  * frontmatter representation (array, comma-string, single-string).
@@ -17,24 +17,26 @@ import matter from "gray-matter";
 // so `#anchor` inside a heading isn't matched as a tag.
 const TAG_CHAR = "[a-zA-Z0-9\\u00C0-\\u024F\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u309F\\u30A0-\\u30FF\\uAC00-\\uD7AF_/-]";
 const TAG_HEAD = "[a-zA-Z\\u00C0-\\u024F\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u309F\\u30A0-\\u30FF\\uAC00-\\uD7AF_]";
-const INLINE_TAG_RE = new RegExp(`(^|\\s)#(${TAG_HEAD}${TAG_CHAR}*)`, "g");
 
 interface FenceState {
   insideFence: boolean;
   char: string;
   len: number;
+  closeRe: RegExp | null;
 }
-function newFence(): FenceState { return { insideFence: false, char: "", len: 0 }; }
+function newFence(): FenceState {
+  return { insideFence: false, char: "", len: 0, closeRe: null };
+}
 function fenceTransition(state: FenceState, line: string): boolean {
   const trimmed = line.trimStart();
   if (state.insideFence) {
-    const close = new RegExp(
-      `^${state.char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${state.len},}\\s*$`,
-    );
-    if (close.test(trimmed)) {
+    // The close regex is compiled once when the fence opens and reused
+    // for every interior line, avoiding per-line RegExp allocation.
+    if (state.closeRe !== null && state.closeRe.test(trimmed)) {
       state.insideFence = false;
       state.char = "";
       state.len = 0;
+      state.closeRe = null;
     }
     return true;
   }
@@ -43,6 +45,8 @@ function fenceTransition(state: FenceState, line: string): boolean {
     state.insideFence = true;
     state.char = m[1][0];
     state.len = m[1].length;
+    const escaped = state.char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    state.closeRe = new RegExp(`^${escaped}{${state.len},}\\s*$`);
     return true;
   }
   return false;
@@ -50,8 +54,8 @@ function fenceTransition(state: FenceState, line: string): boolean {
 
 function stripInlineCode(line: string): { stripped: string; mask: boolean[] } {
   // Build a mask flagging which characters lie inside backtick-delimited
-  // inline code spans. We don't strip the bytes — the rewriter does in-place
-  // substitution and needs original offsets — but the mask lets it skip
+  // inline code spans. We don't strip the bytes - the rewriter does in-place
+  // substitution and needs original offsets - but the mask lets it skip
   // matches that fall inside code. Mirrors `findInlineCodeRanges` semantics.
   const mask = new Array<boolean>(line.length).fill(false);
   let i = 0;
@@ -72,7 +76,7 @@ function stripInlineCode(line: string): { stripped: string; mask: boolean[] } {
       j += closeLen;
     }
     if (j >= line.length) {
-      // Unclosed run — skip the opener and keep scanning.
+      // Unclosed run - skip the opener and keep scanning.
       i += openLen;
     }
   }
@@ -103,6 +107,9 @@ export function rewriteInlineTags(
   body: string,
   opts: TagMatchOptions,
 ): { body: string; count: number } {
+  // Local regex so each invocation gets a fresh lastIndex. Module-level
+  // /g regexes carry state between calls, which is a latent footgun.
+  const inlineTagRe = new RegExp(`(^|\\s)#(${TAG_HEAD}${TAG_CHAR}*)`, "g");
   const fence = newFence();
   const out: string[] = [];
   let count = 0;
@@ -118,11 +125,11 @@ export function rewriteInlineTags(
       continue;
     }
     const { mask } = stripInlineCode(line);
-    INLINE_TAG_RE.lastIndex = 0;
+    inlineTagRe.lastIndex = 0;
     let result = "";
     let cursor = 0;
     let m: RegExpExecArray | null;
-    while ((m = INLINE_TAG_RE.exec(line)) !== null) {
+    while ((m = inlineTagRe.exec(line)) !== null) {
       const leading = m[1];
       const matchedTag = m[2];
       const tagStart = m.index + leading.length;
@@ -142,6 +149,46 @@ export function rewriteInlineTags(
 }
 
 /**
+ * Rewrite tag values in a parsed frontmatter data object. Mutates `data`
+ * in place when entries match. Returns the number of renames.
+ */
+function rewriteFrontmatterData(
+  data: Record<string, unknown>,
+  opts: TagMatchOptions,
+): number {
+  const candidateKeys = ["tags", "Tags", "TAGS", "tag", "Tag"];
+  let count = 0;
+  for (const key of candidateKeys) {
+    const value = data[key];
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      let keyChanged = false;
+      const next = value.map((item) => {
+        if (typeof item !== "string") return item;
+        const renamed = applyRename(item, opts);
+        if (renamed !== null) {
+          count++;
+          keyChanged = true;
+          return renamed;
+        }
+        return item;
+      });
+      if (keyChanged) data[key] = next;
+    } else if (typeof value === "string") {
+      const parts = value.split(",").map((s) => s.trim());
+      let changed = false;
+      const renamed = parts.map((part) => {
+        const r = applyRename(part, opts);
+        if (r !== null) { count++; changed = true; return r; }
+        return part;
+      });
+      if (changed) data[key] = renamed.join(", ");
+    }
+  }
+  return count;
+}
+
+/**
  * Rewrite the frontmatter `tags`/`Tags`/`tag` field in place. Returns the
  * new content and a count. Preserves the field's representation: arrays
  * remain arrays; comma-delimited strings remain strings.
@@ -157,69 +204,43 @@ export function rewriteFrontmatterTags(
     return { content, count: 0 };
   }
   const data = parsed.data as Record<string, unknown>;
-  const candidateKeys = ["tags", "Tags", "TAGS", "tag", "Tag"];
-  let count = 0;
-  let dirty = false;
-  for (const key of candidateKeys) {
-    const value = data[key];
-    if (value === undefined) continue;
-    if (Array.isArray(value)) {
-      const next = value.map((item) => {
-        if (typeof item !== "string") return item;
-        const renamed = applyRename(item, opts);
-        if (renamed !== null) {
-          count++;
-          dirty = true;
-          return renamed;
-        }
-        return item;
-      });
-      if (dirty) data[key] = next;
-    } else if (typeof value === "string") {
-      const parts = value.split(",").map((s) => s.trim());
-      let changed = false;
-      const renamed = parts.map((part) => {
-        const r = applyRename(part, opts);
-        if (r !== null) { count++; changed = true; return r; }
-        return part;
-      });
-      if (changed) {
-        data[key] = renamed.join(", ");
-        dirty = true;
-      }
-    }
-  }
-  if (!dirty) return { content, count: 0 };
-  // matter.stringify returns the document with the rewritten frontmatter.
+  const count = rewriteFrontmatterData(data, opts);
+  if (count === 0) return { content, count: 0 };
   return { content: matter.stringify(parsed.content, data), count };
 }
 
 /**
  * Apply both inline and frontmatter renames to a note's content.
+ *
+ * Single round-trip through gray-matter: parse once, rewrite the
+ * frontmatter data object and the body independently, then emit once.
+ * Re-parsing the matter.stringify output between steps risks accumulating
+ * blank lines between the frontmatter fence and the body (gray-matter
+ * preserves leading whitespace in parsed.content while matter.stringify
+ * also inserts its own separator).
  */
 export function rewriteAllTags(
   content: string,
   opts: TagMatchOptions,
 ): { content: string; inlineCount: number; frontmatterCount: number } {
-  const fmResult = rewriteFrontmatterTags(content, opts);
-  // After rewriting frontmatter, re-parse to separate body and rewrite
-  // inline tags in the body only — the frontmatter we already wrote shouldn't
-  // be re-scanned by the inline regex.
   let parsed;
   try {
-    parsed = matter(fmResult.content);
+    parsed = matter(content);
   } catch {
-    return { content: fmResult.content, inlineCount: 0, frontmatterCount: fmResult.count };
+    // Malformed YAML: fall back to inline-only rewriting on the raw content.
+    const inline = rewriteInlineTags(content, opts);
+    return { content: inline.body, inlineCount: inline.count, frontmatterCount: 0 };
   }
-  const inline = rewriteInlineTags(parsed.content, opts);
-  // Reassemble using the original frontmatter representation.
   const data = parsed.data as Record<string, unknown>;
-  const reassembled = Object.keys(data).length > 0
+  const frontmatterCount = rewriteFrontmatterData(data, opts);
+  const inline = rewriteInlineTags(parsed.content, opts);
+  const hasFrontmatter = Object.keys(data).length > 0;
+  const reassembled = hasFrontmatter
     ? matter.stringify(inline.body, data)
     : inline.body;
   return {
     content: reassembled,
     inlineCount: inline.count,
-    frontmatterCount: fmResult.count,
+    frontmatterCount,
   };
 }

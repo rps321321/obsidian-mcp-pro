@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes, readNote, getNoteStats } from "../lib/vault.js";
+import { listNotes, getNoteStats } from "../lib/vault.js";
+import { readAllCached } from "../lib/index-cache.js";
 import { extractWikilinks, resolveWikilink, extractAliases } from "../lib/markdown.js";
 import { sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
@@ -14,6 +15,10 @@ interface LinkGraphData {
   rawLinks: Map<string, LinkInfo[]>;
   /** Lines content per note for context extraction */
   noteLines: Map<string, string[]>;
+  /** Lowercased alias → note path. Needed by display-pass callers
+   *  (get_backlinks, get_outlinks) so resolveWikilink can find alias-only
+   *  targets the build pass already indexed. */
+  aliasMap: Map<string, string>;
 }
 
 // Per-vault+folder cache. Invalidated when any note's mtime changes,
@@ -96,25 +101,15 @@ async function buildLinkGraph(
     backlinks.set(notePath, new Set());
   }
 
-  // Read notes in parallel with a concurrency cap
-  const CONCURRENCY = 16;
-  const noteContents = new Map<string, string>();
-  for (let i = 0; i < allNotes.length; i += CONCURRENCY) {
-    const slice = allNotes.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(
-      slice.map(async (p) => {
-        try {
-          return [p, await readNote(vaultPath, p)] as const;
-        } catch (err) {
-          log.warn("link graph: note read failed", { note: p, err: err as Error });
-          return null;
-        }
-      }),
-    );
-    for (const r of results) {
-      if (r) noteContents.set(r[0], r[1]);
-    }
-  }
+  // Read notes via the shared mtime cache so repeated graph builds (and
+  // overlapping search_notes / get_tags scans) skip re-reads.
+  const { contents: noteContents } = await readAllCached(
+    vaultPath,
+    allNotes,
+    (note, err) => {
+      log.warn("link graph: note read failed", { note, err });
+    },
+  );
 
   // Build alias map first so any note can link to any other by alias
   // (e.g. `[[My Project]]` → note whose frontmatter has `aliases: [My Project]`).
@@ -170,7 +165,14 @@ async function buildLinkGraph(
     outlinks.set(notePath, outSet);
   }
 
-  const data: LinkGraphData = { allNotes, outlinks, backlinks, rawLinks, noteLines };
+  const data: LinkGraphData = {
+    allNotes,
+    outlinks,
+    backlinks,
+    rawLinks,
+    noteLines,
+    aliasMap,
+  };
   const fingerprint = await fingerprintVault(vaultPath, allNotes);
   setGraphCache(cacheKey, { data, fingerprint, cachedAt: Date.now() });
   return data;
@@ -279,7 +281,14 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           const links = graph.rawLinks.get(sourcePath) ?? [];
           const relevantLinks = links.filter((l) => {
             const base = l.target.split("#")[0].trim();
-            const resolved = resolveWikilink(base, sourcePath, graph.allNotes);
+            // Pass aliasMap so alias-only matches (e.g. `[[My Project]]`
+            // pointing at a note whose frontmatter declares that alias)
+            // resolve here exactly as they did during graph build. Without
+            // it, the source slipped into the backlink set during build but
+            // produced an empty line/context in this display pass.
+            const resolved = resolveWikilink(base, sourcePath, graph.allNotes, {
+              aliasMap: graph.aliasMap,
+            });
             return resolved === resolvedTarget;
           });
 
@@ -345,17 +354,47 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
     },
     async ({ path: notePath }) => {
       try {
-        const allNotes = await listNotes(vaultPath);
-        const content = await readNote(vaultPath, notePath);
-        const links = extractWikilinks(content);
+        // Route through the shared link graph so resolution uses the same
+        // alias map the rest of the link tools rely on, and so the heavy
+        // read/parse work is shared with backlinks/orphans/broken-links
+        // calls. The graph already indexes raw links per source.
+        const graph = await buildLinkGraph(vaultPath);
 
+        // Resolve caller-provided path to its canonical form in the graph
+        // (handles trailing-or-missing .md and basename-only inputs the way
+        // get_backlinks does).
+        const targetNormalized = notePath.replace(/\.md$/i, "").toLowerCase();
+        const targetBasename = targetNormalized.split("/").pop() ?? targetNormalized;
+        let resolvedSource: string | null = null;
+        for (const p of graph.allNotes) {
+          if (p.replace(/\.md$/i, "").toLowerCase() === targetNormalized) {
+            resolvedSource = p;
+            break;
+          }
+        }
+        if (!resolvedSource) {
+          for (const p of graph.allNotes) {
+            const base = p.replace(/\.md$/i, "").split("/").pop()?.toLowerCase();
+            if (base === targetBasename) {
+              resolvedSource = p;
+              break;
+            }
+          }
+        }
+        if (!resolvedSource) {
+          return errorResult(`No note found matching path: ${notePath}`);
+        }
+
+        const links = graph.rawLinks.get(resolvedSource) ?? [];
         const results: { target: string; resolvedPath: string | null; isValid: boolean; isEmbed: boolean }[] = [];
 
         for (const link of links) {
           const targetBase = link.target.split("#")[0].trim();
           if (!targetBase) continue;
 
-          const resolved = resolveWikilink(targetBase, notePath, allNotes);
+          const resolved = resolveWikilink(targetBase, resolvedSource, graph.allNotes, {
+            aliasMap: graph.aliasMap,
+          });
           results.push({
             target: link.target,
             resolvedPath: resolved,
@@ -369,7 +408,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
             content: [
               {
                 type: "text" as const,
-                text: `No outgoing links found in: ${notePath}`,
+                text: `No outgoing links found in: ${resolvedSource}`,
               },
             ],
           };
@@ -379,7 +418,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         const broken = results.filter((r) => !r.isValid);
 
         const lines: string[] = [
-          `Outgoing links from: ${notePath}`,
+          `Outgoing links from: ${resolvedSource}`,
           `Total: ${results.length} (${valid.length} valid, ${broken.length} broken)\n`,
         ];
 
@@ -535,20 +574,39 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
     },
     async ({ folder, maxResults }) => {
       try {
-        // Get all notes in vault for resolution, but only scan the folder
+        // Get all notes in vault for resolution, but only scan the folder.
+        // Reads go through the shared mtime cache (`readAllCached`) so the
+        // scan parallelizes within the cache's concurrency cap and re-runs
+        // hit the cache instead of stat+read every file again - matching
+        // the pattern search_notes uses for similar full-vault sweeps.
         const allNotes = await listNotes(vaultPath);
         const scanNotes = folder ? await listNotes(vaultPath, folder) : allNotes;
+
+        // Build the alias map from the full vault so cross-folder alias
+        // resolution still works when scoping to a single folder.
+        const { contents: allContents } = await readAllCached(
+          vaultPath,
+          allNotes,
+          (note, err) => {
+            log.warn("find_broken_links: note read failed", { note, err });
+          },
+        );
+        const aliasMap = new Map<string, string>();
+        for (const notePath of allNotes) {
+          const content = allContents.get(notePath);
+          if (content === undefined) continue;
+          for (const alias of extractAliases(content)) {
+            const key = alias.toLowerCase();
+            if (!key) continue;
+            aliasMap.set(key, notePath);
+          }
+        }
 
         const brokenBySource = new Map<string, BrokenLink[]>();
 
         for (const notePath of scanNotes) {
-          let content: string;
-          try {
-            content = await readNote(vaultPath, notePath);
-          } catch (err) {
-            log.warn("find_broken_links: note read failed", { note: notePath, err: err as Error });
-            continue;
-          }
+          const content = allContents.get(notePath);
+          if (content === undefined) continue;
 
           const lines = content.split("\n");
           const links = extractWikilinks(content);
@@ -557,7 +615,9 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
             const targetBase = link.target.split("#")[0].trim();
             if (!targetBase) continue;
 
-            const resolved = resolveWikilink(targetBase, notePath, allNotes);
+            const resolved = resolveWikilink(targetBase, notePath, allNotes, {
+              aliasMap,
+            });
             if (!resolved) {
               const lineInfo = findLineWithLink(lines, link.target);
               const broken: BrokenLink = {

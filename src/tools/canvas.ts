@@ -58,6 +58,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         path: z
           .string()
           .min(1)
+          .regex(/\.canvas$/i, "Path must end in .canvas")
           .describe("Relative path from vault root to the .canvas file (e.g., 'boards/roadmap.canvas')"),
       },
     },
@@ -126,7 +127,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     {
       title: "Add Canvas Node",
       description:
-        "Add a new node to an Obsidian canvas and persist the updated file. Supports four node types: 'text' (markdown block), 'file' (embedded vault note reference), 'link' (external URL), and 'group' (labeled container). Returns the generated node UUID, needed to connect nodes via add_canvas_edge.",
+        "Add a new node to an Obsidian canvas and persist the updated file. Supports four node types: 'text' (markdown block), 'file' (embedded vault note reference), 'link' (external URL), and 'group' (labeled container). Returns the generated node UUID, needed to connect nodes via add_canvas_edge. When neither x nor y is supplied, the new node is auto-positioned at (50 * existing_count, 50 * existing_count) to avoid stacking multiple defaulted nodes at the origin. Supplying an explicit x or y always overrides this stagger.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -137,6 +138,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         canvasPath: z
           .string()
           .min(1)
+          .regex(/\.canvas$/i, "Path must end in .canvas")
           .describe("Relative path from vault root to the target .canvas file"),
         type: z
           .enum(["text", "file", "link", "group"])
@@ -147,13 +149,11 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         x: z
           .number()
           .optional()
-          .default(0)
-          .describe("X coordinate on the canvas (default: 0)"),
+          .describe("X coordinate on the canvas. When omitted (and y is also omitted) the node is auto-staggered to avoid origin pile-up; an explicit value always wins."),
         y: z
           .number()
           .optional()
-          .default(0)
-          .describe("Y coordinate on the canvas (default: 0)"),
+          .describe("Y coordinate on the canvas. When omitted (and x is also omitted) the node is auto-staggered to avoid origin pile-up; an explicit value always wins."),
         width: z
           .number()
           .int()
@@ -178,24 +178,20 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     async ({ canvasPath, type, content, x, y, width, height, color }) => {
       try {
         const id = randomUUID();
+        // Coordinate defaulting happens inside the file lock so that the
+        // "existing node count" used for stagger reflects the exact state we
+        // are about to mutate (no race with a parallel add_canvas_node).
+        const autoStaggerX = x === undefined;
+        const autoStaggerY = y === undefined;
+        const resolvedWidth = width ?? 250;
+        const resolvedHeight = height ?? 60;
 
-        const node: CanvasNode = {
-          id,
-          type,
-          x,
-          y,
-          width,
-          height,
-        };
-
-        if (type === "text") {
-          node.text = content;
-        } else if (type === "file") {
+        if (type === "file") {
           // Validate the file reference stays inside the vault. Without this
           // check, arbitrary paths (e.g. "../../etc/passwd") would be
           // persisted in the canvas JSON and surfaced back to clients.
           // Use the async variant so symlinked paths that escape the vault
-          // (via realpath) are also rejected — matches the defense-in-depth
+          // (via realpath) are also rejected, matches the defense-in-depth
           // used by every other path-accepting tool. The referenced file
           // need not exist yet; `resolveVaultPathSafe` walks up to the
           // deepest existing ancestor and realpath-checks that.
@@ -206,24 +202,52 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
               `Invalid file reference: "${content}" must be a relative path inside the vault.`,
             );
           }
-          node.file = content;
-        } else if (type === "link") {
-          node.url = content;
-        } else if (type === "group") {
-          node.label = content;
         }
 
-        if (color) {
-          node.color = color;
-        }
+        let finalX = 0;
+        let finalY = 0;
 
         await updateCanvasFile(vaultPath, canvasPath, (data) => {
+          // Auto-stagger only when BOTH coordinates are omitted; any explicit
+          // value disables the stagger so callers can pin to (0, 0) on purpose.
+          if (autoStaggerX && autoStaggerY) {
+            const count = data.nodes.length;
+            finalX = 50 * count;
+            finalY = 50 * count;
+          } else {
+            finalX = autoStaggerX ? 0 : (x as number);
+            finalY = autoStaggerY ? 0 : (y as number);
+          }
+
+          const node: CanvasNode = {
+            id,
+            type,
+            x: finalX,
+            y: finalY,
+            width: resolvedWidth,
+            height: resolvedHeight,
+          };
+
+          if (type === "text") {
+            node.text = content;
+          } else if (type === "file") {
+            node.file = content;
+          } else if (type === "link") {
+            node.url = content;
+          } else if (type === "group") {
+            node.label = content;
+          }
+
+          if (color) {
+            node.color = color;
+          }
+
           data.nodes.push(node);
           return data;
         });
 
         return {
-          content: [{ type: "text" as const, text: `Node added successfully.\nID: ${id}\nType: ${type}\nPosition: (${x}, ${y})` }],
+          content: [{ type: "text" as const, text: `Node added successfully.\nID: ${id}\nType: ${type}\nPosition: (${finalX}, ${finalY})` }],
         };
       } catch (err) {
         log.error("add_canvas_node failed", { tool: "add_canvas_node", err: err as Error });
@@ -248,6 +272,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         canvasPath: z
           .string()
           .min(1)
+          .regex(/\.canvas$/i, "Path must end in .canvas")
           .describe("Relative path from vault root to the target .canvas file"),
         fromNode: z
           .string()

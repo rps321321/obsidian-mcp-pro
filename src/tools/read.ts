@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
-import { searchInContents, readNote, listNotes, getNoteStats, resolveVaultPathSafe } from "../lib/vault.js";
+import { searchInContents, readNote, listNotes, resolveVaultPathSafe } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
@@ -555,43 +555,62 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           log.warn("get_vault_stats: note read failed", { note, err });
         });
 
+        // Single combined pass: each note pays at most one fs.stat (in
+        // parallel with bounded concurrency). The previous shape ran an
+        // entire second `mapConcurrent` calling `getNoteStats` (which itself
+        // does `resolveVaultPathSafe` + `fs.stat`) just to find the most
+        // recent note - a full extra O(n) walk over the vault. Folding the
+        // stat into the same per-note worker that aggregates bytes/words/
+        // tags halves the syscall budget without changing observable output.
+        interface PerNote {
+          bytes: number;
+          words: number;
+          tags: string[];
+          mtimeMs: number | null;
+        }
+        const perNote = await mapConcurrent<string, PerNote | undefined>(
+          notes,
+          16,
+          async (notePath) => {
+            const content = contents.get(notePath);
+            if (content === undefined) return undefined;
+            const bytes = Buffer.byteLength(content, "utf-8");
+            // Word count: parse frontmatter out so YAML keys don't inflate
+            // the count, then split body on whitespace.
+            const { content: body } = parseFrontmatter(content);
+            const matches = body.match(/\S+/g);
+            const words = matches ? matches.length : 0;
+            const tags = extractTags(content);
+            let mtimeMs: number | null = null;
+            try {
+              const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
+              const st = await fs.stat(fullPath);
+              mtimeMs = st.mtimeMs;
+            } catch {
+              // Best-effort: if stat fails we still count the note's content
+              // but it can't be a most-recent candidate.
+            }
+            return { bytes, words, tags, mtimeMs };
+          },
+        );
+
         let totalBytes = 0;
         let totalWords = 0;
         let untagged = 0;
         const tagSet = new Set<string>();
-        for (const notePath of notes) {
-          const content = contents.get(notePath);
-          if (content === undefined) continue;
-          totalBytes += Buffer.byteLength(content, "utf-8");
-          // Word count: parse frontmatter out so YAML keys don't inflate
-          // the count, then split body on whitespace.
-          const { content: body } = parseFrontmatter(content);
-          const matches = body.match(/\S+/g);
-          totalWords += matches ? matches.length : 0;
-          const tags = extractTags(content);
-          if (tags.length === 0) untagged++;
-          for (const t of tags) tagSet.add(t.toLowerCase());
-        }
-
-        // Most recent note via fs.stat — keep this independent of the cache
-        // so it's accurate even if the cache hasn't been touched yet.
         let mostRecent: { path: string; mtimeMs: number } | null = null;
-        const stats = await mapConcurrent<string, { path: string; mtimeMs: number } | undefined>(
-          notes,
-          16,
-          async (notePath) => {
-            try {
-              const st = await getNoteStats(vaultPath, notePath);
-              if (!st.modified) return undefined;
-              return { path: notePath, mtimeMs: st.modified.getTime() };
-            } catch {
-              return undefined;
+        for (let i = 0; i < notes.length; i++) {
+          const row = perNote[i];
+          if (!row) continue;
+          totalBytes += row.bytes;
+          totalWords += row.words;
+          if (row.tags.length === 0) untagged++;
+          for (const t of row.tags) tagSet.add(t.toLowerCase());
+          if (row.mtimeMs !== null) {
+            if (!mostRecent || row.mtimeMs > mostRecent.mtimeMs) {
+              mostRecent = { path: notes[i], mtimeMs: row.mtimeMs };
             }
-          },
-        );
-        for (const s of stats) {
-          if (!s) continue;
-          if (!mostRecent || s.mtimeMs > mostRecent.mtimeMs) mostRecent = s;
+          }
         }
 
         const avgBytes = Math.round(totalBytes / notes.length);

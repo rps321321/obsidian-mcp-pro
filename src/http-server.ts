@@ -223,9 +223,12 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // third-party hostname and be rejected. Populated after `listen()` so we
   // know the bound port; this matters when callers pass `port: 0` (tests,
   // embedders) and the OS assigns one. The array reference is captured by
-  // each `StreamableHTTPServerTransport` and read on every request, so
-  // re-assigning it post-listen propagates to all subsequent transports.
-  let allowedHosts: string[] = [];
+  // each `StreamableHTTPServerTransport` constructor and read on every
+  // request, so we MUST mutate this array in place (push) rather than
+  // re-assigning the binding: a new array would be invisible to transports
+  // that already grabbed the original reference, silently disabling
+  // DNS-rebinding protection.
+  const allowedHosts: string[] = [];
 
   const httpServer = createServer(async (req, res) => {
     // Cap wall-clock time for POST requests only. GET is used by the
@@ -275,6 +278,20 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         return;
       }
       if (url.pathname === "/version") {
+        // GET stays unauthenticated for monitoring probes (same shape as
+        // /health). Non-GET methods are non-sensical for a read-only
+        // version endpoint and, when a Bearer token is configured, must
+        // require it — anonymous POSTs were previously a free
+        // unauthenticated reflection point.
+        if (req.method !== "GET" && opts.bearerToken) {
+          const header = req.headers.authorization ?? "";
+          const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+          if (!constantTimeEqual(token, opts.bearerToken)) {
+            res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
+            sendJson(res, 401, { error: "Unauthorized" });
+            return;
+          }
+        }
         sendJson(res, 200, { version: opts.version ?? "" });
         return;
       }
@@ -296,6 +313,16 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
       if (req.method === "POST") {
+        // MCP Streamable HTTP requires JSON bodies. Reject anything else
+        // before reading the stream: avoids buffering up to 4 MB of
+        // non-JSON data just to produce a parse error, and gives clients
+        // a clearer 415 ("the server understands the request method but
+        // the media type is unsupported") than a generic 400.
+        const contentType = req.headers["content-type"] ?? "";
+        if (!contentType.toLowerCase().includes("application/json")) {
+          sendJson(res, 415, { error: "Unsupported Media Type: expected application/json" });
+          return;
+        }
         let body: unknown;
         try {
           body = await readBody(req);
@@ -330,8 +357,22 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
             }
           };
           const sessionServer = opts.buildMcpServer();
-          await sessionServer.connect(transport);
-          await transport.handleRequest(req, res, body);
+          try {
+            await sessionServer.connect(transport);
+            await transport.handleRequest(req, res, body);
+          } catch (err) {
+            // If init throws after the SDK already assigned a session id
+            // (e.g. handleRequest fails mid-stream), the `onclose` cleanup
+            // may not fire — drop the bookkeeping ourselves so a leaked
+            // transport doesn't accumulate in the maps and eventually hit
+            // the idle sweeper hours later.
+            const sid = transport.sessionId;
+            if (sid) {
+              transports.delete(sid);
+              lastActivity.delete(sid);
+            }
+            throw err;
+          }
           return;
         }
 
@@ -374,12 +415,12 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   const addr = httpServer.address();
   const boundPort = typeof addr === "object" && addr ? addr.port : opts.port;
 
-  allowedHosts = [
+  allowedHosts.push(
     `${opts.host}:${boundPort}`,
     `127.0.0.1:${boundPort}`,
     `localhost:${boundPort}`,
     `[::1]:${boundPort}`,
-  ];
+  );
 
   log.info(`HTTP server listening`, {
     url: `http://${opts.host}:${boundPort}/mcp`,
@@ -396,6 +437,11 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     }
     transports.clear();
     lastActivity.clear();
+    // `httpServer.close()` waits for all active sockets to close on their
+    // own — keep-alive idle connections would otherwise pin the server
+    // open indefinitely. `closeAllConnections` (Node >=18.2) tears down
+    // sockets that aren't currently mid-response so `close()` can return.
+    httpServer.closeAllConnections?.();
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   };
 
@@ -405,6 +451,17 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       await stop();
       process.exit(0);
     };
+    // Drop any prior listeners we may have installed. Tests and embedders
+    // that start/stop the server repeatedly in the same process would
+    // otherwise accumulate listeners and trip Node's default
+    // MaxListenersExceededWarning at 11 boots. We intentionally clear
+    // ALL listeners on these signals because (a) we own the handler we
+    // just defined, (b) any prior obsidian-mcp-pro handler is exactly
+    // the one we're about to replace, and (c) host processes that need
+    // their own SIGINT/SIGTERM behavior should pass
+    // `installSignalHandlers: false`.
+    process.removeAllListeners("SIGINT");
+    process.removeAllListeners("SIGTERM");
     process.on("SIGINT", onSignal);
     process.on("SIGTERM", onSignal);
   }

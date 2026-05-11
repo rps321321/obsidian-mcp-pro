@@ -23,8 +23,94 @@ export function parseFrontmatter(content: string): {
 }
 
 /**
+ * Post-process a YAML frontmatter block (the text between the opening and
+ * closing `---` lines, exclusive) so any value containing an Obsidian
+ * wikilink (`[[…]]`) is wrapped in double quotes. js-yaml's default emitter
+ * leaves `link: [[Episode IV]]` unquoted, which Obsidian's Properties editor
+ * then renders as raw text rather than a clickable link. Handles three line
+ * shapes:
+ *   - scalar value:        `key: [[Foo]]`         → `key: "[[Foo]]"`
+ *   - flow / inline list:  `key: [[[A]], [[B]]]`  not produced by js-yaml
+ *   - block list item:     `  - [[Foo]]`          → `  - "[[Foo]]"`
+ * Already-quoted values (single or double) are left alone so we don't
+ * double-quote on round-trip.
+ *
+ * Exported so the regression suite can pin the behavior directly.
+ */
+export function quoteWikilinksInFrontmatter(yamlBlock: string): string {
+  // Two passes, applied per line:
+  //   - normalize single-quoted wikilinks (js-yaml's default) to double-quoted,
+  //     because Obsidian's Properties editor only recognizes the
+  //     double-quoted form for wikilink rendering.
+  //   - quote any still-unquoted `[[…]]` value (defensive, in case a different
+  //     emitter or hand-edit produces a bare wikilink).
+  //
+  // Line shapes handled:
+  //   `key: VALUE`            (scalar property)
+  //   `  - VALUE`             (block list item)
+  //
+  // VALUE may already be wrapped in either '...' (single quotes, js-yaml
+  // default) or "..." (already double-quoted, leave alone), or be bare.
+  const valuePrefix = /^([ \t]*(?:-|[^\s:][^:\n]*?:)[ \t]+)/;
+  const lines = yamlBlock.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(valuePrefix);
+    if (!m) continue;
+    const prefix = m[1];
+    const value = line.slice(prefix.length);
+    const rewritten = rewriteWikilinkValue(value);
+    if (rewritten !== null) lines[i] = `${prefix}${rewritten}`;
+  }
+  return lines.join("\n");
+}
+
+/**
+ * If `value` is a wikilink expressed bare or single-quoted, return the
+ * double-quoted YAML form. Otherwise return null (leave the line alone).
+ */
+function rewriteWikilinkValue(value: string): string | null {
+  // Already double-quoted: keep as-is.
+  if (value.startsWith('"')) return null;
+  // Single-quoted: unwrap, unescape YAML single-quote doubling, re-quote
+  // as double if the content contains `[[`.
+  if (value.startsWith("'")) {
+    // Find the terminating single quote (YAML escapes `'` as `''`).
+    let end = -1;
+    for (let i = 1; i < value.length; i++) {
+      if (value[i] === "'") {
+        if (value[i + 1] === "'") {
+          i++; // doubled '' is an escaped single quote inside the scalar.
+          continue;
+        }
+        end = i;
+        break;
+      }
+    }
+    if (end === -1) return null;
+    const inner = value.slice(1, end).replace(/''/g, "'");
+    if (!inner.includes("[[")) return null;
+    return quoteForYaml(inner);
+  }
+  // Bare value: only rewrite when it actually contains a wikilink token.
+  if (!value.includes("[[")) return null;
+  return quoteForYaml(value);
+}
+
+function quoteForYaml(value: string): string {
+  // Escape backslashes and double quotes for a YAML double-quoted scalar.
+  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/**
  * Parse existing frontmatter, merge with updates, and return full content
  * with updated frontmatter. Creates frontmatter if none exists.
+ *
+ * Post-processes the emitted frontmatter so wikilink values
+ * (`key: [[Foo]]`, `- [[Bar]]`) are double-quoted. Without quoting, Obsidian's
+ * Properties editor renders the value as plain text and YAML parsers may treat
+ * the unquoted `[[` as a malformed flow sequence.
  */
 export function updateFrontmatter(
   content: string,
@@ -32,7 +118,15 @@ export function updateFrontmatter(
 ): string {
   const parsed = matter(content);
   const merged = { ...parsed.data, ...updates };
-  return matter.stringify(parsed.content, merged);
+  const stringified = matter.stringify(parsed.content, merged);
+  // gray-matter emits `---\n<yaml>---\n<body>`. Find the two delimiter lines
+  // and post-process only the YAML region.
+  if (!stringified.startsWith("---\n")) return stringified;
+  const closeIdx = stringified.indexOf("\n---", 4);
+  if (closeIdx === -1) return stringified;
+  const yamlBlock = stringified.slice(4, closeIdx + 1); // include trailing \n
+  const fixed = quoteWikilinksInFrontmatter(yamlBlock);
+  return `---\n${fixed}${stringified.slice(closeIdx + 1)}`;
 }
 
 /**

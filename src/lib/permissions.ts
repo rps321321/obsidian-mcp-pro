@@ -2,8 +2,22 @@ import path from "path";
 
 /**
  * Folder-scoped read/write allowlist. Configured via env vars:
- *   OBSIDIAN_READ_PATHS   colon-or-comma separated vault-relative folders
+ *   OBSIDIAN_READ_PATHS   vault-relative folders, separated by `,`, `:`, or `;`
  *   OBSIDIAN_WRITE_PATHS  same, but for mutations
+ *
+ * Delimiters: `parseList` splits on any of `,`, `:`, or `;`. The three are
+ * accepted for convenience across platforms, but each has a caveat:
+ *   - `,` (comma) is the recommended default and works everywhere.
+ *   - `:` (colon) is the classic POSIX PATH separator, but it is also a
+ *     valid character in POSIX filenames (e.g. a folder literally named
+ *     `2024:archive` would be split into two entries `2024` and `archive`).
+ *     On Windows `:` is reserved (drive letters), so this is rarely an
+ *     issue there. POSIX users with colons in folder names should prefer
+ *     `,` to avoid fragmentation.
+ *   - `;` (semicolon) is the Windows PATH-style separator and is convenient
+ *     on Windows shells where `,` may need quoting. It is reserved in some
+ *     POSIX shells as a command separator, so quote the env var when using
+ *     `;` from a POSIX shell.
  *
  * When a list is unset (or empty), that operation is unrestricted across the
  * whole vault. When set, every read or write must resolve to a path that lies
@@ -33,6 +47,9 @@ export interface PermissionConfig {
 
 function parseList(raw: string | undefined): string[] | null {
   if (!raw) return null;
+  // Accept comma, colon, or semicolon as separators. See the file header
+  // for caveats: `:` collides with POSIX-legal filenames, `;` collides with
+  // POSIX shell syntax. `,` is the safest choice and works everywhere.
   const parts = raw
     .split(/[,:;]/)
     .map((s) => s.trim())
