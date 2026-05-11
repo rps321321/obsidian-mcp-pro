@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-05-11
+
+Large audit-fix wave: 44 real bugs fixed across 22 source files, 22 new regression test suites added (638 tests passing, 0 failures). Minor bump because the Bases parser learns the chained-method DSL Obsidian 1.9.2+ introduced (backward-compatible new feature, not a breaking change).
+
+### Added
+
+- **Bases chained-method DSL** (Obsidian 2026 spec): `file.name.contains("x")`, `file.hasTag("x")`, `file.hasProperty("k")`, `file.inFolder("p")`, `file.linksTo("y")`, plus generic `.contains` / `.startsWith` / `.endsWith` / `.equals` / `.isEmpty` / `.isNotEmpty` on any property chain. Legacy function-form (`taggedWith(file, "x")`) and infix comparisons still work.
+- **All 13 documented Bases `file.*` properties** wired through `readProperty`: `file.name`, `file.basename`, `file.path`, `file.folder`, `file.ext`, `file.tags`, `file.size`, `file.ctime`, `file.mtime`, `file.properties`, `file.links`, `file.embeds`, `file.backlinks`.
+- **Daily-note moment tokens** added to `formatMomentDate`: `A`/`a` (AM/PM), `W`/`WW`/`ww` (ISO week), `gggg`/`gg` (ISO week-year), `E` (ISO weekday), `e` (local weekday), `X`/`x` (unix timestamps).
+- **`create_daily_note` template substitution** for `{{date}}`, `{{date:FMT}}`, `{{title}}`, `{{time}}`, `{{time:FMT}}` (was: `{{date}}` only).
+- **`add_canvas_node` auto-stagger**: nodes added without explicit x/y land at `(50*n, 50*n)` instead of all stacking at origin.
+- **Permissions JSDoc** now documents all three accepted delimiters (`,`, `:`, `;`) and their cross-platform caveats.
+- 22 new regression test suites under `src/__tests__/regression-*.test.ts`, one per fix domain.
+
+### Fixed
+
+#### Security
+- **HTTP DNS-rebinding protection was a no-op.** `allowedHosts` was reassigned after the transport had already captured the original empty array; now mutated in place so the bound-host list actually reaches the transport.
+- **ReDoS in `replace_in_note`.** A pathological LLM-supplied regex froze the per-file write lock indefinitely. Flag allowlist (`gimsuy` only), 4096-char `find` cap, 1 MB input cap, and `RegExp` construction wrapped in try/catch.
+- **ReDoS in `.base` filter parser.** Unbounded greedy/lazy spans in `FUNC_RE` and `COMPARISON_RE` were quadratic-backtrackable from a malicious `.base` file. Replaced with bounded character classes.
+- **YAML alias-bomb DoS in `parseBaseFile`.** `yaml.load` now uses `JSON_SCHEMA` (most restrictive) and rejects `.base` files over 1 MB with a warning.
+- **Bearer token leaked via `process.argv`.** `--token=VALUE` and `--token VALUE` now redacted to `***` in `process.argv` immediately after parsing so the secret never surfaces in `ps` / `/proc/<pid>/cmdline`.
+- **`install` `serverName` not sanitized.** Control characters and ANSI escape sequences in `serverName` are now rejected, matching the existing `vaultName` guard.
+- **Windows drive-relative and UNC paths.** `resolveVaultPath` now explicitly rejects inputs starting with a drive letter (`C:foo`), `/`, `\`, or `\\` so they cannot ride the prefix check via `path.resolve` semantics.
+- **`assertRealPathWithinVault` EACCES rethrow.** Permission errors on protected ancestors no longer leak the raw absolute path in the message; EACCES is treated as climb-up and falls through to a generic traversal error.
+- **`delete_note` elicitation gate.** The capability check was `caps?.elicitation?.form` which is a TypeScript-SDK extension; spec-compliant clients declaring only `elicitation: {}` silently bypassed the permanent-delete confirmation. Widened to `caps?.elicitation !== undefined`.
+- **HTTP POST Content-Type validation.** Non-`application/json` POSTs return 415 instead of a 500 from a JSON parse error.
+- **HTTP `/version` no longer leaks under bearer auth.** Non-GET to `/version` requires the bearer when configured; GET stays public for monitoring.
+- **Signal-handler accumulation.** `startHttpServer` removes prior SIGINT/SIGTERM listeners before re-registering, so repeat starts no longer trip `MaxListenersExceededWarning`.
+
+#### Data integrity / correctness
+- **Cache flush race.** `flushVaultCache` could drop writes that arrived during an in-flight rename; now re-checks `dirty` after awaiting the prior flush and only clears `dirty` after rename success.
+- **`find_unused_attachments` wrong reclaim total.** The size accumulator only iterated the truncated subset; the label "Total reclaimable" was therefore an under-count when results exceeded `limit`. Now stats every unused file for the total.
+- **`query_base` silently dropped notes.** `mapConcurrent` was called without an error callback, so a single unreadable note vanished from results with no warning. Now logs and continues.
+- **Tag-rename blank-line drift.** `rewriteAllTags` re-parsed and re-stringified via gray-matter twice, accumulating one blank line between frontmatter and body on every run. Single round-trip now.
+- **`dayOfYear` mixed UTC and local time.** Near midnight in non-UTC zones (e.g. UTC+5:30 at 00:30 local on Jan 1), `DDDD` reported last year's day-of-year while `YYYY-MM-DD` reported the new year. DST-immune local-time table lookup now.
+- **Frontmatter wikilinks lost double-quoting.** Obsidian's Properties editor only renders `link: "[[X]]"` when the value is double-quoted; gray-matter's default emitter produced single-quoted or bare output. `updateFrontmatter` post-processes the YAML block to enforce double-quotes.
+- **CommonMark closing-fence indentation.** `sections.ts` accepted arbitrarily-indented closing fences (it trimmed leading whitespace first), which misidentified section boundaries when a note contained an indented backtick run. Now matches CommonMark's 0-3-space rule.
+- **`find_broken_links` was fully sequential.** Replaced with `readAllCached` plus `mapConcurrent`, matching the rest of the vault-wide tools.
+- **`get_backlinks` and `get_outlinks` dropped alias resolution in the display pass.** Wikilinks resolved via alias appeared with empty line/context. Both routes now share the graph's `aliasMap`.
+- **Canvas tools accepted non-`.canvas` paths.** `add_canvas_node` against a JSON config file silently merged a node into its `nodes` array. All canvas tool path schemas now enforce `.canvas` extension.
+- **HTTP shutdown hang.** `httpServer.close()` doesn't destroy idle keep-alive sockets; `stop()` could hang forever with an open SSE stream. Now calls `closeAllConnections()` first.
+- **`get_vault_stats` double-scanned.** Folded the second `getNoteStats` pass into the single `mapConcurrent` walk that already reads content via the cache.
+- **`index_vault` over-counted `chunksEmbedded`.** Per-batch increment was bumped by the full batch length even when chunks failed embedding; per-chunk now.
+- **`create_note` and `update_frontmatter` accepted non-object JSON roots.** Scalar (`"hello"`) or array (`[1,2]`) frontmatter would reach `matter.stringify` and emit invalid YAML. Now rejected.
+- **`listNotes(folder)` returned malformed paths.** Trailing slashes or backslashes in the user-supplied `folder` produced paths like `projects/active//note.md`. Folder string is normalized first.
+- **Trash path bypassed the canonical resolver.** `deleteNote` non-permanent path now routes the trash destination through the same pipeline as every other write target.
+- **`embedding-store.saveStore` tmp leak on failure.** Now mirrors `atomicWriteFile`: tmp suffix randomized, cleanup in catch.
+- **Embedding store snapshot dimension mismatch.** Vectors whose length didn't match `snapshot.dimension` were loaded anyway and silently scored 0 against everything; now skipped at load time.
+- **Ollama provider probe wasted requests and corrupted batches.** The cold-start probe re-embedded chunk 0 in the followup full batch. The probe result is now stitched into the batch over `texts.slice(1)`.
+- **Embedding-store had no persisted-snapshot size cap.** Large vaults could produce 1+ GB JSON files. 256 MB cap with warn-skip.
+- **`index_vault` had no top-level lock.** Two concurrent indexes could interleave `setNoteChunks` / `pruneMissingNotes` and corrupt the store. Wrapped in a vault-level lock via `vaultRewriteLockKey`.
+- **`obsidian://daily` resource returned synthetic content on missing notes.** Clients couldn't distinguish "no daily note" from a note whose first line happened to say that. Now throws so the SDK emits a proper error response.
+- **`replace_in_note` and `insert_at_section` reported UTF-16 code-unit counts as bytes.** Now uses `Buffer.byteLength` for the reported byte count.
+- **`edit_block` rejected `^id` form.** Now strips a leading `^` from the block-id input via Zod transform.
+- **`find-stale-notes` prompt instructed the model to call `get_note` per candidate.** Rewritten to route through `get_recent_notes`. `daily-review`, `extract-action-items`, and `build-moc` similarly capped against fan-out.
+
+#### Other
+- **`INLINE_TAG_RE` module-level state** removed; the stateful `g`-flag regex is now local to `rewriteInlineTags`.
+- **Closing-fence regex** in `tag-rewriter.ts` and `markdown.ts` is now compiled once per fence (was recompiled on every interior fenced-code line).
+- **`rewriteFrontmatterTags`** array branch uses a per-key `changed` flag, matching the existing per-key pattern in the string branch.
+- **`loadFromDisk`** retries on transient errors instead of latching `loaded=true` on EACCES for the rest of the session.
+- **Ollama batch-probe** degrades to per-item only on 404; transient errors leave `batchSupported=null` so future calls re-probe.
+
+### Notes
+
+- The audit's claim that `rename_tag`'s Zod regex blocked hierarchical names (`project/alpha`) was verified to be a false positive; the regex correctly accepts them. Schema invariants are pinned in `regression-tools-tags.test.ts`.
+- The audit's rate-limiter `delete-instead-of-set` claim was verified unreachable given the constructor's `limit > 0` invariant; existing `sweep()` already handles empty entries.
+
 ## [1.8.6] - 2026-05-09
 
 ### Changed
