@@ -36,6 +36,14 @@ function buildFrontmatterContent(frontmatterObj: Record<string, unknown>, body: 
   return matter.stringify(body, frontmatterObj);
 }
 
+// Frontmatter must be a YAML mapping at the root. `JSON.parse` happily returns
+// strings, numbers, booleans, null, and arrays as well — feeding any of those
+// to `matter.stringify` produces malformed (or surprising) YAML. Reject early
+// with a clear message instead of writing a broken file to disk.
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function registerWriteTools(server: McpServer, vaultPath: string): void {
   // 1. create_note
   server.registerTool(
@@ -71,11 +79,16 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         let finalContent: string;
 
         if (frontmatter) {
-          let parsed: Record<string, unknown>;
+          let parsed: unknown;
           try {
-            parsed = JSON.parse(frontmatter) as Record<string, unknown>;
+            parsed = JSON.parse(frontmatter);
           } catch {
             return errorResult("Error: Invalid JSON in frontmatter parameter.");
+          }
+          if (!isPlainObject(parsed)) {
+            return errorResult(
+              "Error: frontmatter must be a JSON object (e.g. '{\"status\":\"draft\"}'), not an array, string, number, boolean, or null.",
+            );
           }
           finalContent = buildFrontmatterContent(parsed, content);
         } else {
@@ -195,18 +208,24 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
       try {
         const resolvedPath = ensureMdExtension(notePath);
 
-        let parsed: Record<string, unknown>;
+        let parsed: unknown;
         try {
-          parsed = JSON.parse(properties) as Record<string, unknown>;
+          parsed = JSON.parse(properties);
         } catch {
           return errorResult("Error: Invalid JSON in properties parameter.");
         }
+        if (!isPlainObject(parsed)) {
+          return errorResult(
+            "Error: properties must be a JSON object (e.g. '{\"status\":\"done\"}'), not an array, string, number, boolean, or null.",
+          );
+        }
+        const props = parsed;
 
         await updateNote(vaultPath, resolvedPath, (existing) =>
-          updateFrontmatter(existing, parsed),
+          updateFrontmatter(existing, props),
         );
 
-        return textResult(`Updated frontmatter of '${resolvedPath}' with ${Object.keys(parsed).length} properties.`);
+        return textResult(`Updated frontmatter of '${resolvedPath}' with ${Object.keys(props).length} properties.`);
       } catch (err) {
         log.error("update_frontmatter failed", { tool: "update_frontmatter", err: err as Error });
         return errorResult(`Error updating frontmatter: ${sanitizeError(err)}`);
@@ -220,7 +239,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       title: "Create Daily Note",
       description:
-        "Create a daily note for today (or a specific date) in the vault's configured daily-note folder using its configured filename format. Optionally seed the note from a template file where occurrences of {{date}} are replaced with the formatted date. Fails if the daily note already exists.",
+        "Create a daily note for today (or a specific date) in the vault's configured daily-note folder using its configured filename format. Optionally seed the note from a template file with Obsidian-style placeholder substitution: {{date}} and {{title}} → the formatted date; {{time}} → local HH:mm; {{date:FORMAT}} / {{time:FORMAT}} → custom moment-style format. Fails if the daily note already exists.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -240,7 +259,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         templatePath: z
           .string()
           .optional()
-          .describe("Relative path to a template note. Its content is copied into the new daily note with {{date}} replaced by the formatted date."),
+          .describe("Relative path to a template note. Its content is copied into the new daily note with Obsidian-style placeholders substituted: {{date}}/{{title}} → formatted date, {{time}} → local HH:mm, and {{date:FORMAT}}/{{time:FORMAT}} → custom moment-style format."),
       },
     },
     async ({ date, content, templatePath }) => {
@@ -265,7 +284,27 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           const resolvedTemplate = ensureMdExtension(templatePath);
           try {
             const templateContent = await readNote(vaultPath, resolvedTemplate);
-            finalContent = templateContent.replace(/\{\{date\}\}/g, dateStr);
+            // Match Obsidian's core Templates / Daily Notes substitution:
+            //   {{date}}           → daily-notes formatted date
+            //   {{date:FORMAT}}    → date formatted with caller-supplied moment-style format
+            //   {{time}}           → local HH:mm
+            //   {{time:FORMAT}}    → time/date formatted with caller-supplied format
+            //   {{title}}          → file's title (== formatted date for daily notes)
+            // The previous implementation only handled {{date}}, so any
+            // real-world template referencing {{title}} or {{time}} leaked
+            // the literal placeholder into the new daily note.
+            finalContent = templateContent.replace(
+              /\{\{(date|time|title)(?::([^}]*))?\}\}/g,
+              (_match, token: string, fmt: string | undefined) => {
+                if (token === "title") return dateStr;
+                if (token === "date") {
+                  return fmt ? formatDate(targetDate, fmt) : dateStr;
+                }
+                // token === "time"
+                const now = new Date();
+                return fmt ? formatDate(now, fmt) : formatDate(now, "HH:mm");
+              },
+            );
           } catch (err) {
             return errorResult(`Error reading template: ${sanitizeError(err)}`);
           }
@@ -389,14 +428,25 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const resolvedPath = ensureMdExtension(notePath);
 
         // Elicit a typed confirmation before permanent deletion if the client
-        // supports form elicitation. Trash deletes (`permanent: false`) are
-        // recoverable, so we don't gate them. Errors from the elicit path
-        // (network blip, schema mismatch) fall through to the delete: the
-        // tool annotation `destructiveHint: true` already gives the host a
-        // chance to confirm, so this is a defense-in-depth check, not a
-        // mandatory gate.
+        // declares elicitation support. Trash deletes (`permanent: false`)
+        // are recoverable, so we don't gate them. Errors from the elicit
+        // path (network blip, schema mismatch, client that announced
+        // elicitation but can't actually fulfil it) fall through to the
+        // delete: the tool annotation `destructiveHint: true` already gives
+        // the host a chance to confirm, so this is a defense-in-depth
+        // check, not a mandatory gate.
+        //
+        // The MCP spec defines the capability as `elicitation: {}` at the
+        // top level; `form` is a TypeScript-SDK extension. Checking only
+        // for `.form` silently skipped this gate for spec-compliant
+        // clients that declared `elicitation: {}` but not the SDK-specific
+        // `form` sub-field, letting permanent deletes proceed without any
+        // confirmation prompt. Check the parent key instead so any
+        // elicitation-capable client triggers the prompt; if the client
+        // can't actually elicit, `elicitInput` throws and the surrounding
+        // try/catch logs and falls through.
         const caps = server.server.getClientCapabilities();
-        if (permanent && caps?.elicitation?.form) {
+        if (permanent && caps?.elicitation !== undefined) {
           try {
             const elicit = await server.server.elicitInput({
               message:

@@ -2,24 +2,27 @@ import yaml from "js-yaml";
 import { parseFrontmatter, extractTags } from "./markdown.js";
 
 /**
- * Minimal Obsidian Bases (`.base` file) support.
+ * Obsidian Bases (`.base` file) support.
  *
- * A Bases file is YAML describing filters, properties, and view definitions
- * over the vault's notes. Real Obsidian implements a richer DSL than we
- * support here — this module covers the subset that's reliably useful for
- * an MCP-driven query path:
+ * Spec sources consulted (2026-05):
+ *   - https://help.obsidian.md/bases/syntax (canonical filter syntax)
+ *   - obsidianmd/obsidian-help repo (Bases/Functions.md, Bases syntax.md)
+ *   - Release notes v1.9.2 (object/chained syntax intro), v1.9.14 (case-insensitive hasTag)
+ *
+ * Supported filter forms:
  *
  *   filters:
- *     and:                    # also: or, not, root-level array (= and)
- *       - taggedWith(file, "project")
- *       - file.hasTag("active")
- *       - status == "in-progress"
- *       - priority != "low"
- *       - file.name contains "2026"
+ *     and:                          # combinators: and / or / not
+ *       - file.hasTag("project")    # chained method on file
+ *       - file.name.contains("2026")
+ *       - file.inFolder("Projects")
+ *       - file.hasProperty("status")
+ *       - status == "active"        # infix comparison
+ *       - priority > 3
+ *       - taggedWith(file, "tag")   # legacy function form (still accepted)
  *
- * Unsupported filter expressions are surfaced as parse warnings and treated
- * as `true` (i.e. permissive) so a partial Base still returns plausible
- * rows. Callers can inspect `warnings` to see which clauses were skipped.
+ * Unsupported expressions surface as parse warnings and evaluate to `true`
+ * (permissive fallback) so a partial Base still returns plausible rows.
  */
 
 export interface BaseDocument {
@@ -47,18 +50,37 @@ export type BaseFilter =
   | string
   | { and: BaseFilter[] }
   | { or: BaseFilter[] }
-  | { not: BaseFilter };
+  | { not: BaseFilter | BaseFilter[] };
 
 export interface ParsedBase {
   doc: BaseDocument;
   warnings: string[];
 }
 
+/**
+ * Hard cap on `.base` file size we'll attempt to parse. Real Bases are
+ * a few hundred bytes to a few KB; anything past 1 MB is either generated
+ * garbage or a YAML alias-bomb ("billion laughs") aimed at the parser.
+ * Reject before handing bytes to js-yaml so we can't be coerced into a
+ * large allocation.
+ */
+const MAX_BASE_FILE_BYTES = 1_048_576;
+
 export function parseBaseFile(raw: string): ParsedBase {
   const warnings: string[] = [];
   let doc: BaseDocument = {};
+  if (raw.length > MAX_BASE_FILE_BYTES) {
+    warnings.push(
+      `Base file exceeds size cap (${raw.length} > ${MAX_BASE_FILE_BYTES} bytes); refusing to parse to avoid YAML alias-bomb / DoS. Treating as empty Base.`,
+    );
+    return { doc, warnings };
+  }
   try {
-    const parsed = yaml.load(raw);
+    // JSON_SCHEMA is the most restrictive schema js-yaml ships: it disables
+    // every non-JSON type (timestamps, !!binary, custom tags, etc.). Combined
+    // with the size cap above, this neutralises the worst alias / merge-key
+    // expansions a malicious .base file could use.
+    const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       doc = parsed as BaseDocument;
     } else {
@@ -70,11 +92,29 @@ export function parseBaseFile(raw: string): ParsedBase {
   return { doc, warnings };
 }
 
-/** A single row in a query result: a note path plus its frontmatter and tags. */
+/**
+ * A single row in a query result. Required fields are populated from the
+ * note body. The optional fields mirror Obsidian's `file.*` surface; the
+ * builder in tools/bases.ts only populates simple ones today, but the
+ * evaluator already understands them so callers can supply more without a
+ * second pass.
+ */
 export interface BaseRow {
   path: string;
   frontmatter: Record<string, unknown>;
   tags: string[];
+  /** Optional fs stats (file.size, file.ctime, file.mtime). */
+  stats?: {
+    size?: number;
+    ctime?: number;
+    mtime?: number;
+  };
+  /** Outgoing wikilinks (file.links). */
+  links?: string[];
+  /** Embeds (file.embeds). */
+  embeds?: string[];
+  /** Notes that link to this note (file.backlinks). */
+  backlinks?: string[];
 }
 
 export interface QueryResult {
@@ -84,14 +124,21 @@ export interface QueryResult {
 
 /**
  * Build a row for a single note. Pre-parsing once per note keeps the filter
- * evaluator fast across large vaults.
+ * evaluator fast across large vaults. `stats` is optional so existing
+ * callers stay source-compatible; new callers pass fs stats so size/ctime/
+ * mtime filters resolve to real values.
  */
-export function buildRow(path: string, content: string): BaseRow {
+export function buildRow(
+  path: string,
+  content: string,
+  stats?: BaseRow["stats"],
+): BaseRow {
   const { data } = parseFrontmatter(content);
   return {
     path,
     frontmatter: data,
     tags: extractTags(content),
+    stats,
   };
 }
 
@@ -123,9 +170,6 @@ export function evaluateFilter(
   depth = 0,
 ): boolean {
   if (depth > MAX_FILTER_DEPTH) {
-    // Bail out instead of exploding the stack. Returning `true` is the
-    // permissive fallback the rest of the evaluator already uses for
-    // unrecognized shapes — surfacing a warning lets the user fix the Base.
     ctx.warnings.push(`Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; clauses past this depth were skipped.`);
     return true;
   }
@@ -133,17 +177,62 @@ export function evaluateFilter(
   if (typeof filter === "string") return evaluateExpression(row, filter, ctx);
   if ("and" in filter) return filter.and.every((f) => evaluateFilter(row, f, ctx, depth + 1));
   if ("or" in filter) return filter.or.some((f) => evaluateFilter(row, f, ctx, depth + 1));
-  if ("not" in filter) return !evaluateFilter(row, filter.not, ctx, depth + 1);
+  if ("not" in filter) {
+    // Obsidian accepts both a single filter and a list under `not:`. When
+    // it's a list, treat it as an implicit `and` so the spec's
+    //   not:
+    //     - X
+    //     - Y
+    // means "neither X nor Y", matching how the docs render it.
+    const inner = filter.not;
+    if (Array.isArray(inner)) return !inner.every((f) => evaluateFilter(row, f, ctx, depth + 1));
+    return !evaluateFilter(row, inner, ctx, depth + 1);
+  }
   ctx.warnings.push(`Unknown filter shape: ${JSON.stringify(filter)}`);
   return true;
 }
 
-const FUNC_RE = /^([A-Za-z][A-Za-z0-9_.]*)\s*\(([\s\S]*)\)\s*$/;
-const COMPARISON_RE = /^(.+?)\s*(==|!=|>=|<=|>|<|contains|startsWith|endsWith)\s*(.+?)\s*$/;
+// ---------- Expression parsing ----------
+//
+// Regex notes (ReDoS hardening):
+//   FUNC_RE matches `name(args)` and METHOD_RE matches `chain.method(args)`.
+//   Both bound the argument span to `[^)]*` (no nested parens) so they run
+//   in linear time on any input length. The previous `[\s\S]*` was
+//   catastrophic on long inputs because the engine could backtrack across
+//   the entire body.
+//
+//   COMPARISON_RE constrains the operand on each side: identifiers/dots
+//   on the left, and a single quoted string OR a non-space token on the
+//   right. The old `(.+?) op (.+?)` was lazy-greedy and ambiguous, which is
+//   the classic ReDoS shape.
+
+const IDENT = "[A-Za-z_][A-Za-z0-9_]*";
+const IDENT_CHAIN = `${IDENT}(?:\\.${IDENT})*`;
+
+/** Function-form call: `name(args)` where `name` may itself be dotted (legacy). */
+const FUNC_RE = new RegExp(`^(${IDENT}(?:\\.${IDENT})*)\\s*\\(([^)]*)\\)\\s*$`);
+
+/** Chained method form: `<chain>.<method>(args)`. Captured separately so we
+ *  can route to the method evaluator that knows about file.* receivers. */
+const METHOD_RE = new RegExp(`^(${IDENT_CHAIN})\\.(${IDENT})\\s*\\(([^)]*)\\)\\s*$`);
+
+/** Operand on either side of a comparison. Either a quoted string, or a
+ *  run of non-space, non-operator characters (numbers, identifiers, dotted
+ *  paths). Bounded so backtracking can't explode. */
+const OPERAND = `(?:"[^"]*"|'[^']*'|[^\\s"'=!<>]+)`;
+const COMPARISON_RE = new RegExp(
+  `^\\s*(${OPERAND})\\s*(==|!=|>=|<=|>|<|contains|startsWith|endsWith)\\s*(${OPERAND})\\s*$`,
+);
 
 function evaluateExpression(row: BaseRow, expr: string, ctx: EvaluationContext): boolean {
   const trimmed = expr.trim();
   if (!trimmed) return true;
+
+  // Try chained method form first: `file.name.contains("x")`.
+  const method = trimmed.match(METHOD_RE);
+  if (method) {
+    return evaluateMethod(row, method[1], method[2], splitArgs(method[3]), ctx);
+  }
 
   // Function-call form: `name(args)`.
   const fn = trimmed.match(FUNC_RE);
@@ -163,7 +252,7 @@ function evaluateExpression(row: BaseRow, expr: string, ctx: EvaluationContext):
 }
 
 function splitArgs(raw: string): string[] {
-  // Simple comma-split that respects double-quoted strings. Adequate for the
+  // Simple comma-split that respects quoted strings. Adequate for the
   // filter syntax we accept; doesn't try to handle nested function calls.
   const out: string[] = [];
   let buf = "";
@@ -214,22 +303,43 @@ function literalOrProperty(row: BaseRow, token: string): unknown {
 }
 
 /**
- * Read a dot-path against a row. Special prefixes:
- *   - file.name        → file basename without extension
- *   - file.path        → vault-relative path
- *   - file.tags        → array of tags
- *   - <key>            → frontmatter key
- *   - tags             → row.tags (alias for file.tags)
+ * Read a dot-path against a row. Obsidian-style `file.*` properties are
+ * resolved first; anything else falls through to dotted frontmatter access.
  */
 function readProperty(row: BaseRow, expr: string): unknown {
   const path = expr.trim();
-  if (path === "file.name") {
-    const m = row.path.match(/([^/]+)\.[^.]+$/);
-    return m ? m[1] : row.path;
+  switch (path) {
+    case "file.name":
+      // file.name in Obsidian Bases includes the extension (the new spec
+      // distinguishes file.name from file.basename). Match the spec.
+      return basenameOf(row.path);
+    case "file.basename":
+      return basenameWithoutExt(row.path);
+    case "file.path":
+      return row.path;
+    case "file.folder":
+      return folderOf(row.path);
+    case "file.ext":
+      return extOf(row.path);
+    case "file.tags":
+    case "tags":
+      return row.tags;
+    case "file.size":
+      return row.stats?.size;
+    case "file.ctime":
+      return row.stats?.ctime;
+    case "file.mtime":
+      return row.stats?.mtime;
+    case "file.properties":
+      return row.frontmatter;
+    case "file.links":
+      return row.links;
+    case "file.embeds":
+      return row.embeds;
+    case "file.backlinks":
+      return row.backlinks;
   }
-  if (path === "file.path") return row.path;
-  if (path === "file.tags" || path === "tags") return row.tags;
-  // Dotted frontmatter access — `metadata.author` etc.
+  // Dotted frontmatter access: `metadata.author` etc.
   const parts = path.split(".");
   let cur: unknown = row.frontmatter;
   for (const part of parts) {
@@ -240,6 +350,167 @@ function readProperty(row: BaseRow, expr: string): unknown {
   return cur;
 }
 
+function basenameOf(p: string): string {
+  const slash = p.lastIndexOf("/");
+  return slash >= 0 ? p.slice(slash + 1) : p;
+}
+
+function basenameWithoutExt(p: string): string {
+  const base = basenameOf(p);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+
+function folderOf(p: string): string {
+  const slash = p.lastIndexOf("/");
+  return slash >= 0 ? p.slice(0, slash) : "";
+}
+
+function extOf(p: string): string {
+  const base = basenameOf(p);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot + 1) : "";
+}
+
+// ---------- Method-form evaluation (Obsidian 1.9.2+ canonical) ----------
+
+/**
+ * Evaluate `<chain>.<method>(args)`. The chain is the receiver (e.g.
+ * `file.name`, `file`, or a frontmatter key); the method dispatches on
+ * both name and receiver shape.
+ */
+function evaluateMethod(
+  row: BaseRow,
+  chain: string,
+  method: string,
+  args: string[],
+  ctx: EvaluationContext,
+): boolean {
+  // Methods that act on the `file` object itself (file.hasTag, file.hasProperty,
+  // file.inFolder, file.linksTo, file.hasLink). Resolved by chain == "file".
+  if (chain === "file") {
+    switch (method) {
+      case "hasTag":
+        return matchesTag(row, firstStringArg(args, "file.hasTag", ctx));
+      case "hasProperty": {
+        const key = firstStringArg(args, "file.hasProperty", ctx);
+        if (key === null) return false;
+        return Object.prototype.hasOwnProperty.call(row.frontmatter, key);
+      }
+      case "inFolder":
+        return matchesFolder(row, firstStringArg(args, "file.inFolder", ctx));
+      case "linksTo":
+      case "hasLink": {
+        const target = firstStringArg(args, `file.${method}`, ctx);
+        if (target === null) return false;
+        if (!row.links) {
+          // Permissive: builder didn't supply links; warn and match-all.
+          ctx.warnings.push(`file.${method}: row has no links populated; treating as match.`);
+          return true;
+        }
+        return matchesLink(row.links, target);
+      }
+      case "isEmpty":
+        // file.isEmpty: rough proxy — note has no frontmatter and no body tags.
+        return Object.keys(row.frontmatter).length === 0 && row.tags.length === 0;
+      case "isNotEmpty":
+        return Object.keys(row.frontmatter).length > 0 || row.tags.length > 0;
+    }
+  }
+
+  // Generic value methods: read the chain as a property, then dispatch.
+  const value = readProperty(row, chain);
+  return evaluateValueMethod(value, method, args, ctx, chain);
+}
+
+function evaluateValueMethod(
+  value: unknown,
+  method: string,
+  args: string[],
+  ctx: EvaluationContext,
+  chainForWarnings: string,
+): boolean {
+  switch (method) {
+    case "contains": {
+      const needle = firstStringArg(args, `${chainForWarnings}.contains`, ctx);
+      if (needle === null) return false;
+      if (Array.isArray(value)) return value.map(String).some((v) => v.includes(needle));
+      return String(value ?? "").includes(needle);
+    }
+    case "startsWith": {
+      const needle = firstStringArg(args, `${chainForWarnings}.startsWith`, ctx);
+      if (needle === null) return false;
+      return String(value ?? "").startsWith(needle);
+    }
+    case "endsWith": {
+      const needle = firstStringArg(args, `${chainForWarnings}.endsWith`, ctx);
+      if (needle === null) return false;
+      return String(value ?? "").endsWith(needle);
+    }
+    case "equals": {
+      const other = args[0] !== undefined ? unquote(args[0]) ?? args[0].trim() : "";
+      return String(value ?? "") === other;
+    }
+    case "isEmpty":
+      if (value === null || value === undefined) return true;
+      if (typeof value === "string") return value.length === 0;
+      if (Array.isArray(value)) return value.length === 0;
+      if (typeof value === "object") return Object.keys(value as object).length === 0;
+      return false;
+    case "isNotEmpty":
+      if (value === null || value === undefined) return false;
+      if (typeof value === "string") return value.length > 0;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "object") return Object.keys(value as object).length > 0;
+      return true;
+    default:
+      ctx.warnings.push(`Unknown method: ${chainForWarnings}.${method}`);
+      return true;
+  }
+}
+
+function firstStringArg(args: string[], where: string, ctx: EvaluationContext): string | null {
+  if (args.length === 0) {
+    ctx.warnings.push(`${where} expects a quoted string argument.`);
+    return null;
+  }
+  const lit = unquote(args[0]);
+  if (lit === null) {
+    ctx.warnings.push(`${where} expects a quoted string; got: ${args[0]}`);
+    return null;
+  }
+  return lit;
+}
+
+function matchesTag(row: BaseRow, want: string | null): boolean {
+  if (want === null) return false;
+  const norm = want.replace(/^#/, "").toLowerCase();
+  return row.tags.some((t) => {
+    const tn = t.toLowerCase();
+    return tn === norm || tn.startsWith(norm + "/");
+  });
+}
+
+function matchesFolder(row: BaseRow, folder: string | null): boolean {
+  if (folder === null) return false;
+  const norm = folder.replace(/^\/+|\/+$/g, "");
+  if (norm === "") return true;
+  return row.path.startsWith(norm + "/") || row.path === norm;
+}
+
+function matchesLink(links: readonly string[], target: string): boolean {
+  // Loose match — Obsidian normalizes link targets in non-trivial ways
+  // (case, extension, fragment). Accept exact and basename-equal hits.
+  const t = target.toLowerCase();
+  const tBase = basenameWithoutExt(target).toLowerCase();
+  return links.some((l) => {
+    const ll = l.toLowerCase();
+    return ll === t || basenameWithoutExt(l).toLowerCase() === tBase;
+  });
+}
+
+// ---------- Function-form evaluation (legacy) ----------
+
 function evaluateFunction(
   row: BaseRow,
   name: string,
@@ -249,29 +520,26 @@ function evaluateFunction(
   switch (name) {
     case "taggedWith":
     case "file.hasTag": {
-      const tagArg = args.length === 2 ? unquote(args[1]) : unquote(args[0]);
-      if (tagArg === null) {
-        ctx.warnings.push(`taggedWith expects a quoted tag name; got: ${args.join(", ")}`);
-        return false;
-      }
-      const want = tagArg.replace(/^#/, "").toLowerCase();
-      return row.tags.some((t) => {
-        const norm = t.toLowerCase();
-        return norm === want || norm.startsWith(want + "/");
-      });
+      // taggedWith(file, "tag") or file.hasTag("tag") in function form.
+      const tagArg = args.length === 2 ? unquote(args[1]) : unquote(args[0] ?? "");
+      return matchesTag(row, tagArg);
     }
     case "file.inFolder": {
       const folder = unquote(args[0] ?? "");
-      if (folder === null) return false;
-      const norm = folder.replace(/^\/+|\/+$/g, "");
-      if (norm === "") return true;
-      return row.path.startsWith(norm + "/") || row.path === norm;
+      return matchesFolder(row, folder);
+    }
+    case "file.hasProperty": {
+      const key = unquote(args[0] ?? "");
+      if (key === null) return false;
+      return Object.prototype.hasOwnProperty.call(row.frontmatter, key);
     }
     default:
       ctx.warnings.push(`Unknown filter function: ${name}`);
       return true;
   }
 }
+
+// ---------- Infix comparison ----------
 
 function evaluateComparison(
   row: BaseRow,

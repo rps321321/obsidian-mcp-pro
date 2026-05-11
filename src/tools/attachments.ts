@@ -239,9 +239,12 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         ];
 
         if (includeBytes) {
+          // Stat ALL unused attachments so "Total reclaimable" reflects the
+          // full set the user would be deleting, not just the truncated view.
+          // Otherwise a user acting on the number silently under-deletes.
           let totalBytes = 0;
           const sizes = new Map<string, number>();
-          for (const p of truncated) {
+          for (const p of unused) {
             try {
               const stat = await getAttachmentStats(vaultPath, p);
               sizes.set(p, stat.size);
@@ -250,7 +253,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
               // skip — file may have been removed mid-scan
             }
           }
-          lines.push(`Total reclaimable: ${totalBytes.toLocaleString()} bytes`);
+          lines.push(`Total reclaimable: ${totalBytes.toLocaleString()} bytes (across all ${unused.length} unused attachment(s))`);
           lines.push("");
           for (const p of truncated) {
             const sz = sizes.get(p);

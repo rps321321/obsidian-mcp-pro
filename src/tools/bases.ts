@@ -99,7 +99,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
     {
       title: "Query Base",
       description:
-        "Run a Base file's filters against the vault and return matching note paths. Optionally pick a named view to apply that view's filters and ordering on top of the base-level filters. Supported filter syntax (subset of Obsidian's full DSL): function calls `taggedWith(file, \"tag\")`, `file.hasTag(\"tag\")`, `file.inFolder(\"path\")`; comparisons `key == \"val\"`, `key != x`, `key contains x`, `>=`, `<=`, `>`, `<`; combinators `and:`, `or:`, `not:`. Unsupported clauses are reported as warnings and treated as match-all.",
+        "Run a Base file's filters against the vault and return matching note paths. Optionally pick a named view to apply that view's filters and ordering on top of the base-level filters. Supported filter syntax (subset of Obsidian's full DSL): chained methods `file.hasTag(\"tag\")`, `file.hasProperty(\"key\")`, `file.inFolder(\"path\")`, `file.linksTo(\"target\")`, `file.name.contains(\"x\")`/`.startsWith`/`.endsWith`/`.equals`, plus `.isEmpty`/`.isNotEmpty` on any value; legacy function form `taggedWith(file, \"tag\")`; comparisons `key == \"val\"`, `key != x`, `key contains x`, `>=`, `<=`, `>`, `<`; combinators `and:`, `or:`, `not:`. Recognized file properties: file.name, file.basename, file.folder, file.ext, file.path, file.size, file.ctime, file.mtime, file.tags, file.properties, file.links, file.embeds, file.backlinks. Unsupported clauses are reported as warnings and treated as match-all.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -134,13 +134,34 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         const raw = await readBaseFile(vaultPath, basePath);
         const { doc, warnings } = parseBaseFile(raw);
         const notes = await listNotes(vaultPath);
-        const rows = await mapConcurrent(notes, 16, async (notePath) => {
-          const content = await readNote(vaultPath, notePath);
-          return buildRow(notePath, content);
-        });
+        // Per-note read failures must not silently drop notes from results
+        // (C6): surface them via onError so the caller sees which notes
+        // were skipped. Matches the pattern used in tools/read.ts
+        // (search_by_frontmatter, search_notes).
+        const readFailures: string[] = [];
+        const rows = await mapConcurrent(
+          notes,
+          16,
+          async (notePath) => {
+            const content = await readNote(vaultPath, notePath);
+            return buildRow(notePath, content);
+          },
+          (err, notePath) => {
+            readFailures.push(notePath);
+            log.warn("query_base: note read failed", {
+              note: notePath,
+              err: err as Error,
+            });
+          },
+        );
         const validRows = rows.filter((r): r is NonNullable<typeof r> => r !== undefined);
         const result = queryBase(validRows, doc, view);
         const allWarnings = [...warnings, ...result.warnings];
+        if (readFailures.length > 0) {
+          allWarnings.push(
+            `Could not read ${readFailures.length} note(s); they were excluded from results.`,
+          );
+        }
         const truncated = result.rows.slice(0, limit);
 
         const lines: string[] = [];

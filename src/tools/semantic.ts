@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes } from "../lib/vault.js";
+import { listNotes, vaultRewriteLockKey, withFileLock } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { chunkNote } from "../lib/chunker.js";
 import { getActiveProvider } from "../lib/embedding-providers.js";
@@ -71,6 +71,15 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
       },
     },
     async ({ force, folder }, extra) => {
+      // Serialize the entire index pass against itself per-vault. Two
+      // concurrent index_vault calls would otherwise interleave
+      // `setNoteChunks` + `pruneMissingNotes` operations on the same
+      // in-memory store, with one call's prune wiping notes the other
+      // is mid-way through embedding. Reusing the existing vault rewrite
+      // lock key also serializes against rename_tag / move_note bulk
+      // operations whose mtime bumps would otherwise invalidate cache
+      // entries this pass just rebuilt.
+      return withFileLock(vaultRewriteLockKey(vaultPath), async () => {
       try {
         const provider = getActiveProvider();
         if (!provider) {
@@ -171,8 +180,8 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
               vector,
             });
             noteChunks.set(item.notePath, list);
+            stats.chunksEmbedded++;
           }
-          stats.chunksEmbedded += batch.length;
           await reportProgress(
             Math.min(i + batch.length, pending.length),
             pending.length,
@@ -214,6 +223,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         log.error("index_vault failed", { tool: "index_vault", err: err as Error });
         return errorResult(`Error indexing vault: ${sanitizeError(err)}`);
       }
+      });
     },
   );
 

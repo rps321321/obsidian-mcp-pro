@@ -233,6 +233,20 @@ export function resolveVaultPath(
   if (relativePath.includes('\0')) {
     throw new Error("Invalid path: contains null byte");
   }
+  // Reject absolute / drive-relative / UNC inputs explicitly. `path.resolve`
+  // on Windows interprets `C:foo` against the current directory of drive C,
+  // which can land inside the vault by coincidence and bypass the syntactic
+  // prefix check below. Defense-in-depth: the realpath check elsewhere
+  // catches the rest, but rejecting these forms up front is cleaner.
+  if (
+    /^[A-Za-z]:/.test(relativePath) ||
+    relativePath.startsWith("/") ||
+    relativePath.startsWith("\\")
+  ) {
+    throw new Error(
+      `Invalid path: must be vault-relative, not absolute (${relativePath})`,
+    );
+  }
   assertAllowed(relativePath, access);
   const resolved = path.resolve(vaultPath, relativePath);
   const resolvedVault = path.resolve(vaultPath);
@@ -296,10 +310,19 @@ async function assertRealPathWithinVault(
       return;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
+      // ENOENT / ENOTDIR: ancestor doesn't exist yet — climb up to find the
+      // deepest existing one. EACCES: an ancestor is permission-restricted
+      // (POSIX, typically root-owned). We can't realpath it ourselves, but
+      // climbing up is still safe: a higher ancestor that IS readable will
+      // canonicalize through any symlinks lower in the chain. We deliberately
+      // do NOT rethrow the raw fs error here, which would otherwise leak the
+      // absolute path of the restricted ancestor into the error message.
+      if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EACCES") throw err;
       const parent = path.dirname(current);
       if (parent === current) {
-        throw new Error("Path traversal via symlink detected");
+        // Reached filesystem root without finding any accessible ancestor.
+        // Surface a generic message rather than leaking the original error.
+        throw new Error("Path traversal check failed");
       }
       missing.push(path.basename(current));
       current = parent;
@@ -321,20 +344,25 @@ export async function listNotes(
   vaultPath: string,
   folder?: string,
 ): Promise<string[]> {
-  const baseDir = folder
-    ? await resolveVaultPathSafe(vaultPath, folder)
+  // Normalize folder before joining: callers may pass trailing slashes,
+  // backslashes, or mixed separators (e.g. `projects/`, `projects\nested`).
+  // Without normalization the prefix concatenation below produces malformed
+  // paths like `projects//note.md` or `projects\nested/note.md`.
+  const normalizedFolder = folder
+    ? folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")
+    : "";
+
+  const baseDir = normalizedFolder
+    ? await resolveVaultPathSafe(vaultPath, normalizedFolder)
     : await getRealVaultRoot(vaultPath);
 
   const entries = await walkVault(baseDir, [".md"]);
 
-  const notes: string[] = [];
-  for (const rel of entries) {
-    const relativeFromVault = folder ? `${folder}/${rel}` : rel;
-    if (isExcluded(relativeFromVault)) continue;
-    notes.push(relativeFromVault);
-  }
-
-  return notes.sort();
+  // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
+  // at every traversal level, and `resolveVaultPathSafe` rejects an
+  // excluded `folder` argument up front.
+  if (!normalizedFolder) return entries.sort();
+  return entries.map((rel) => `${normalizedFolder}/${rel}`).sort();
 }
 
 export async function readNote(
@@ -549,18 +577,31 @@ export async function deleteNote(
 
     await withFileLock(fullPath, async () => {
       if (!permanent) {
-        const trashDir = path.join(vaultPath, ".trash");
-        const trashPath = path.join(trashDir, relativePath);
-        const resolvedTrash = path.resolve(trashPath);
-        const resolvedTrashDir = path.resolve(trashDir);
-        if (!resolvedTrash.startsWith(resolvedTrashDir + path.sep) && resolvedTrash !== resolvedTrashDir) {
+        // Build the trash destination by mirroring `resolveVaultPathSafe`'s
+        // logic instead of duplicating ad-hoc checks. We can't call
+        // `resolveVaultPathSafe(vaultPath, ".trash/" + relativePath)` directly
+        // because `.trash` is in EXCLUDED_DIRS and would be rejected up front.
+        // What we DO want from that pipeline are: (a) syntactic containment
+        // under the vault, and (b) the realpath guard against a symlinked
+        // `.trash` (or intermediate dir) pointing outside the vault. The
+        // outer `resolveVaultPathSafe(vaultPath, relativePath, "write")` at
+        // the top of `deleteNote` already enforced null-byte, traversal, and
+        // reserved-name checks on `relativePath`, so it is safe to splice
+        // into the `.trash/` prefix here.
+        const resolvedVault = path.resolve(vaultPath);
+        const trashRoot = path.join(resolvedVault, ".trash");
+        const trashFullPath = path.resolve(trashRoot, relativePath);
+        if (
+          trashFullPath !== trashRoot &&
+          !trashFullPath.startsWith(trashRoot + path.sep)
+        ) {
           throw new Error(`Invalid trash path: ${relativePath}`);
         }
-        await fs.mkdir(path.dirname(trashPath), { recursive: true });
-        // Realpath-check the trash destination: guards against `.trash` itself
-        // (or an intermediate dir) being a symlink pointing outside the vault.
-        await assertRealPathWithinVault(resolvedTrash, vaultPath);
-        await fs.rename(fullPath, trashPath);
+        await fs.mkdir(path.dirname(trashFullPath), { recursive: true });
+        // Realpath check on the canonical destination: rejects a symlinked
+        // `.trash` (or any intermediate dir) that resolves outside the vault.
+        await assertRealPathWithinVault(trashFullPath, vaultPath);
+        await fs.rename(fullPath, trashFullPath);
       } else {
         await fs.unlink(fullPath);
       }
@@ -615,9 +656,28 @@ export async function moveNote(
   const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath, "write");
   const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath, "write");
   const doRename = async (): Promise<void> => {
+    // TOCTOU note: there is a small race window between `fs.access` and
+    // `fs.rename` where another process (Obsidian, a sync client, a second
+    // MCP server, an unrelated shell) could create a file at `fullNewPath`
+    // after our existence check returns ENOENT but before our rename runs.
+    // We deliberately do NOT close this race here, for two reasons:
+    //   1. POSIX `rename(2)` is documented to silently overwrite an existing
+    //      destination, which is the standard expected behavior. Closing
+    //      the window would require platform-specific syscalls (`renameat2`
+    //      with RENAME_NOREPLACE on Linux, or O_EXCL + link/unlink dance
+    //      elsewhere) that Node does not expose portably.
+    //   2. The vault-level lock taken by `performMove` already serializes
+    //      moveNote against itself and against deleteNote+removeReferences
+    //      and rename_tag, which covers every in-process writer. The
+    //      remaining race is exclusively against EXTERNAL writers on the
+    //      same vault, and those can also race against the rename itself
+    //      regardless of any pre-check we add.
+    // The pre-check stays as a friendly fast-path error for the common case
+    // (user typo'd into an existing file); on a race it merely upgrades to
+    // standard rename-overwrite semantics rather than a corruption bug.
     try {
       await fs.access(fullNewPath);
-      // A case-only rename (Note.md → note.md on a case-insensitive FS)
+      // A case-only rename (Note.md to note.md on a case-insensitive FS)
       // resolves to the same inode, so `access` succeeds even though the
       // caller intends to rename. Detect that case and allow the rename.
       if (lockKey(fullOldPath) !== lockKey(fullNewPath)) {

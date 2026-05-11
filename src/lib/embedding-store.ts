@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { log } from "./logger.js";
 
 /**
@@ -25,6 +25,21 @@ import { log } from "./logger.js";
 
 const STORE_REL_PATH = ".obsidian/cache/mcp-pro-embeddings.json";
 const STORE_VERSION = 1;
+// Hard cap on the on-disk snapshot size. A 50k-note vault with 768-dim
+// vectors can produce a multi-GB JSON blob, at which point persisting it
+// each pass costs more than the cold-start re-embed it saves. When the
+// serialized snapshot exceeds this, we keep the in-memory store live and
+// skip the write; the next process start re-indexes from scratch. 256MB
+// covers ~85k chunks at 768 dims (rough), which is well past the point
+// where a user should switch to a real vector DB anyway.
+const MAX_EMBEDDING_BYTES_DEFAULT = 256 * 1024 * 1024;
+let maxEmbeddingBytes = MAX_EMBEDDING_BYTES_DEFAULT;
+/** Test seam — temporarily lower the persistence cap so we can exercise the
+ *  oversize branch without producing a real 256MB fixture. Pass `null` to
+ *  reset to the production default. */
+export function setMaxEmbeddingBytesForTests(bytes: number | null): void {
+  maxEmbeddingBytes = bytes === null ? MAX_EMBEDDING_BYTES_DEFAULT : bytes;
+}
 
 export interface ChunkEmbedding {
   /** vault-relative note path. */
@@ -148,6 +163,10 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
   state.dimension = snapshot.dimension;
   for (const entry of snapshot.embeddings) {
     if (!entry || !Array.isArray(entry.vector)) continue;
+    // Silently drop entries whose vector length doesn't match the snapshot's
+    // declared dimension. Guards against hand-edited or partially-corrupted
+    // snapshots where one row's length drifted from the rest.
+    if (entry.vector.length !== snapshot.dimension) continue;
     state.byKey.set(key(entry.notePath, entry.chunkIndex), entry);
     let owned = state.byNote.get(entry.notePath);
     if (!owned) {
@@ -175,12 +194,39 @@ export async function saveStore(vaultPath: string): Promise<void> {
     noteHashes: Object.fromEntries(state.noteHashes),
     embeddings: Array.from(state.byKey.values()),
   };
+  const serialized = JSON.stringify(snapshot);
+  // Guard against unbounded on-disk growth. Serialize once, measure the
+  // result, and refuse to persist if it would exceed MAX_EMBEDDING_BYTES.
+  // The in-memory store stays intact (current-process queries still work);
+  // we just degrade cold-start performance until the user prunes the vault
+  // or switches to a dedicated vector backend. `Buffer.byteLength` on the
+  // UTF-8 string gives the actual write size, not the JS string length.
+  const byteLength = Buffer.byteLength(serialized, "utf-8");
+  if (byteLength > maxEmbeddingBytes) {
+    log.warn("embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES, persistence skipped", {
+      bytes: byteLength,
+      max: maxEmbeddingBytes,
+      chunks: state.byKey.size,
+      notes: state.byNote.size,
+    });
+    return;
+  }
   const file = storePath(vaultPath);
+  // Include a random suffix so two concurrent saves in the same process
+  // (same PID) don't fight over the same tmp file and clobber each other.
+  const tmp = `${file}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   try {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(snapshot), "utf-8");
-    await fs.rename(tmp, file);
+    try {
+      await fs.writeFile(tmp, serialized, "utf-8");
+      await fs.rename(tmp, file);
+    } catch (innerErr) {
+      // Best-effort cleanup: if writeFile succeeded but rename failed, the
+      // tmp file is still on disk. ENOENT (writeFile never created it) is
+      // fine to swallow here.
+      try { await fs.unlink(tmp); } catch { /* ignore */ }
+      throw innerErr;
+    }
     state.dirty = false;
   } catch (err) {
     log.warn("embedding-store: failed to persist snapshot", { err: err as Error });

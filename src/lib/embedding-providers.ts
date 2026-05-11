@@ -60,20 +60,36 @@ class OllamaProvider implements EmbeddingProvider {
     // Ollama supports both single-prompt (older /api/embeddings) and batched
     // (/api/embed). Prefer the batched endpoint when the runtime is recent;
     // fall back per-input for older Ollama installs that haven't shipped
-    // /api/embed yet. We probe by attempting the batched call once and
-    // remembering the result for subsequent calls within this provider
-    // instance.
+    // /api/embed yet. We probe with a SINGLE-ITEM request on cold start so a
+    // transient failure (timeout / network blip) doesn't take down a full
+    // batch with it. On a generic error we leave batchSupported=null so a
+    // future call can re-probe cheaply; only a 404-style "endpoint missing"
+    // pins us to the per-item fallback permanently.
+    //
+    // When the probe succeeds we REUSE its vector as the embedding for
+    // texts[0] and batch-embed only the remaining texts. Without this reuse
+    // a cold-start call on N texts wastes one full embedding (the probe's
+    // result is thrown away and texts[0] is re-embedded inside the followup
+    // batched call).
     if (this.batchSupported === null) {
+      let probeVector: number[] | null = null;
       try {
-        const result = await this.embedBatched(texts);
+        const probe = await this.embedBatched(texts.slice(0, 1));
         this.batchSupported = true;
-        return result;
+        probeVector = probe[0] ?? null;
       } catch (err) {
         if (this.isMethodMissing(err)) {
           this.batchSupported = false;
         } else {
           throw err;
         }
+      }
+      // Probe succeeded: stitch its result with a batched call over the
+      // rest. If there was only one input, the probe already covered it.
+      if (this.batchSupported && probeVector !== null) {
+        if (texts.length === 1) return [probeVector];
+        const rest = await this.embedBatched(texts.slice(1));
+        return [probeVector, ...rest];
       }
     }
     if (this.batchSupported) {

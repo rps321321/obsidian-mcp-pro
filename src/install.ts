@@ -90,6 +90,15 @@ export interface InstallOptions {
 export function runInstall(options: InstallOptions): void {
   const client = options.client;
   const serverName = options.serverName ?? "obsidian";
+  // `serverName` is used as a JSON object key AND printed verbatim via
+  // console.log. Control characters (null, ANSI escapes, newlines) could
+  // corrupt downstream config consumers or spoof terminal output when a
+  // programmatic caller passes untrusted input. Apply the same guard as
+  // `vaultName` below.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f]/.test(serverName)) {
+    throw new Error("serverName contains control characters; refusing to write");
+  }
   const configPath = getConfigPath(client);
 
   console.log(`Installing obsidian-mcp-pro into ${client} config:`);
