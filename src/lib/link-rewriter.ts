@@ -433,7 +433,7 @@ function applyEditsBackToFront(
   // Walk from the back so earlier offsets stay valid as we splice.
   let out = content;
   for (let i = edits.length - 1; i >= 0; i--) {
-    const e = edits[i];
+    const e = edits[i]!;
     if (e.start < 0 || e.end > out.length || e.start > e.end) {
       return null;
     }
@@ -473,11 +473,11 @@ function retryEditsByContent(
   }
   matches.sort((a, b) => a.start - b.start);
   for (let i = 1; i < matches.length; i++) {
-    if (matches[i].start < matches[i - 1].end) return null;
+    if (matches[i]!.start < matches[i - 1]!.end) return null;
   }
   let out = content;
   for (let i = matches.length - 1; i >= 0; i--) {
-    const m = matches[i];
+    const m = matches[i]!;
     out = out.slice(0, m.start) + m.replacement + out.slice(m.end);
   }
   return out;

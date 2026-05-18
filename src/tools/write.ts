@@ -28,10 +28,6 @@ function ensureMdExtension(filePath: string): string {
   return /\.md$/i.test(filePath) ? filePath : `${filePath}.md`;
 }
 
-function formatDate(date: Date, format: string): string {
-  return formatMomentDate(date, format);
-}
-
 function buildFrontmatterContent(frontmatterObj: Record<string, unknown>, body: string): string {
   return matter.stringify(body, frontmatterObj);
 }
@@ -62,12 +58,15 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Relative path from vault root, e.g., 'folder/note.md' or 'note' (.md added automatically)"),
         content: z
           .string()
+          .max(1_000_000)
           .describe("Markdown body content for the note (rendered below the frontmatter block if any)"),
         frontmatter: z
           .string()
+          .max(100_000)
           .optional()
           .describe("JSON object string of frontmatter key-value pairs (e.g., '{\"status\":\"draft\",\"tags\":[\"idea\"]}'). Rendered as YAML at the top of the note."),
       },
@@ -128,9 +127,11 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Relative path from vault root to the target note (e.g., 'journal/2026-04-15.md'). Extension optional."),
         content: z
           .string()
+          .max(1_000_000)
           .describe("Markdown text to append to the end of the note. A leading newline is auto-inserted when the file does not already end in one."),
       },
     },
@@ -163,9 +164,11 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Relative path from vault root to the target note (e.g., 'notes/log.md'). Extension optional."),
         content: z
           .string()
+          .max(1_000_000)
           .describe("Markdown text to insert at the top of the body, after any frontmatter"),
       },
     },
@@ -198,9 +201,11 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Relative path from vault root to the note (e.g., 'projects/alpha.md'). Extension optional."),
         properties: z
           .string()
+          .max(100_000)
           .describe("JSON object string of frontmatter keys to set, e.g., '{\"status\":\"done\",\"priority\":1,\"tags\":[\"review\"]}'. Existing keys not in the payload are preserved."),
       },
     },
@@ -254,10 +259,12 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           .describe("Target date in YYYY-MM-DD format (defaults to today). Determines filename and {{date}} substitution."),
         content: z
           .string()
+          .max(1_000_000)
           .optional()
           .describe("Initial markdown body for the daily note. Ignored if templatePath is provided."),
         templatePath: z
           .string()
+          .max(500)
           .optional()
           .describe("Relative path to a template note. Its content is copied into the new daily note with Obsidian-style placeholders substituted: {{date}}/{{title}} → formatted date, {{time}} → local HH:mm, and {{date:FORMAT}}/{{time:FORMAT}} → custom moment-style format."),
       },
@@ -271,7 +278,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           return errorResult("Error: Invalid date format. Use YYYY-MM-DD.");
         }
 
-        const dateStr = formatDate(targetDate, config.format);
+        const dateStr = formatMomentDate(targetDate, config.format);
         const folder = config.folder ? `${config.folder}/` : "";
         const notePath = ensureMdExtension(`${folder}${dateStr}`);
 
@@ -298,11 +305,11 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
               (_match, token: string, fmt: string | undefined) => {
                 if (token === "title") return dateStr;
                 if (token === "date") {
-                  return fmt ? formatDate(targetDate, fmt) : dateStr;
+                  return fmt ? formatMomentDate(targetDate, fmt) : dateStr;
                 }
                 // token === "time"
                 const now = new Date();
-                return fmt ? formatDate(now, fmt) : formatDate(now, "HH:mm");
+                return fmt ? formatMomentDate(now, fmt) : formatMomentDate(now, "HH:mm");
               },
             );
           } catch (err) {
@@ -343,10 +350,12 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         oldPath: z
           .string()
           .min(1)
+          .max(500)
           .describe("Current relative path of the note from vault root (e.g., 'inbox/idea.md')"),
         newPath: z
           .string()
           .min(1)
+          .max(500)
           .describe("Destination relative path from vault root (e.g., 'projects/idea.md'). Creates intermediate folders as needed."),
         updateLinks: z
           .boolean()
@@ -410,12 +419,18 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Relative path from vault root to the note to delete (e.g., 'archive/old.md'). Extension optional."),
         permanent: z
           .boolean()
           .optional()
           .default(false)
           .describe("If true, delete the file permanently from disk; if false (default), move it to the vault's .trash folder so it can be recovered."),
+        confirm: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Safety latch: must be set to true when permanent=true to confirm the caller intends irreversible deletion. Ignored when permanent=false (trash deletes are recoverable). If permanent=true and confirm is not true, the tool returns an error without deleting."),
         removeReferences: z
           .boolean()
           .optional()
@@ -423,9 +438,21 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           .describe("If true (and permanent=true), strip wikilinks and markdown links pointing at the deleted file across the vault. Embeds are removed entirely; plain links fall back to their visible text (alias if present, else the deleted file's basename). Ignored when permanent=false. Default false — opt in explicitly because the rewrite is irreversible."),
       },
     },
-    async ({ path: notePath, permanent, removeReferences }) => {
+    async ({ path: notePath, permanent, confirm, removeReferences }) => {
       try {
         const resolvedPath = ensureMdExtension(notePath);
+
+        // Hard gate: permanent deletes require the caller to set confirm=true.
+        // This protects against accidental permanent deletion in clients that
+        // don't support elicitation. Trash deletes (permanent=false) are
+        // recoverable, so no confirmation is needed for those.
+        if (permanent && !confirm) {
+          return errorResult(
+            `Permanent deletion of "${resolvedPath}" requires confirm=true. ` +
+            "This is a destructive, irreversible operation. Set confirm to true to proceed, " +
+            "or omit permanent (or set it to false) to move the note to the vault's .trash folder instead.",
+          );
+        }
 
         // Elicit a typed confirmation before permanent deletion if the client
         // declares elicitation support. Trash deletes (`permanent: false`)

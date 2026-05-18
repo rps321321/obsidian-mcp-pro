@@ -1,10 +1,9 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
-// Flat-config (eslint v9). Typed-linting deliberately stays off: enabling
-// `parserOptions.project` would re-parse the entire codebase per lint, and
-// the rules we actually want from it (no-floating-promises etc.) overlap
-// with `tsc --strict`. Keep this fast and AST-only.
+// Flat-config (eslint v9). Typed linting is enabled via
+// recommendedTypeChecked so that no-floating-promises and
+// no-misused-promises can catch unhandled rejections at lint time.
 export default [
   {
     ignores: [
@@ -15,12 +14,15 @@ export default [
     ],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.recommendedTypeChecked,
   {
     files: ["src/**/*.ts"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
+      parserOptions: {
+        project: "./tsconfig.json",
+      },
       globals: {
         process: "readonly",
         console: "readonly",
@@ -75,6 +77,9 @@ export default [
       "@typescript-eslint/no-non-null-assertion": "off",
       // Catch require()-style imports — the codebase is pure ESM.
       "@typescript-eslint/no-require-imports": "error",
+      // Typed-linting rules: catch unhandled promise rejections.
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
     },
   },
   {
@@ -83,5 +88,11 @@ export default [
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
     },
+  },
+  {
+    // Disable type-checked rules for JS config files (no tsconfig covers
+    // them, so the type-aware parser would error).
+    files: ["*.js", "*.mjs", "*.cjs"],
+    ...tseslint.configs.disableTypeChecked,
   },
 ];

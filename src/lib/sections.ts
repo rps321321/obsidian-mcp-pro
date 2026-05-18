@@ -40,10 +40,12 @@ interface FenceState {
   insideFence: boolean;
   fenceChar: string;
   fenceLength: number;
+  /** Cached close pattern compiled once when the fence opens. */
+  closePattern: RegExp | null;
 }
 
 function newFenceState(): FenceState {
-  return { insideFence: false, fenceChar: "", fenceLength: 0 };
+  return { insideFence: false, fenceChar: "", fenceLength: 0, closePattern: null };
 }
 
 function updateFence(state: FenceState, line: string): boolean {
@@ -53,21 +55,22 @@ function updateFence(state: FenceState, line: string): boolean {
   // which accepted arbitrary indentation and so a deeply-indented ``` would
   // prematurely close a fence and corrupt section / block-id boundaries.
   if (state.insideFence) {
-    const closePattern = new RegExp(
-      `^ {0,3}${state.fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${state.fenceLength},}\\s*$`,
-    );
-    if (closePattern.test(line)) {
+    if (state.closePattern!.test(line)) {
       state.insideFence = false;
       state.fenceChar = "";
       state.fenceLength = 0;
+      state.closePattern = null;
     }
     return true;
   }
   const m = line.match(/^ {0,3}(`{3,}|~{3,})/);
   if (m) {
     state.insideFence = true;
-    state.fenceChar = m[1][0];
-    state.fenceLength = m[1].length;
+    state.fenceChar = m[1]![0]!;
+    state.fenceLength = m[1]!.length;
+    state.closePattern = new RegExp(
+      `^ {0,3}${state.fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${state.fenceLength},}\\s*$`,
+    );
     return true;
   }
   return false;
@@ -124,8 +127,8 @@ export function parseHeadings(content: string): Heading[] {
       const m = line.match(ATX_HEADING_RE);
       if (m) {
         out.push({
-          level: m[1].length,
-          text: m[2].trim(),
+          level: m[1]!.length,
+          text: m[2]!.trim(),
           lineStart: cursor,
           lineEnd: lineEndExclusive,
         });
@@ -160,8 +163,8 @@ export function findSection(content: string, headingPath: readonly string[]): Se
   // Walk linearly. Track the "open path" of headings as we go.
   const openPath: { level: number; index: number }[] = [];
   for (let i = 0; i < headings.length; i++) {
-    const h = headings[i];
-    while (openPath.length > 0 && openPath[openPath.length - 1].level >= h.level) {
+    const h = headings[i]!;
+    while (openPath.length > 0 && openPath[openPath.length - 1]!.level >= h.level) {
       openPath.pop();
     }
     openPath.push({ level: h.level, index: i });
@@ -175,7 +178,7 @@ export function findSection(content: string, headingPath: readonly string[]): Se
     const slice = openPath.slice(openPath.length - targets.length);
     let match = true;
     for (let k = 0; k < targets.length; k++) {
-      if (normalizeHeadingText(headings[slice[k].index].text) !== targets[k]) {
+      if (normalizeHeadingText(headings[slice[k]!.index]!.text) !== targets[k]) {
         match = false;
         break;
       }
@@ -196,8 +199,8 @@ export function findSection(content: string, headingPath: readonly string[]): Se
  * concatenate adjacent sibling sections themselves.
  */
 function buildSection(content: string, headings: readonly Heading[], i: number): Section {
-  const head = headings[i];
-  const end = i + 1 < headings.length ? headings[i + 1].lineStart : content.length;
+  const head = headings[i]!;
+  const end = i + 1 < headings.length ? headings[i + 1]!.lineStart : content.length;
   return {
     heading: head,
     start: head.lineStart,
@@ -253,7 +256,7 @@ export interface BlockSpan {
   contentEnd: number;
 }
 
-const BLOCK_ID_RE = /\s\^([A-Za-z0-9-]+)\s*$/;
+const BLOCK_ID_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
 
 /**
  * Locate a block tagged with `^id`. Obsidian's convention: the `^id` token
@@ -285,26 +288,26 @@ export function findBlockById(content: string, id: string): BlockSpan | null {
   const fence = newFenceState();
   for (let i = 0; i < lines.length; i++) {
     const wasInside = fence.insideFence;
-    const isFenceLine = updateFence(fence, lines[i].text);
+    const isFenceLine = updateFence(fence, lines[i]!.text);
     fenced[i] = wasInside || isFenceLine || fence.insideFence;
   }
 
   for (let i = 0; i < lines.length; i++) {
     if (fenced[i]) continue;
-    const m = lines[i].text.match(BLOCK_ID_RE);
+    const m = lines[i]!.text.match(BLOCK_ID_RE);
     if (!m || m[1] !== target) continue;
     // Walk backward until we hit a blank line, a fenced line, or doc start.
     let blockStart = i;
     for (let k = i - 1; k >= 0; k--) {
-      if (lines[k].text.trim() === "") break;
+      if (lines[k]!.text.trim() === "") break;
       if (fenced[k]) break;
       blockStart = k;
     }
     return {
       id: target,
-      start: lines[blockStart].start,
-      end: lines[i].end,
-      contentEnd: lines[i].end,
+      start: lines[blockStart]!.start,
+      end: lines[i]!.end,
+      contentEnd: lines[i]!.end,
     };
   }
   return null;

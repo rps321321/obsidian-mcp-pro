@@ -115,14 +115,15 @@ describe("HTTP server — unknown path", () => {
 });
 
 describe("HTTP server — CORS allowlist", () => {
-  it("defaults to `*` when no allowlist is configured", async () => {
+  it("defaults to localhost-only origins when no allowlist is configured", async () => {
     const port = pickPort();
     handle = await startOnEphemeral({ port });
     const res = await fetch(`${handle.url}`, {
       method: "OPTIONS",
-      headers: { Origin: "https://evil.example" },
+      headers: { Origin: "http://localhost:3000" },
     });
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+    expect(res.headers.get("vary")).toContain("Origin");
   });
 
   it("reflects the request origin when it's in the allowlist", async () => {

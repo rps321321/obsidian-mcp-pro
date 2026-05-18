@@ -15,7 +15,7 @@
  */
 
 interface ProgressMeta {
-  _meta?: { progressToken?: string | number };
+  _meta?: { progressToken?: string | number | undefined };
   sendNotification: (n: {
     method: "notifications/progress";
     params: {
@@ -48,7 +48,7 @@ export function makeProgressReporter(extra: ProgressMeta): ProgressReporter {
   let lastSent = 0;
   return async (progress, total, message) => {
     const now = Date.now();
-    const isFinal = total > 0 && progress >= total;
+    const isFinal = total === 0 || (total > 0 && progress >= total);
     if (!isFinal && now - lastSent < THROTTLE_MS) return;
     lastSent = now;
     try {

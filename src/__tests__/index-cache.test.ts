@@ -63,15 +63,16 @@ describe("readAllCached", () => {
     expect(errors).toContain("missing.md");
   });
 
-  it("prunes entries that aren't requested in a later batch", async () => {
+  it("keeps entries for files that still exist on disk even if out of scope", async () => {
     await write("a.md", "alpha");
     await write("b.md", "beta");
     await readAllCached(vaultDir, ["a.md", "b.md"]);
     expect(cacheSize()).toBeGreaterThanOrEqual(2);
     await readAllCached(vaultDir, ["a.md"]);
-    // Only `a.md` should remain in the cache.
-    const onlyA = await readAllCached(vaultDir, ["a.md", "b.md"]);
-    expect(onlyA.cacheMisses).toBe(1); // b.md re-read after pruning
+    // b.md still exists on disk, so the cache retains it even though it
+    // wasn't requested in the previous batch.
+    const both = await readAllCached(vaultDir, ["a.md", "b.md"]);
+    expect(both.cacheMisses).toBe(0); // b.md served from cache
   });
 });
 

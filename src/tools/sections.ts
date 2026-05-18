@@ -29,10 +29,10 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
     {
       title: "Update Section",
       description:
-        "Replace the body of a specific section (everything between a heading and the next heading at the same or shallower level). The heading line itself is preserved. `section` is a heading path: `'Tasks'`, `'Project A/Status'`, etc. — case-insensitive and whitespace-tolerant. Use this instead of rewriting the whole file when you only need to update one section.",
+        "Replace the body of a specific section (everything between a heading and the next heading at any level). The heading line itself is preserved. `section` is a heading path: `'Tasks'`, `'Project A/Status'`, etc. - case-insensitive and whitespace-tolerant. Use this instead of rewriting the whole file when you only need to update one section.",
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
@@ -288,7 +288,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         "Replace the content of a block tagged with `^id`. The trailing `^id` anchor is preserved on the last line of the new content so existing transclusions (`![[note#^id]]`) keep working. Use to update a single paragraph or list item that other notes reference.",
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },

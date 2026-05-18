@@ -1,4 +1,5 @@
 import matter from "gray-matter";
+import { quoteWikilinksInFrontmatter } from "./markdown.js";
 
 /**
  * Tag rewriting across the two places Obsidian recognizes tags:
@@ -28,11 +29,15 @@ function newFence(): FenceState {
   return { insideFence: false, char: "", len: 0, closeRe: null };
 }
 function fenceTransition(state: FenceState, line: string): boolean {
-  const trimmed = line.trimStart();
+  // Per CommonMark 4.5, both opening and closing fences accept at most
+  // 3 leading spaces. A 4-space-indented run of backticks is part of an
+  // indented code block, not a fence delimiter. The previous implementation
+  // used `line.trimStart()` which accepted arbitrary indentation, so a
+  // deeply-indented ``` would prematurely open/close a fence.
   if (state.insideFence) {
     // The close regex is compiled once when the fence opens and reused
     // for every interior line, avoiding per-line RegExp allocation.
-    if (state.closeRe !== null && state.closeRe.test(trimmed)) {
+    if (state.closeRe !== null && state.closeRe.test(line)) {
       state.insideFence = false;
       state.char = "";
       state.len = 0;
@@ -40,13 +45,13 @@ function fenceTransition(state: FenceState, line: string): boolean {
     }
     return true;
   }
-  const m = trimmed.match(/^(`{3,}|~{3,})/);
+  const m = line.match(/^ {0,3}(`{3,}|~{3,})/);
   if (m) {
     state.insideFence = true;
-    state.char = m[1][0];
-    state.len = m[1].length;
+    state.char = m[1]![0]!;
+    state.len = m[1]!.length;
     const escaped = state.char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    state.closeRe = new RegExp(`^${escaped}{${state.len},}\\s*$`);
+    state.closeRe = new RegExp(`^ {0,3}${escaped}{${state.len},}\\s*$`);
     return true;
   }
   return false;
@@ -130,8 +135,8 @@ export function rewriteInlineTags(
     let cursor = 0;
     let m: RegExpExecArray | null;
     while ((m = inlineTagRe.exec(line)) !== null) {
-      const leading = m[1];
-      const matchedTag = m[2];
+      const leading = m[1]!;
+      const matchedTag = m[2]!;
       const tagStart = m.index + leading.length;
       // Skip if the `#` (one byte before tag start) is inside inline code.
       if (mask[tagStart] || mask[m.index]) continue;
@@ -206,7 +211,17 @@ export function rewriteFrontmatterTags(
   const data = parsed.data as Record<string, unknown>;
   const count = rewriteFrontmatterData(data, opts);
   if (count === 0) return { content, count: 0 };
-  return { content: matter.stringify(parsed.content, data), count };
+  const stringified = matter.stringify(parsed.content, data);
+  // Post-process YAML region so wikilink values are double-quoted (BUG-9).
+  if (stringified.startsWith("---\n")) {
+    const closeIdx = stringified.indexOf("\n---", 4);
+    if (closeIdx !== -1) {
+      const yamlBlock = stringified.slice(4, closeIdx + 1);
+      const fixed = quoteWikilinksInFrontmatter(yamlBlock);
+      return { content: `---\n${fixed}${stringified.slice(closeIdx + 1)}`, count };
+    }
+  }
+  return { content: stringified, count };
 }
 
 /**
@@ -231,13 +246,39 @@ export function rewriteAllTags(
     const inline = rewriteInlineTags(content, opts);
     return { content: inline.body, inlineCount: inline.count, frontmatterCount: 0 };
   }
+  // Detect whether the original content had frontmatter before we mutate
+  // the data object. This way we preserve the `---\n---\n` delimiters even
+  // if tag removal empties the frontmatter entirely (BUG-5 fix).
+  const hadFrontmatter = content.trimStart().startsWith("---");
   const data = parsed.data as Record<string, unknown>;
   const frontmatterCount = rewriteFrontmatterData(data, opts);
   const inline = rewriteInlineTags(parsed.content, opts);
   const hasFrontmatter = Object.keys(data).length > 0;
-  const reassembled = hasFrontmatter
-    ? matter.stringify(inline.body, data)
-    : inline.body;
+  let reassembled: string;
+  if (hasFrontmatter) {
+    const stringified = matter.stringify(inline.body, data);
+    // Post-process YAML region so wikilink values like [[Foo]] are
+    // double-quoted, matching the behavior in markdown.ts (BUG-9 fix).
+    if (stringified.startsWith("---\n")) {
+      const closeIdx = stringified.indexOf("\n---", 4);
+      if (closeIdx !== -1) {
+        const yamlBlock = stringified.slice(4, closeIdx + 1);
+        const fixed = quoteWikilinksInFrontmatter(yamlBlock);
+        reassembled = `---\n${fixed}${stringified.slice(closeIdx + 1)}`;
+      } else {
+        reassembled = stringified;
+      }
+    } else {
+      reassembled = stringified;
+    }
+  } else if (hadFrontmatter) {
+    // Frontmatter was present but is now empty after tag removal;
+    // preserve the empty delimiters so downstream tools still see a
+    // frontmatter block.
+    reassembled = `---\n---\n${inline.body}`;
+  } else {
+    reassembled = inline.body;
+  }
   return {
     content: reassembled,
     inlineCount: inline.count,

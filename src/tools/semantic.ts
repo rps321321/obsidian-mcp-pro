@@ -66,6 +66,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           .describe("If true, re-embed every note even if its content hash matches the cached one."),
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict the indexing pass to this folder. Notes outside the folder are left untouched."),
       },
@@ -91,7 +92,13 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         await loadStore(vaultPath);
         invalidateIfIncompatible(vaultPath, provider.id, provider.model);
 
-        const reportProgress = makeProgressReporter(extra);
+        const progressMeta: Parameters<typeof makeProgressReporter>[0] = {
+          ...(extra._meta?.progressToken != null
+            ? { _meta: { progressToken: extra._meta.progressToken } }
+            : {}),
+          sendNotification: extra.sendNotification.bind(extra),
+        };
+        const reportProgress = makeProgressReporter(progressMeta);
         const notes = await listNotes(vaultPath, folder);
         if (notes.length === 0) {
           return textResult(folder ? `No notes in "${folder}" to index.` : "Vault is empty — nothing to index.");
@@ -119,7 +126,6 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           chunkIndex: number;
           headingPath: string[];
           text: string;
-          textHash: string;
         }
         const pending: PendingChunk[] = [];
         const noteHashByPath = new Map<string, string>();
@@ -143,7 +149,6 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
               chunkIndex: ch.index,
               headingPath: ch.headingPath,
               text: ch.text,
-              textHash: hashText(ch.text),
             });
           }
           stats.notesScanned++;
@@ -165,6 +170,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           }
           for (let j = 0; j < batch.length; j++) {
             const item = batch[j];
+            if (!item) continue;
             const vector = vectors[j];
             if (!Array.isArray(vector)) {
               stats.failed.push({ path: item.notePath, error: "provider returned no vector" });
@@ -176,7 +182,12 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
               chunkIndex: item.chunkIndex,
               headingPath: item.headingPath,
               text: item.text,
-              hash: item.textHash,
+              // Per-chunk hash: the ChunkEmbedding interface requires this
+              // field for the persisted schema, but no code path reads it
+              // back for decisions. The per-*note* contentHash (noteHashes
+              // map) drives incremental skip logic instead. We pass an
+              // empty string to avoid a SHA-256 computation per chunk.
+              hash: "",
               vector,
             });
             noteChunks.set(item.notePath, list);
@@ -242,6 +253,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         query: z
           .string()
           .min(1)
+          .max(10_000)
           .describe("Natural-language description of what you're looking for, e.g. 'notes about onboarding new hires'."),
         limit: z
           .number()
@@ -253,6 +265,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           .describe("Maximum number of notes to return (1-100, default: 10)."),
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict the search to a folder relative to the vault root."),
         includeSnippet: z
@@ -287,7 +300,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         if (!Array.isArray(vector)) {
           return errorResult("Provider did not return a vector for the query.");
         }
-        const hits = searchEmbeddings(vaultPath, vector, { limit, folder });
+        const hits = searchEmbeddings(vaultPath, vector, { limit, ...(folder ? { folder } : {}) });
         if (hits.length === 0) {
           return textResult(`No matches for "${query}".`);
         }
@@ -324,6 +337,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Vault-relative path to the source note, e.g. 'projects/atlas.md'."),
         limit: z
           .number()
@@ -351,29 +365,42 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             `No embeddings found for "${notePath}". Run \`index_vault\` first (or check the path is correct).`,
           );
         }
-        // Score every other note's chunks against each of this note's chunks
-        // and keep each candidate note's best match. Mean would dilute long
-        // notes; max keeps the strongest signal.
-        const exclude = new Set([notePath]);
-        const aggregated = new Map<string, { score: number; chunkIndex: number; headingPath: string[]; text: string }>();
-        for (const own of ownChunks) {
-          const hits = searchEmbeddings(vaultPath, own.vector, { limit: 200, excludeNotes: exclude });
-          for (const h of hits) {
-            const cur = aggregated.get(h.notePath);
-            if (!cur || h.score > cur.score) {
-              aggregated.set(h.notePath, {
-                score: h.score,
-                chunkIndex: h.chunkIndex,
-                headingPath: h.headingPath,
-                text: h.text,
-              });
-            }
+        // Compute a centroid (mean) vector from all of the source note's
+        // chunk embeddings, then run a single searchEmbeddings pass over
+        // the store. This is O(totalChunks) instead of the previous
+        // O(ownChunks * totalChunks) which compared every source chunk
+        // against every stored chunk. The centroid is a standard
+        // document-level representation; searchEmbeddings already
+        // deduplicates per note (keeping the best-scoring chunk), so the
+        // ranking quality stays high.
+        const firstChunk = ownChunks[0]!;
+        const dim = firstChunk.vector.length;
+        // Build centroid: average all chunk vectors element-wise. Start
+        // from a copy of the first vector, accumulate the rest, then
+        // divide by count. This avoids strict-mode indexed-access issues
+        // with typed arrays while keeping the logic straightforward.
+        const centroid = firstChunk.vector.slice();
+        for (let ci = 1; ci < ownChunks.length; ci++) {
+          const vec = ownChunks[ci]!.vector;
+          for (let d = 0; d < dim; d++) {
+            centroid[d] = centroid[d]! + vec[d]!;
           }
         }
-        const ranked = Array.from(aggregated.entries())
-          .map(([np, info]) => ({ notePath: np, ...info }))
-          .sort((a, b) => b.score - a.score)
-          .slice(0, limit);
+        for (let d = 0; d < dim; d++) {
+          centroid[d] = centroid[d]! / ownChunks.length;
+        }
+        const exclude = new Set([notePath]);
+        const hits = searchEmbeddings(vaultPath, centroid, {
+          limit,
+          excludeNotes: exclude,
+        });
+        const ranked = hits.map((h) => ({
+          notePath: h.notePath,
+          score: h.score,
+          chunkIndex: h.chunkIndex,
+          headingPath: h.headingPath,
+          text: h.text,
+        }));
 
         if (ranked.length === 0) {
           return textResult(`No similar notes found for "${notePath}".`);

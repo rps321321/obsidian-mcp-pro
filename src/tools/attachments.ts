@@ -14,7 +14,12 @@ import {
   extractWikilinkSpans,
   extractMarkdownLinkSpans,
 } from "../lib/markdown.js";
-import { detectMimeType, categorizeMimeType } from "../lib/mime.js";
+import {
+  detectMimeType,
+  categorizeMimeType,
+  getBlockedExtension,
+  verifyImageMagicBytes,
+} from "../lib/mime.js";
 import { sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 
@@ -62,7 +67,7 @@ function collectReferencedAttachments(
   const unresolved: string[] = [];
 
   const consider = (rawTarget: string): void => {
-    const t = rawTarget.split("#")[0].split("^")[0].trim();
+    const t = rawTarget.split("#")[0]!.split("^")[0]!.trim();
     if (!t) return;
 
     // 1) Exact relative-path match (case-insensitive on case-insensitive FS,
@@ -115,6 +120,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
       inputSchema: {
         extension: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict to one extension (e.g., 'png' or '.png'). Omit for every attachment."),
         limit: z
@@ -289,6 +295,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Vault-relative path to the attachment, e.g. 'assets/diagram.png'."),
         maxBytes: z
           .number()
@@ -305,7 +312,16 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const lowerPath = relPath.toLowerCase();
         if (lowerPath.endsWith(".md") || lowerPath.endsWith(".canvas") || lowerPath.endsWith(".base")) {
           return errorResult(
-            `Refusing to fetch "${relPath}" via get_attachment — use get_note / read_canvas / read_base instead.`,
+            `Refusing to fetch "${relPath}" via get_attachment - use get_note / read_canvas / read_base instead.`,
+          );
+        }
+
+        // SEC-7: Block dangerous executable extensions.
+        const blockedExt = getBlockedExtension(relPath);
+        if (blockedExt) {
+          return errorResult(
+            `Blocked: "${relPath}" has a dangerous extension (${blockedExt}). ` +
+            `Executable file types are not served as attachments.`,
           );
         }
 
@@ -314,15 +330,53 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const limit = maxBytes ?? DEFAULT_GET_ATTACHMENT_LIMIT;
         if (stat.size > limit) {
           return errorResult(
-            `Attachment "${relPath}" is ${stat.size.toLocaleString()} bytes — over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
+            `Attachment "${relPath}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
           );
         }
 
         const bytes = await fs.readFile(fullPath);
         const mime = detectMimeType(relPath);
         const category = categorizeMimeType(mime);
-        const data = bytes.toString("base64");
         const basename = path.basename(relPath);
+
+        // SEC-8: SVG files can contain embedded <script> tags and event
+        // handlers, making them an XSS vector. Return SVG content as
+        // plain text instead of as an image embed.
+        if (mime === "image/svg+xml") {
+          const svgText = bytes.toString("utf-8");
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Attached: ${basename} (SVG returned as text/plain for security - SVGs may contain embedded scripts)\n` +
+                      `Size: ${stat.size.toLocaleString()} bytes`,
+              },
+              {
+                type: "resource" as const,
+                resource: {
+                  uri: `vault://${relPath}`,
+                  mimeType: "text/plain",
+                  text: svgText,
+                },
+              },
+            ],
+          };
+        }
+
+        // SEC-9: Best-effort magic-bytes verification for image types.
+        // A mismatch means the file extension doesn't match the actual
+        // content - warn the caller but still serve the file.
+        let magicWarning = "";
+        if (category === "image") {
+          const magicCheck = verifyImageMagicBytes(mime, bytes);
+          if (magicCheck === false) {
+            magicWarning =
+              ` [WARNING: file header does not match expected ${mime} signature - ` +
+              `the extension may be misleading]`;
+          }
+        }
+
+        const data = bytes.toString("base64");
 
         // Image / audio content blocks render natively in compatible
         // clients; everything else round-trips as a `resource` block so the
@@ -331,7 +385,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         if (category === "image") {
           return {
             content: [
-              { type: "text" as const, text: `Attached: ${basename} (${mime}, ${stat.size.toLocaleString()} bytes)` },
+              { type: "text" as const, text: `Attached: ${basename} (${mime}, ${stat.size.toLocaleString()} bytes)${magicWarning}` },
               { type: "image" as const, data, mimeType: mime },
             ],
           };

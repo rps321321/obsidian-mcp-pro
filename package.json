@@ -1,6 +1,6 @@
 {
   "name": "obsidian-mcp-pro",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "description": "The most feature-complete MCP server for Obsidian vaults — search, read, write, tag, link analysis, graph traversal, canvas support, and more.",
   "type": "module",
   "bin": {
@@ -45,7 +45,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=18.18.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

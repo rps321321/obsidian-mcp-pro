@@ -147,7 +147,7 @@ async function buildLinkGraph(
 
     for (const link of links) {
       // Strip heading/block refs for resolution (e.g., "note#heading" -> "note")
-      const targetBase = link.target.split("#")[0].trim();
+      const targetBase = link.target.split("#")[0]!.trim();
       if (!targetBase) continue;
 
       const resolved = resolveWikilink(targetBase, notePath, allNotes, { aliasMap });
@@ -183,18 +183,33 @@ function findLineWithLink(
   linkTarget: string,
 ): { line: number; content: string } {
   const targetLower = linkTarget.toLowerCase();
+  // Exact match: the character after the link name must be ]], |, or #
+  // to avoid prefix false positives (e.g. [[note]] matching [[notebook]]).
+  const exactSuffixes = ["]]", "|", "#"];
   for (let i = 0; i < lines.length; i++) {
-    const lineLower = lines[i].toLowerCase();
-    if (lineLower.includes(`[[${targetLower}`) || lineLower.includes(`[[${targetLower}|`)) {
-      return { line: i + 1, content: lines[i].trim() };
+    const line = lines[i];
+    if (line === undefined) continue;
+    const lineLower = line.toLowerCase();
+    const idx = lineLower.indexOf(`[[${targetLower}`);
+    if (idx !== -1) {
+      const afterPos = idx + 2 + targetLower.length;
+      if (afterPos <= lineLower.length && exactSuffixes.some((s) => lineLower.startsWith(s, afterPos))) {
+        return { line: i + 1, content: line.trim() };
+      }
     }
   }
-  // Fallback: search for partial match on just the basename
+  // Fallback: search for exact match on just the basename
   const basename = linkTarget.split("/").pop()?.toLowerCase() ?? targetLower;
   for (let i = 0; i < lines.length; i++) {
-    const lineLower = lines[i].toLowerCase();
-    if (lineLower.includes(`[[${basename}`)) {
-      return { line: i + 1, content: lines[i].trim() };
+    const line = lines[i];
+    if (line === undefined) continue;
+    const lineLower = line.toLowerCase();
+    const idx = lineLower.indexOf(`[[${basename}`);
+    if (idx !== -1) {
+      const afterPos = idx + 2 + basename.length;
+      if (afterPos <= lineLower.length && exactSuffixes.some((s) => lineLower.startsWith(s, afterPos))) {
+        return { line: i + 1, content: line.trim() };
+      }
     }
   }
   return { line: 0, content: "" };
@@ -221,6 +236,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Target note path relative to vault root (e.g., 'folder/note.md' or 'note'). Extension optional."),
       },
     },
@@ -280,7 +296,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           // Find the line(s) that contain the link to the target
           const links = graph.rawLinks.get(sourcePath) ?? [];
           const relevantLinks = links.filter((l) => {
-            const base = l.target.split("#")[0].trim();
+            const base = l.target.split("#")[0]!.trim();
             // Pass aliasMap so alias-only matches (e.g. `[[My Project]]`
             // pointing at a note whose frontmatter declares that alias)
             // resolve here exactly as they did during graph build. Without
@@ -349,6 +365,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Source note path relative to vault root (e.g., 'folder/note.md'). Extension optional."),
       },
     },
@@ -389,7 +406,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         const results: { target: string; resolvedPath: string | null; isValid: boolean; isEmbed: boolean }[] = [];
 
         for (const link of links) {
-          const targetBase = link.target.split("#")[0].trim();
+          const targetBase = link.target.split("#")[0]!.trim();
           if (!targetBase) continue;
 
           const resolved = resolveWikilink(targetBase, resolvedSource, graph.allNotes, {
@@ -468,10 +485,10 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           .number()
           .int()
           .min(1)
-          .max(5000)
+          .max(1000)
           .optional()
           .default(200)
-          .describe("Maximum total note paths to list across all categories (1-5000, default: 200). Full counts are always reported regardless."),
+          .describe("Maximum total note paths to list across all categories (1-1000, default: 200). Full counts are always reported regardless."),
       },
     },
     async ({ includeOutlinksCheck, maxResults }) => {
@@ -560,16 +577,17 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
       inputSchema: {
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict the scan to notes within this folder (resolution still uses the entire vault). Omit to scan every note."),
         maxResults: z
           .number()
           .int()
           .min(1)
-          .max(5000)
+          .max(1000)
           .optional()
           .default(200)
-          .describe("Maximum broken link entries to show (1-5000, default: 200). Grouped by source note. Remaining matches are summarized."),
+          .describe("Maximum broken link entries to show (1-1000, default: 200). Grouped by source note. Remaining matches are summarized."),
       },
     },
     async ({ folder, maxResults }) => {
@@ -612,7 +630,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           const links = extractWikilinks(content);
 
           for (const link of links) {
-            const targetBase = link.target.split("#")[0].trim();
+            const targetBase = link.target.split("#")[0]!.trim();
             if (!targetBase) continue;
 
             const resolved = resolveWikilink(targetBase, notePath, allNotes, {
@@ -697,23 +715,32 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Starting note path relative to vault root (e.g., 'projects/alpha.md'). Extension optional; falls back to basename match."),
         depth: z
           .number()
           .int()
           .min(1)
-          .max(5)
+          .max(3)
           .optional()
           .default(1)
-          .describe("Maximum link-hops to traverse from the start note (1-5, default: 1). Higher values explore further but can return many notes."),
+          .describe("Maximum link-hops to traverse from the start note (1-3, default: 1). Higher values explore exponentially more notes."),
         direction: z
           .enum(["both", "inbound", "outbound"])
           .optional()
           .default("both")
           .describe("Traversal direction: 'outbound' follows outlinks the start note points to, 'inbound' follows backlinks pointing at the start note, 'both' follows either (default)"),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .default(200)
+          .describe("Maximum neighbor notes to return (1-1000, default: 200). Traversal stops early when this cap is reached and a truncation notice is appended."),
       },
     },
-    async ({ path: startPath, depth, direction }) => {
+    async ({ path: startPath, depth, direction, maxResults }) => {
       try {
         const graph = await buildLinkGraph(vaultPath);
 
@@ -749,7 +776,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           return errorResult(`No note found matching path: ${startPath}`);
         }
 
-        // BFS traversal
+        // BFS traversal with maxResults cap to prevent explosion at higher depths
         const visited = new Map<string, GraphNeighbor>();
         const queue: { path: string; currentDepth: number }[] = [
           { path: resolvedStart, currentDepth: 0 },
@@ -759,10 +786,14 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           depth: 0,
           direction: "both",
         });
+        // Track neighbor count separately (visited includes the start node)
+        let neighborCount = 0;
+        let truncated = false;
 
         while (queue.length > 0) {
           const { path: currentPath, currentDepth } = queue.shift()!;
           if (currentDepth >= depth) continue;
+          if (truncated) break;
 
           const neighbors: { path: string; dir: "inbound" | "outbound" }[] = [];
 
@@ -786,12 +817,17 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
           for (const neighbor of neighbors) {
             if (!visited.has(neighbor.path)) {
+              if (neighborCount >= maxResults) {
+                truncated = true;
+                break;
+              }
               const neighborInfo: GraphNeighbor = {
                 path: neighbor.path,
                 depth: currentDepth + 1,
                 direction: neighbor.dir,
               };
               visited.set(neighbor.path, neighborInfo);
+              neighborCount++;
               queue.push({ path: neighbor.path, currentDepth: currentDepth + 1 });
             }
           }
@@ -820,9 +856,10 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           byDepth.get(neighbor.depth)!.push(neighbor);
         }
 
+        const truncatedStr = truncated ? " (TRUNCATED)" : "";
         const lines: string[] = [
           `Graph neighbors of: ${resolvedStart}`,
-          `Direction: ${direction} | Max depth: ${depth} | Found: ${visited.size} note(s)\n`,
+          `Direction: ${direction} | Max depth: ${depth} | Found: ${visited.size} note(s)${truncatedStr}\n`,
           resolvedStart,
         ];
 
@@ -841,6 +878,10 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
                   : "↔";
             lines.push(`${indent}${arrow} ${neighbor.path} (depth ${d})`);
           }
+        }
+
+        if (truncated) {
+          lines.push(`\nResults truncated at ${maxResults} neighbors. Reduce depth or narrow direction to see the full graph.`);
         }
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };

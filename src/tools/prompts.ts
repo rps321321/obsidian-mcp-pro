@@ -23,6 +23,7 @@ export function registerPrompts(server: McpServer): void {
       argsSchema: {
         date: z
           .string()
+          .max(10)
           .regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD")
           .optional()
           .describe("Target date (defaults to today)"),
@@ -61,6 +62,7 @@ export function registerPrompts(server: McpServer): void {
       argsSchema: {
         endDate: z
           .string()
+          .max(10)
           .regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD")
           .optional()
           .describe("Last day of the rollup window (defaults to today)"),
@@ -76,7 +78,7 @@ export function registerPrompts(server: McpServer): void {
               `Roll up the last 7 days of daily notes${endDate ? ` ending ${endDate}` : ""} into a single summary.`,
               "",
               "Steps:",
-              "1. Call get_daily_note for each of the 7 days, in chronological order.",
+              `1. Call get_recent_notes with since=\"7d\"${endDate ? `, endDate=\"${endDate}\"` : ""} and limit=200 to fetch all notes touched in the 7-day window in a single request. Filter the results to daily notes (by path pattern or folder). If a daily note is missing from the results, note the gap but do not make additional calls per day.`,
               "2. Identify 3-5 recurring themes across the week.",
               "3. List decisions made and their context.",
               "4. Pull all unchecked tasks still open at week end.",
@@ -99,11 +101,13 @@ export function registerPrompts(server: McpServer): void {
       argsSchema: {
         days: z
           .string()
+          .max(10)
           .regex(/^\d+$/, "must be a non-negative integer")
           .optional()
           .describe("Days since last modification to qualify as stale (default: 90)"),
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict scan to this folder (default: entire vault)"),
       },
@@ -145,10 +149,12 @@ export function registerPrompts(server: McpServer): void {
       argsSchema: {
         path: z
           .string()
+          .max(500)
           .optional()
           .describe("Single note path. Omit and pass `tag` instead to scan tagged notes."),
         tag: z
           .string()
+          .max(200)
           .optional()
           .describe("Tag to scan (e.g. 'project'). Pulls action items from every note with this tag."),
       },
@@ -191,8 +197,8 @@ export function registerPrompts(server: McpServer): void {
       description:
         "Generate a Map of Content (MOC) note from a tag or folder: a curated index linking the most important notes with one-line descriptions.",
       argsSchema: {
-        tag: z.string().optional().describe("Tag to gather notes from."),
-        folder: z.string().optional().describe("Folder to gather notes from."),
+        tag: z.string().max(200).optional().describe("Tag to gather notes from."),
+        folder: z.string().max(500).optional().describe("Folder to gather notes from."),
       },
     },
     ({ tag, folder }) => ({

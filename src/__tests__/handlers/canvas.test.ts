@@ -128,12 +128,14 @@ describe("canvas handlers — add_canvas_node", () => {
 
 describe("canvas handlers — add_canvas_edge", () => {
   it("connects two existing nodes", async () => {
+    // The fixture already has an edge n1 -> n2, so use the reverse direction
+    // to avoid the duplicate-edge validation.
     const result = await env.client.callTool({
       name: "add_canvas_edge",
       arguments: {
         canvasPath: "boards/test.canvas",
-        fromNode: "n1",
-        toNode: "n2",
+        fromNode: "n2",
+        toNode: "n1",
         label: "second-edge",
       },
     });

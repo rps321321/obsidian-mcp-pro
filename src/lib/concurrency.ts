@@ -17,9 +17,9 @@ export async function mapConcurrent<T, R>(
       const i = cursor++;
       if (i >= items.length) return;
       try {
-        results[i] = await fn(items[i], i);
+        results[i] = await fn(items[i]!, i);
       } catch (err) {
-        onError?.(err, items[i], i);
+        onError?.(err, items[i]!, i);
       }
     }
   });

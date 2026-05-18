@@ -85,7 +85,7 @@ function dayOfYear(date: Date): number {
   const year = date.getFullYear();
   const month = date.getMonth();
   const day = date.getDate();
-  return MONTHS_NON_LEAP[month] + day + (isLeapYear(year) && month >= 2 ? 1 : 0);
+  return MONTHS_NON_LEAP[month]! + day + (isLeapYear(year) && month >= 2 ? 1 : 0);
 }
 
 // ISO 8601 week and week-year. Returns the week number (1-53) and the
@@ -143,8 +143,8 @@ export function formatMomentDate(date: Date, format: string): string {
     const match = matchToken(rest, {
       YYYY: String(Y),
       YY: String(Y).slice(-2),
-      MMMM: MONTHS[M - 1],
-      MMM: MONTHS[M - 1].slice(0, 3),
+      MMMM: MONTHS[M - 1]!,
+      MMM: MONTHS[M - 1]!.slice(0, 3),
       MM: pad2(M),
       Mo: ordinal(M),
       M: String(M),
@@ -153,9 +153,9 @@ export function formatMomentDate(date: Date, format: string): string {
       DD: pad2(D),
       Do: ordinal(D),
       D: String(D),
-      dddd: WEEKDAYS[d],
-      ddd: WEEKDAYS[d].slice(0, 3),
-      dd: WEEKDAYS[d].slice(0, 2),
+      dddd: WEEKDAYS[d]!,
+      ddd: WEEKDAYS[d]!.slice(0, 3),
+      dd: WEEKDAYS[d]!.slice(0, 2),
       HH: pad2(H),
       H: String(H),
       hh: pad2(((H + 11) % 12) + 1),
@@ -186,7 +186,7 @@ export function formatMomentDate(date: Date, format: string): string {
       continue;
     }
 
-    out.push(ch);
+    out.push(ch!);
     i++;
   }
 
@@ -201,7 +201,7 @@ function matchToken(
   const keys = Object.keys(tokens).sort((a, b) => b.length - a.length);
   for (const key of keys) {
     if (input.startsWith(key)) {
-      return { value: tokens[key], length: key.length };
+      return { value: tokens[key]!, length: key.length };
     }
   }
   return null;
