@@ -15,7 +15,7 @@
 // logging never becomes a failure mode of the server.
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { stripPaths } from "./errors.js";
+import { stripPaths, escapeControlChars } from "./errors.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 export type LogFormat = "text" | "json";
@@ -155,11 +155,11 @@ function formatFieldsText(fields: Record<string, unknown>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(fields)) {
     if (v instanceof Error) {
-      parts.push(`${k}=${v.message}`);
+      parts.push(`${k}=${escapeControlChars(v.message)}`);
     } else if (typeof v === "string") {
-      parts.push(`${k}=${v}`);
+      parts.push(`${k}=${escapeControlChars(v)}`);
     } else {
-      parts.push(`${k}=${JSON.stringify(v)}`);
+      parts.push(`${k}=${escapeControlChars(JSON.stringify(v))}`);
     }
   }
   return parts.join(" ");

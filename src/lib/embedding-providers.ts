@@ -39,6 +39,69 @@ const EMBED_REQUEST_TIMEOUT_MS = 30_000;
  *  budget and from leaking unexpectedly verbose backend internals. */
 const ERROR_BODY_MAX = 200;
 
+/** SEC-3: Validate that an embedding URL uses an allowed scheme.
+ *  Only https:// and http:// to loopback addresses are permitted.
+ *  This prevents SSRF and API-key exfiltration if an attacker can
+ *  influence the OBSIDIAN_EMBEDDING_URL environment variable. */
+function validateEmbeddingUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      `OBSIDIAN_EMBEDDING_URL is not a valid URL: "${raw}". ` +
+        "Provide a full URL like https://api.example.com or http://localhost:11434",
+    );
+  }
+
+  const isHttps = parsed.protocol === "https:";
+  const isLoopback =
+    parsed.protocol === "http:" &&
+    (parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1" ||
+      parsed.hostname === "[::1]");
+
+  if (!isHttps && !isLoopback) {
+    throw new Error(
+      `OBSIDIAN_EMBEDDING_URL scheme/host not allowed: "${raw}". ` +
+        "Only https:// URLs and http:// to localhost/127.0.0.1 are permitted.",
+    );
+  }
+
+  return raw;
+}
+
+/** SEC-15: Validate that a model name looks reasonable.
+ *  Rejects empty strings, control characters, and names longer than 200
+ *  characters. The allowed character set covers every major provider's
+ *  naming conventions (alphanumeric, hyphens, dots, slashes, colons,
+ *  underscores, plus signs, at signs). */
+const MODEL_NAME_RE = /^[a-zA-Z0-9\-._/:@+]+$/;
+const MODEL_NAME_MAX_LENGTH = 200;
+
+function validateModelName(name: string, context: string): string {
+  if (!name || name.trim().length === 0) {
+    throw new Error(
+      `OBSIDIAN_EMBEDDING_MODEL is empty (context: ${context}). Provide a valid model name.`,
+    );
+  }
+  if (name.length > MODEL_NAME_MAX_LENGTH) {
+    throw new Error(
+      `OBSIDIAN_EMBEDDING_MODEL is too long (${name.length} chars, max ${MODEL_NAME_MAX_LENGTH}). ` +
+        `Context: ${context}.`,
+    );
+  }
+  if (!MODEL_NAME_RE.test(name)) {
+    throw new Error(
+      `OBSIDIAN_EMBEDDING_MODEL contains invalid characters: "${name}". ` +
+        "Only alphanumeric characters, hyphens, dots, slashes, colons, underscores, plus signs, " +
+        `and at signs are allowed. Context: ${context}.`,
+    );
+  }
+  return name;
+}
+
 function truncateBody(body: string): string {
   const trimmed = body.trim();
   if (trimmed.length <= ERROR_BODY_MAX) return trimmed;
@@ -201,8 +264,13 @@ export function getActiveProvider(): EmbeddingProvider | null {
     return null;
   }
   if (kind === "ollama") {
-    const model = process.env.OBSIDIAN_EMBEDDING_MODEL ?? "nomic-embed-text";
-    const url = process.env.OBSIDIAN_EMBEDDING_URL ?? "http://localhost:11434";
+    const model = validateModelName(
+      process.env.OBSIDIAN_EMBEDDING_MODEL ?? "nomic-embed-text",
+      "ollama",
+    );
+    const url = validateEmbeddingUrl(
+      process.env.OBSIDIAN_EMBEDDING_URL ?? "http://localhost:11434",
+    );
     cachedProvider = new OllamaProvider(model, url);
     return cachedProvider;
   }
@@ -212,8 +280,13 @@ export function getActiveProvider(): EmbeddingProvider | null {
       cachedProvider = null;
       return null;
     }
-    const model = process.env.OBSIDIAN_EMBEDDING_MODEL ?? "text-embedding-3-small";
-    const url = process.env.OBSIDIAN_EMBEDDING_URL ?? "https://api.openai.com/v1";
+    const model = validateModelName(
+      process.env.OBSIDIAN_EMBEDDING_MODEL ?? "text-embedding-3-small",
+      "openai",
+    );
+    const url = validateEmbeddingUrl(
+      process.env.OBSIDIAN_EMBEDDING_URL ?? "https://api.openai.com/v1",
+    );
     cachedProvider = new OpenAIProvider(model, url, apiKey);
     return cachedProvider;
   }

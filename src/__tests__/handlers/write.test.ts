@@ -287,7 +287,7 @@ describe("write handlers — delete_note", () => {
   it("permanent=true unlinks without a trash stop", async () => {
     const result = await env.client.callTool({
       name: "delete_note",
-      arguments: { path: "note-c.md", permanent: true },
+      arguments: { path: "note-c.md", permanent: true, confirm: true },
     });
     expect(isError(result)).toBe(false);
     expect(textContent(result)).toMatch(/permanently deleted/i);

@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-18
+
+Full-codebase security and correctness audit: 75+ fixes across 42 files, verified against current library documentation. Major version bump due to breaking changes in tool naming, parameter requirements, and default behavior.
+
+### Breaking Changes
+
+- **`get_tags` renamed to `list_tags`** for consistency with `list_notes`, `list_attachments`, `list_canvases`, etc. Clients calling `get_tags` must update.
+- **`delete_note` requires `confirm: true`** for permanent deletes. Calls with `permanent: true` but without `confirm: true` now return an error instead of deleting.
+- **CORS default changed** from `["*"]` to localhost-only (`http://localhost:*`, `http://127.0.0.1:*`, `http://[::1]:*`). Clients connecting from non-localhost origins must configure `allowedOrigins` explicitly.
+- **`cosineSimilarity` throws on dimension mismatch** instead of silently returning 0.
+- **`listNotes` throws for non-existent folders** instead of returning an empty array.
+
+### Added
+
+- **Blocked extensions list** in attachment handling: `.exe`, `.bat`, `.cmd`, `.com`, `.msi`, `.scr`, `.pif`, `.vbs`, `.vbe`, `.js`, `.jse`, `.wsf`, `.wsh`, `.ps1` are rejected.
+- **Magic-bytes verification** for images (PNG, JPEG, GIF, WebP, BMP) with mismatch warnings.
+- **`maxResults` parameter** on `search_by_frontmatter` (default 50), `get_graph_neighbors` (default 200).
+- **Descending sort support** in Bases DSL (`-key`, `key:desc`, `key:descending`).
+- **Security headers** on all HTTP responses: `X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control`, `Strict-Transport-Security`.
+- **Auth failure logging** with method, path, and client IP.
+- **No-auth warning** logged at startup when HTTP server has no bearer token configured.
+- **UUID format validation** for session IDs.
+- **Input validation bounds** (`.max()`) on all Zod string and number schemas across every tool file.
+- `MAX_CONCURRENT_OPS` named constant replacing magic number `16`.
+- Warning cap (100 max) in Bases DSL evaluation.
+
+### Fixed
+
+#### Security
+- **SSRF via `OBSIDIAN_EMBEDDING_URL`**: URL scheme and host now validated; only HTTPS and localhost HTTP allowed.
+- **Symlink escape in `walkVault`**: entries are now checked with `lstat`; symlinks pointing outside vault are skipped.
+- **Null-byte injection** in directory entry filenames: entries with null bytes are skipped.
+- **Model name injection**: embedding model names validated against pattern and length.
+- **SVG XSS**: SVG attachments served as `text/plain` with a security warning instead of image embeds.
+- **`javascript:`/`data:`/`vbscript:` URIs** blocked in canvas link nodes.
+- **CommonMark fence detection** in tag-rewriter fixed to `^ {0,3}` anchor (was `trimStart()`).
+- **Log injection**: control characters in log field values are now escaped.
+- **File permissions**: embedding store and install config written with mode `0o600` on non-Windows.
+
+#### Correctness
+- **Bases `not:` filter logic**: fixed from `!every` to `!some` (De Morgan's law).
+- **`looseEqual(null, 0)`** no longer returns `true`.
+- **`loadStore` race condition**: concurrent callers now share the same loading promise instead of seeing stale `loaded=true`.
+- **`saveStore` concurrent writes**: coalesced via dirty flag to prevent file corruption.
+- **`BLOCK_ID_RE`** now matches block IDs at line start (not just after whitespace).
+- **`buildRow` populates `row.links`** from wikilinks, fixing `file.linksTo()` filters that always matched.
+- **Empty frontmatter preserved**: `---\n---` delimiters kept after tag removal empties all keys.
+- **Wikilinks quoted in frontmatter** after tag rewriting for Obsidian compatibility.
+- **`destructiveHint: true`** set on `update_section` and `edit_block`.
+- **`update_section` description** corrected to match implementation behavior.
+- **Canvas self-loops and duplicate edges** rejected.
+- **`readCanvasFile`** validates JSON.parse result at runtime before casting.
+- **`getRealVaultRoot`** only catches ENOENT, re-throws permission and other errors.
+- **`findLineWithLink`** exact match prevents `[[note]]` matching `[[notebook]]`.
+- **Config `JSON.parse`** validated at runtime with type guard.
+- **Vault path validation** in install: checks existence, directory type, null bytes, absolute path.
+- Dead `formatDate` passthrough removed; dead `isExcluded` function and redundant post-filters removed.
+
+#### Performance
+- **`find_similar_notes`** reduced from O(ownChunks * totalChunks) to O(totalChunks) via centroid vector.
+- **Cache prune** only evicts entries for deleted files, not out-of-scope paths.
+- **Bases tool** uses `readAllCached` instead of per-file reads.
+- **`get_vault_stats`** and **`resolve_alias`** optimized to avoid loading entire vault into memory.
+- **`get_graph_neighbors`** depth capped at 3 with early termination at `maxResults`.
+- **Fence close regex** compiled once per block instead of per line.
+- **Per-chunk SHA-256** removed (was computed but never consumed).
+- **`obsidian://tags` resource** now uses mtime cache.
+- **Weekly-rollup prompt** reduced from 7 sequential calls to 1.
+- Index-cache temp files use PID+timestamp+UUID for uniqueness.
+
+#### Type safety
+- `noUncheckedIndexedAccess` and `noImplicitReturns` enabled in tsconfig.
+- ~94 indexed-access safety issues fixed across the entire codebase.
+- ESLint typed linting enabled with `no-floating-promises` and `no-misused-promises`.
+- `engines.node` bumped to `>=18.18.0` (minimum for ESLint v9).
+- `package-lock.json` version synced to match `package.json`.
+
+### Changed
+
+- Tag search previews strip raw frontmatter before slicing.
+- `isFinal` in progress reporter returns `true` immediately when `total === 0`.
+- `ProgressMeta.progressToken` accepts `undefined` for SDK compatibility.
+
 ## [1.9.0] - 2026-05-11
 
 Large audit-fix wave: 44 real bugs fixed across 22 source files, 22 new regression test suites added (638 tests passing, 0 failures). Minor bump because the Bases parser learns the chained-method DSL Obsidian 1.9.2+ introduced (backward-compatible new feature, not a breaking change).

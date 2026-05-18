@@ -11,9 +11,9 @@ afterEach(async () => {
   await env.cleanup();
 });
 
-describe("tag handlers — get_tags", () => {
+describe("tag handlers — list_tags", () => {
   it("enumerates unique tags across the vault with counts", async () => {
-    const result = await env.client.callTool({ name: "get_tags", arguments: {} });
+    const result = await env.client.callTool({ name: "list_tags", arguments: {} });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     // Fixture tags (normalized lowercase): draft, review, lonely, nested/archive
@@ -24,7 +24,7 @@ describe("tag handlers — get_tags", () => {
   });
 
   it("sorts by count desc by default (review appears in 2 notes)", async () => {
-    const result = await env.client.callTool({ name: "get_tags", arguments: {} });
+    const result = await env.client.callTool({ name: "list_tags", arguments: {} });
     const text = textContent(result);
     // `#review` appears in note-a AND note-b → 2 notes
     expect(text).toMatch(/#review \(2 notes\)/);
@@ -37,7 +37,7 @@ describe("tag handlers — get_tags", () => {
 
   it("sorts alphabetically when sortBy=name", async () => {
     const result = await env.client.callTool({
-      name: "get_tags",
+      name: "list_tags",
       arguments: { sortBy: "name" },
     });
     const text = textContent(result);
@@ -102,7 +102,8 @@ describe("tag handlers — search_by_tag", () => {
     // The body of note-b starts with its frontmatter delimiter in a preview.
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
-    expect(text).toMatch(/---/); // preview of frontmatter
+    // Frontmatter is now stripped from previews, so verify body content appears instead.
+    expect(text).toMatch(/Note A|Note B/);
   });
 
   it("honors maxResults cap", async () => {

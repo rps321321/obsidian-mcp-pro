@@ -77,6 +77,12 @@ interface StoreState {
   noteHashes: Map<string, string>;
   loaded: boolean;
   dirty: boolean;
+  /** Cached promise so concurrent callers await the same load. */
+  loadingPromise: Promise<StoreState> | null;
+  /** True while a saveStore write is in progress. */
+  saving: boolean;
+  /** True if another save was requested while one was already in flight. */
+  saveAgain: boolean;
   providerId: string | null;
   model: string | null;
   dimension: number | null;
@@ -91,6 +97,9 @@ function freshState(): StoreState {
     noteHashes: new Map(),
     loaded: false,
     dirty: false,
+    loadingPromise: null,
+    saving: false,
+    saveAgain: false,
     providerId: null,
     model: null,
     dimension: null,
@@ -122,74 +131,116 @@ export function hashText(text: string): string {
 export async function loadStore(vaultPath: string): Promise<StoreState> {
   const state = stateFor(vaultPath);
   if (state.loaded) return state;
-  state.loaded = true;
+  // If another caller is already loading, await the same promise instead of
+  // starting a parallel read that would race against it.
+  if (state.loadingPromise) return state.loadingPromise;
 
-  let raw: string;
-  try {
-    raw = await fs.readFile(storePath(vaultPath), "utf-8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log.warn("embedding-store: failed to read snapshot", { err: err as Error });
+  const doLoad = async (): Promise<StoreState> => {
+    let raw: string;
+    try {
+      raw = await fs.readFile(storePath(vaultPath), "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log.warn("embedding-store: failed to read snapshot", { err: err as Error });
+      }
+      state.loaded = true;
+      state.loadingPromise = null;
+      return state;
     }
-    return state;
-  }
-  let snapshot: StoreSnapshot;
-  try {
-    snapshot = JSON.parse(raw) as StoreSnapshot;
-  } catch (err) {
-    log.warn("embedding-store: snapshot is invalid JSON; ignoring", { err: err as Error });
-    return state;
-  }
-  if (
-    !snapshot ||
-    snapshot.version !== STORE_VERSION ||
-    !Array.isArray(snapshot.embeddings) ||
-    typeof snapshot.providerId !== "string" ||
-    typeof snapshot.model !== "string"
-  ) {
-    log.warn("embedding-store: snapshot has unexpected shape; ignoring");
-    return state;
-  }
-  const expectedRoot = path.resolve(vaultPath);
-  if (snapshot.vaultRoot !== expectedRoot) {
-    log.info("embedding-store: snapshot vault root differs; discarding", {
-      snapshotRoot: snapshot.vaultRoot,
-      currentRoot: expectedRoot,
-    });
-    return state;
-  }
-  state.providerId = snapshot.providerId;
-  state.model = snapshot.model;
-  state.dimension = snapshot.dimension;
-  for (const entry of snapshot.embeddings) {
-    if (!entry || !Array.isArray(entry.vector)) continue;
-    // Silently drop entries whose vector length doesn't match the snapshot's
-    // declared dimension. Guards against hand-edited or partially-corrupted
-    // snapshots where one row's length drifted from the rest.
-    if (entry.vector.length !== snapshot.dimension) continue;
-    state.byKey.set(key(entry.notePath, entry.chunkIndex), entry);
-    let owned = state.byNote.get(entry.notePath);
-    if (!owned) {
-      owned = new Set();
-      state.byNote.set(entry.notePath, owned);
+    let snapshot: StoreSnapshot;
+    try {
+      snapshot = JSON.parse(raw) as StoreSnapshot;
+    } catch (err) {
+      log.warn("embedding-store: snapshot is invalid JSON; ignoring", { err: err as Error });
+      state.loaded = true;
+      state.loadingPromise = null;
+      return state;
     }
-    owned.add(key(entry.notePath, entry.chunkIndex));
-  }
-  for (const [note, hash] of Object.entries(snapshot.noteHashes ?? {})) {
-    if (typeof hash === "string") state.noteHashes.set(note, hash);
-  }
-  return state;
+    if (
+      !snapshot ||
+      snapshot.version !== STORE_VERSION ||
+      !Array.isArray(snapshot.embeddings) ||
+      typeof snapshot.providerId !== "string" ||
+      typeof snapshot.model !== "string"
+    ) {
+      log.warn("embedding-store: snapshot has unexpected shape; ignoring");
+      state.loaded = true;
+      state.loadingPromise = null;
+      return state;
+    }
+    const expectedRoot = path.resolve(vaultPath);
+    if (snapshot.vaultRoot !== expectedRoot) {
+      log.info("embedding-store: snapshot vault root differs; discarding", {
+        snapshotRoot: snapshot.vaultRoot,
+        currentRoot: expectedRoot,
+      });
+      state.loaded = true;
+      state.loadingPromise = null;
+      return state;
+    }
+    state.providerId = snapshot.providerId;
+    state.model = snapshot.model;
+    state.dimension = snapshot.dimension;
+    for (const entry of snapshot.embeddings) {
+      if (!entry || !Array.isArray(entry.vector)) continue;
+      // Silently drop entries whose vector length doesn't match the snapshot's
+      // declared dimension. Guards against hand-edited or partially-corrupted
+      // snapshots where one row's length drifted from the rest.
+      if (entry.vector.length !== snapshot.dimension) continue;
+      state.byKey.set(key(entry.notePath, entry.chunkIndex), entry);
+      let owned = state.byNote.get(entry.notePath);
+      if (!owned) {
+        owned = new Set();
+        state.byNote.set(entry.notePath, owned);
+      }
+      owned.add(key(entry.notePath, entry.chunkIndex));
+    }
+    for (const [note, hash] of Object.entries(snapshot.noteHashes ?? {})) {
+      if (typeof hash === "string") state.noteHashes.set(note, hash);
+    }
+    // Mark loaded only AFTER all async I/O and parsing is complete.
+    state.loaded = true;
+    state.loadingPromise = null;
+    return state;
+  };
+
+  state.loadingPromise = doLoad();
+  return state.loadingPromise;
 }
 
 export async function saveStore(vaultPath: string): Promise<void> {
   const state = stateFor(vaultPath);
   if (!state.dirty) return;
   if (state.providerId === null || state.model === null) return; // nothing valid to write
+
+  // If a save is already in flight, mark that another pass is needed and
+  // return. The in-flight save will re-check the flag when it finishes.
+  if (state.saving) {
+    state.saveAgain = true;
+    return;
+  }
+
+  state.saving = true;
+  try {
+    await doSave(vaultPath, state);
+  } finally {
+    state.saving = false;
+  }
+
+  // If someone requested another save while we were writing, run one more
+  // pass to pick up any changes that arrived after we serialized.
+  if (state.saveAgain) {
+    state.saveAgain = false;
+    await saveStore(vaultPath);
+  }
+}
+
+async function doSave(vaultPath: string, state: StoreState): Promise<void> {
   const snapshot: StoreSnapshot = {
     version: STORE_VERSION,
     vaultRoot: path.resolve(vaultPath),
-    providerId: state.providerId,
-    model: state.model,
+    providerId: state.providerId!,
+    model: state.model!,
     dimension: state.dimension ?? 0,
     noteHashes: Object.fromEntries(state.noteHashes),
     embeddings: Array.from(state.byKey.values()),
@@ -218,7 +269,7 @@ export async function saveStore(vaultPath: string): Promise<void> {
   try {
     await fs.mkdir(path.dirname(file), { recursive: true });
     try {
-      await fs.writeFile(tmp, serialized, "utf-8");
+      await fs.writeFile(tmp, serialized, { encoding: "utf-8", mode: 0o600 });
       await fs.rename(tmp, file);
     } catch (innerErr) {
       // Best-effort cleanup: if writeFile succeeded but rename failed, the
@@ -345,13 +396,18 @@ export function snapshotForTests(vaultPath: string): {
 // ─── cosine similarity + search ─────────────────────────────────────
 
 export function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
+  if (a.length !== b.length) {
+    throw new Error(
+      `cosineSimilarity: dimension mismatch (a.length=${a.length}, b.length=${b.length})`,
+    );
+  }
+  if (a.length === 0) return 0;
   let dot = 0;
   let na = 0;
   let nb = 0;
   for (let i = 0; i < a.length; i++) {
-    const x = a[i];
-    const y = b[i];
+    const x = a[i]!;
+    const y = b[i]!;
     dot += x * y;
     na += x * x;
     nb += y * y;

@@ -26,13 +26,6 @@ const WIN_RESERVED_BASENAMES: ReadonlySet<string> = new Set([
 ]);
 const IS_WIN32 = process.platform === "win32";
 
-function isExcluded(relativePath: string): boolean {
-  const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
-  // Reject if ANY path segment is an excluded dir (not just root-level).
-  // Prevents nested dirs like `projects/.git/config` from being exposed.
-  return normalized.split("/").some((seg) => EXCLUDED_SET.has(seg));
-}
-
 // Per-file serialization for all mutating operations (write/append/prepend/
 // delete/move). Without this, concurrent MCP calls on the same file can race
 // and lose writes.
@@ -145,6 +138,8 @@ async function walkVault(
 ): Promise<string[]> {
   const results: string[] = [];
   const exts = extensions.map((e) => e.toLowerCase());
+  // Resolve the vault root once so symlink targets can be compared against it.
+  const realBase = await fs.realpath(baseDir);
 
   async function walk(dir: string, relPrefix: string): Promise<void> {
     let entries: import("fs").Dirent[];
@@ -156,6 +151,37 @@ async function walkVault(
     }
     for (const entry of entries) {
       const name = entry.name;
+
+      // SEC-11: skip entries whose filename contains a null byte. Some
+      // filesystems (or FUSE layers) can surface these; downstream code
+      // that passes the name to path.join / fs.open may truncate at the
+      // null and operate on a different file.
+      if (name.includes('\0')) continue;
+
+      // SEC-1: detect symlinks via lstat (readdir's Dirent.isDirectory /
+      // isFile follow symlinks transparently). If the entry is a symlink,
+      // resolve its real path and skip it when it points outside the vault.
+      const fullEntry = path.join(dir, name);
+      let lstats: import("fs").Stats;
+      try {
+        lstats = await fs.lstat(fullEntry);
+      } catch {
+        // Entry disappeared between readdir and lstat - skip.
+        continue;
+      }
+      if (lstats.isSymbolicLink()) {
+        try {
+          const realTarget = await fs.realpath(fullEntry);
+          if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
+            // Symlink escapes the vault boundary - skip.
+            continue;
+          }
+        } catch {
+          // Dangling symlink or permission error - skip.
+          continue;
+        }
+      }
+
       if (entry.isDirectory()) {
         // Prune excluded directory names at ANY depth. Obsidian's own
         // subfolders aside, nested `.git`/`.obsidian`/`.trash` directories
@@ -189,6 +215,7 @@ async function walkVaultExcluding(
 ): Promise<string[]> {
   const results: string[] = [];
   const excluded = new Set(excludedExtensions.map((e) => e.toLowerCase()));
+  const realBase = await fs.realpath(baseDir);
 
   async function walk(dir: string, relPrefix: string): Promise<void> {
     let entries: import("fs").Dirent[];
@@ -200,12 +227,35 @@ async function walkVaultExcluding(
     }
     for (const entry of entries) {
       const name = entry.name;
+
+      // SEC-11: skip null-byte filenames (see walkVault for rationale).
+      if (name.includes('\0')) continue;
+
+      // SEC-1: detect symlinks pointing outside the vault via lstat + realpath.
+      const fullEntry = path.join(dir, name);
+      let lstats: import("fs").Stats;
+      try {
+        lstats = await fs.lstat(fullEntry);
+      } catch {
+        continue;
+      }
+      if (lstats.isSymbolicLink()) {
+        try {
+          const realTarget = await fs.realpath(fullEntry);
+          if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
+            continue;
+          }
+        } catch {
+          continue;
+        }
+      }
+
       if (entry.isDirectory()) {
         if (EXCLUDED_SET.has(name.toLowerCase())) continue;
         const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
         await walk(path.join(dir, name), nextPrefix);
       } else if (entry.isFile()) {
-        // Skip dotfiles entirely — `.DS_Store`, `.gitkeep`, editor swap
+        // Skip dotfiles entirely - `.DS_Store`, `.gitkeep`, editor swap
         // files. They're noise in an attachment listing.
         if (name.startsWith(".")) continue;
         const lower = name.toLowerCase();
@@ -286,7 +336,12 @@ async function getRealVaultRoot(vaultPath: string): Promise<string> {
   const key = path.resolve(vaultPath);
   try {
     return await fs.realpath(key);
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // ENOENT: vault root doesn't exist (yet). Fall back to the resolved path
+    // so callers can proceed with creation workflows. Log so the misconfiguration
+    // is visible in server logs.
+    console.warn(`getRealVaultRoot: vault path does not exist, falling back to resolved path: ${key}`);
     return key;
   }
 }
@@ -330,6 +385,16 @@ async function assertRealPathWithinVault(
   }
 }
 
+// TOCTOU note: there is a small window between the realpath check in
+// `assertRealPathWithinVault` and the caller's actual use of the returned
+// path. If a symlink target is swapped by an external process (Obsidian,
+// sync client, another shell) in that window, the caller could follow the
+// new target without re-validation. This is low-severity because exploiting
+// it requires a privileged attacker who can atomically retarget a symlink
+// inside the vault during the microsecond gap, and the vault is typically
+// local-user-only. Fully closing the window would require holding an open
+// fd (O_PATH on Linux, or openat) across all downstream I/O, which Node's
+// fs API does not support portably.
 export async function resolveVaultPathSafe(
   vaultPath: string,
   relativePath: string,
@@ -709,7 +774,7 @@ export async function moveNote(
     if (lockKey(fullOldPath) === lockKey(fullNewPath)) {
       await withFileLock(fullOldPath, doRename);
     } else {
-      const [first, second] = [fullOldPath, fullNewPath].sort();
+      const [first, second] = [fullOldPath, fullNewPath].sort() as [string, string];
       await withFileLock(first, async () => {
         await withFileLock(second, doRename);
       });
@@ -765,7 +830,7 @@ export function searchInContents(
     const lines = content.split("\n");
     const matches: SearchMatch[] = [];
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      const line = lines[i]!;
       const compareLine = caseSensitive ? line : line.toLowerCase();
       let startIndex = 0;
       while (true) {
@@ -838,27 +903,19 @@ export async function getNoteStats(
 export async function listCanvasFiles(
   vaultPath: string,
 ): Promise<string[]> {
+  // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
+  // at every traversal level.
   const entries = await walkVault(await getRealVaultRoot(vaultPath), [".canvas"]);
-
-  const canvasFiles: string[] = [];
-  for (const rel of entries) {
-    if (isExcluded(rel)) continue;
-    canvasFiles.push(rel);
-  }
-
-  return canvasFiles.sort();
+  return entries.sort();
 }
 
 export async function listBaseFiles(
   vaultPath: string,
 ): Promise<string[]> {
+  // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
+  // at every traversal level.
   const entries = await walkVault(await getRealVaultRoot(vaultPath), [".base"]);
-  const out: string[] = [];
-  for (const rel of entries) {
-    if (isExcluded(rel)) continue;
-    out.push(rel);
-  }
-  return out.sort();
+  return entries.sort();
 }
 
 /**
@@ -869,16 +926,13 @@ export async function listBaseFiles(
 export async function listAttachments(
   vaultPath: string,
 ): Promise<string[]> {
+  // No `isExcluded` filter needed: `walkVaultExcluding` already prunes
+  // excluded dirs at every traversal level.
   const entries = await walkVaultExcluding(
     await getRealVaultRoot(vaultPath),
     [".md", ".canvas", ".base"],
   );
-  const out: string[] = [];
-  for (const rel of entries) {
-    if (isExcluded(rel)) continue;
-    out.push(rel);
-  }
-  return out.sort();
+  return entries.sort();
 }
 
 export async function getAttachmentStats(
@@ -909,6 +963,12 @@ export async function readCanvasFile(
     parsed = JSON.parse(content);
   } catch {
     throw new Error(`Invalid canvas file (malformed JSON): ${relativePath}`);
+  }
+  // BUG-14: runtime validation before casting. JSON.parse can return any JSON
+  // primitive (string, number, boolean, null, array) - only a non-null object
+  // is a valid canvas structure.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Invalid canvas file (expected JSON object): ${relativePath}`);
   }
   const data = parsed as Record<string, unknown>;
   if (!Array.isArray(data.nodes)) {

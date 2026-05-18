@@ -16,11 +16,12 @@ export interface HttpServerOptions {
   installSignalHandlers?: boolean;
   /** Reported on `/health` and `/version`. Defaults to empty string. */
   version?: string;
-  /** Allowed CORS origins. Defaults to `["*"]` to match prior behavior. Use
-   *  an explicit list (e.g. `["https://claude.ai"]`) to tighten for
-   *  browser-facing deployments. Requests from other origins still succeed
-   *  (CORS is a browser-only restriction) but the browser will reject the
-   *  response. */
+  /** Allowed CORS origins. Defaults to localhost-only patterns
+   *  (`["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"]`).
+   *  Use an explicit list (e.g. `["https://claude.ai"]`) for browser-facing
+   *  deployments. Pass `["*"]` to allow all origins (a warning is logged).
+   *  Requests from other origins still succeed (CORS is a browser-only
+   *  restriction) but the browser will reject the response. */
   allowedOrigins?: string[];
   /** Max requests per minute per client IP. 0 or undefined disables. */
   rateLimitPerMinute?: number;
@@ -33,6 +34,7 @@ export interface HttpServerHandle {
   stop: () => Promise<void>;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -82,6 +84,20 @@ function readBody(req: IncomingMessage): Promise<unknown> {
   });
 }
 
+function setSecurityHeaders(req: IncomingMessage, res: ServerResponse): void {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Cache-Control", "no-store");
+  // Add HSTS when the connection is over TLS (direct or behind a
+  // TLS-terminating reverse proxy that sets the standard header).
+  const isTls =
+    (req.socket as unknown as { encrypted?: boolean }).encrypted ||
+    req.headers["x-forwarded-proto"] === "https";
+  if (isTls) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000");
+  }
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -106,6 +122,18 @@ function constantTimeEqual(a: string, b: string): boolean {
   return lengthsMatch && bytesMatch;
 }
 
+// Check whether an origin matches an allowlist entry. Supports a trailing
+// `:*` wildcard that matches any port (e.g. `http://localhost:*` matches
+// `http://localhost:3000`). Exact strings match as before.
+function originMatches(origin: string, pattern: string): boolean {
+  if (pattern === origin) return true;
+  if (pattern.endsWith(":*")) {
+    const prefix = pattern.slice(0, -1); // "http://localhost:"
+    return origin.startsWith(prefix);
+  }
+  return false;
+}
+
 function setCors(
   req: IncomingMessage,
   res: ServerResponse,
@@ -119,11 +147,11 @@ function setCors(
   let allowOrigin = "*";
   if (!allowAny) {
     // Always set `Vary: Origin` when the ACAO value depends on the request
-    // origin — otherwise a shared cache may serve a response with one origin
+    // origin - otherwise a shared cache may serve a response with one origin
     // pinned to a different origin's request. This must fire regardless of
     // whether *this particular* origin matched the allowlist.
     res.setHeader("Vary", "Origin");
-    if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    if (requestOrigin && allowedOrigins.some((p) => originMatches(requestOrigin, p))) {
       allowOrigin = requestOrigin;
     } else {
       allowOrigin = allowedOrigins[0] ?? "";
@@ -154,7 +182,7 @@ class RateLimiter {
     const times = this.windows.get(ip) ?? [];
     // Prune expired entries in place (amortized O(1) per request).
     let i = 0;
-    while (i < times.length && times[i] <= floor) i++;
+    while (i < times.length && times[i]! <= floor) i++;
     const live = i === 0 ? times : times.slice(i);
     if (live.length >= this.limit) {
       this.windows.set(ip, live);
@@ -197,7 +225,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // See https://github.com/rps321321/obsidian-mcp-pro/issues/8.
   const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
     ? opts.allowedOrigins
-    : ["*"];
+    : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
+  if (allowedOrigins.includes("*")) {
+    log.warn("CORS configured with wildcard origin '*'. Consider restricting to specific origins for production deployments.");
+  }
   const rateLimiter = opts.rateLimitPerMinute && opts.rateLimitPerMinute > 0
     ? new RateLimiter(opts.rateLimitPerMinute)
     : null;
@@ -242,6 +273,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     }
 
     setCors(req, res, allowedOrigins);
+    setSecurityHeaders(req, res);
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
@@ -303,6 +335,12 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       const header = req.headers.authorization ?? "";
       const token = header.startsWith("Bearer ") ? header.slice(7) : "";
       if (!constantTimeEqual(token, opts.bearerToken)) {
+        log.warn("Authentication failure", {
+          method: req.method,
+          path: url.pathname,
+          ip: clientIp(req),
+          reason: header ? "invalid token" : "missing token",
+        });
         res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
         sendJson(res, 401, { error: "Unauthorized" });
         return;
@@ -311,6 +349,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      if (sessionId && !UUID_RE.test(sessionId)) {
+        sendJson(res, 400, { error: "Invalid session ID format" });
+        return;
+      }
 
       if (req.method === "POST") {
         // MCP Streamable HTTP requires JSON bodies. Reject anything else
@@ -428,6 +470,9 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     allowedOrigins: allowedOrigins.join(","),
     rateLimitPerMinute: opts.rateLimitPerMinute ?? 0,
   });
+  if (!opts.bearerToken) {
+    log.warn("WARNING: HTTP server starting without authentication. Set MCP_AUTH_TOKEN to enable bearer token auth.");
+  }
 
   const stop = async (): Promise<void> => {
     log.info(`Shutting down HTTP server`);

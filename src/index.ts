@@ -10,8 +10,7 @@ import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js"
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
 import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
 import { describePermissions } from "./lib/permissions.js";
-import { flushAllCachesAsync } from "./lib/index-cache.js";
-import { mapConcurrent } from "./lib/concurrency.js";
+import { flushAllCachesAsync, readAllCached } from "./lib/index-cache.js";
 import { extractTags } from "./lib/markdown.js";
 import { log, configureLogger } from "./lib/logger.js";
 import { sanitizeError } from "./lib/errors.js";
@@ -53,7 +52,7 @@ export function parseArgs(argv: string[]): CliOptions {
   };
   let i = 0;
   while (i < argv.length) {
-    const a = argv[i];
+    const a = argv[i]!;
     if (i === 0 && (a === "install" || a === "serve")) {
       opts.command = a;
     } else if (a === "--help" || a === "-h") {
@@ -61,7 +60,7 @@ export function parseArgs(argv: string[]): CliOptions {
     } else if (a === "--version" || a === "-v") {
       opts.command = "version";
     } else if (a === "--transport" && argv[i + 1]) {
-      const v = argv[++i];
+      const v = argv[++i]!;
       if (v !== "stdio" && v !== "http") throw new Error(`--transport must be stdio or http (got "${v}")`);
       opts.transport = v;
     } else if (a.startsWith("--transport=")) {
@@ -69,20 +68,20 @@ export function parseArgs(argv: string[]): CliOptions {
       if (v !== "stdio" && v !== "http") throw new Error(`--transport must be stdio or http (got "${v}")`);
       opts.transport = v;
     } else if (a === "--port" && argv[i + 1]) {
-      opts.port = Number(argv[++i]);
+      opts.port = Number(argv[++i]!);
     } else if (a.startsWith("--port=")) {
       opts.port = Number(a.slice("--port=".length));
     } else if (a === "--host" && argv[i + 1]) {
-      opts.host = argv[++i];
+      opts.host = argv[++i]!;
     } else if (a.startsWith("--host=")) {
       opts.host = a.slice("--host=".length);
     } else if (a === "--token" && argv[i + 1]) {
-      opts.bearerToken = argv[++i];
+      opts.bearerToken = argv[++i]!;
       // Redact the secret from process.argv so it doesn't leak via `ps`,
       // /proc/<pid>/cmdline, or crash dumps. Mutate both the local argv copy
       // and process.argv (which a caller may pass a slice of).
       argv[i] = "***";
-      const pIdx = process.argv.indexOf(opts.bearerToken);
+      const pIdx = process.argv.indexOf(opts.bearerToken!);
       if (pIdx !== -1) process.argv[pIdx] = "***";
     } else if (a.startsWith("--token=")) {
       opts.bearerToken = a.slice("--token=".length);
@@ -90,15 +89,15 @@ export function parseArgs(argv: string[]): CliOptions {
       const pIdx = process.argv.indexOf(a);
       if (pIdx !== -1) process.argv[pIdx] = "--token=***";
     } else if (a === "--allow-origin" && argv[i + 1]) {
-      opts.allowedOrigins = argv[++i].split(",").map((s) => s.trim()).filter(Boolean);
+      opts.allowedOrigins = argv[++i]!.split(",").map((s) => s.trim()).filter(Boolean);
     } else if (a.startsWith("--allow-origin=")) {
       opts.allowedOrigins = a.slice("--allow-origin=".length).split(",").map((s) => s.trim()).filter(Boolean);
     } else if (a === "--rate-limit" && argv[i + 1]) {
-      opts.rateLimitPerMinute = Number(argv[++i]);
+      opts.rateLimitPerMinute = Number(argv[++i]!);
     } else if (a.startsWith("--rate-limit=")) {
       opts.rateLimitPerMinute = Number(a.slice("--rate-limit=".length));
     } else if (a === "--client" && argv[i + 1]) {
-      const v = argv[++i];
+      const v = argv[++i]!;
       if (v !== "claude" && v !== "cursor") throw new Error(`--client must be claude or cursor`);
       opts.installClient = v;
     } else if (a.startsWith("--client=")) {
@@ -106,15 +105,15 @@ export function parseArgs(argv: string[]): CliOptions {
       if (v !== "claude" && v !== "cursor") throw new Error(`--client must be claude or cursor`);
       opts.installClient = v;
     } else if (a === "--vault" && argv[i + 1]) {
-      opts.installVaultPath = argv[++i];
+      opts.installVaultPath = argv[++i]!;
     } else if (a.startsWith("--vault=")) {
       opts.installVaultPath = a.slice("--vault=".length);
     } else if (a === "--vault-name" && argv[i + 1]) {
-      opts.installVaultName = argv[++i];
+      opts.installVaultName = argv[++i]!;
     } else if (a.startsWith("--vault-name=")) {
       opts.installVaultName = a.slice("--vault-name=".length);
     } else if (a === "--name" && argv[i + 1]) {
-      opts.installServerName = argv[++i];
+      opts.installServerName = argv[++i]!;
     } else if (a.startsWith("--name=")) {
       opts.installServerName = a.slice("--name=".length);
     } else {
@@ -242,20 +241,20 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
     const tagIndex: Record<string, string[]> = {};
     const notes = await listNotes(vaultPath);
 
-    // Parallel fan-out — sequential reads would spend most of the time
-    // blocked on fs I/O (one `realpath` syscall per note via
-    // `resolveVaultPathSafe` inside `readNote`). Errors per note are
-    // swallowed by `mapConcurrent` so one corrupt file can't poison the
-    // entire index.
-    const perNote = await mapConcurrent(notes, 8, async (notePath) => {
-      const content = await readNote(vaultPath, notePath);
-      return { notePath, tags: extractTags(content) };
+    // Use the mtime-based cache so repeated tag-index requests skip re-reading
+    // files that haven't changed. Same pattern as list_tags in tools/tags.ts.
+    // Per-file failures are logged and skipped so one corrupt note can't poison
+    // the entire index.
+    const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+      log.warn("obsidian://tags resource: note read failed", { note, err });
     });
-    for (const entry of perNote) {
-      if (!entry) continue;
-      for (const tag of entry.tags) {
+
+    for (const notePath of notes) {
+      const content = contents.get(notePath);
+      if (content === undefined) continue;
+      for (const tag of extractTags(content)) {
         const normalizedTag = `#${tag}`;
-        (tagIndex[normalizedTag] ??= []).push(entry.notePath);
+        (tagIndex[normalizedTag] ??= []).push(notePath);
       }
     }
 

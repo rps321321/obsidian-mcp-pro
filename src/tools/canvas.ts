@@ -58,6 +58,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         path: z
           .string()
           .min(1)
+          .max(500)
           .regex(/\.canvas$/i, "Path must end in .canvas")
           .describe("Relative path from vault root to the .canvas file (e.g., 'boards/roadmap.canvas')"),
       },
@@ -138,6 +139,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         canvasPath: z
           .string()
           .min(1)
+          .max(500)
           .regex(/\.canvas$/i, "Path must end in .canvas")
           .describe("Relative path from vault root to the target .canvas file"),
         type: z
@@ -145,29 +147,39 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           .describe("Node kind: 'text' = markdown block, 'file' = vault note reference, 'link' = external URL, 'group' = labeled container"),
         content: z
           .string()
+          .min(1)
+          .max(100000)
           .describe("Interpretation depends on type: text body for 'text', relative note path for 'file', URL for 'link', display label for 'group'"),
         x: z
           .number()
+          .finite()
+          .min(-100000)
+          .max(100000)
           .optional()
           .describe("X coordinate on the canvas. When omitted (and y is also omitted) the node is auto-staggered to avoid origin pile-up; an explicit value always wins."),
         y: z
           .number()
+          .finite()
+          .min(-100000)
+          .max(100000)
           .optional()
           .describe("Y coordinate on the canvas. When omitted (and x is also omitted) the node is auto-staggered to avoid origin pile-up; an explicit value always wins."),
         width: z
           .number()
           .int()
           .min(1)
+          .max(10000)
           .optional()
           .default(250)
-          .describe("Node width in pixels (default: 250)"),
+          .describe("Node width in pixels (default: 250, max: 10000)"),
         height: z
           .number()
           .int()
           .min(1)
+          .max(10000)
           .optional()
           .default(60)
-          .describe("Node height in pixels (default: 60)"),
+          .describe("Node height in pixels (default: 60, max: 10000)"),
         color: z
           .string()
           .regex(/^([1-6]|#[0-9a-fA-F]{3,8})$/, "color must be '1'-'6' or a hex code like '#ff5555'")
@@ -200,6 +212,16 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           } catch {
             return errorResult(
               `Invalid file reference: "${content}" must be a relative path inside the vault.`,
+            );
+          }
+        }
+
+        if (type === "link") {
+          // Reject dangerous URI schemes that could execute code when the
+          // canvas is opened in Obsidian or exported to HTML.
+          if (/^(javascript|data|vbscript):/i.test(content)) {
+            return errorResult(
+              `Invalid URL scheme in "${content}". javascript:, data:, and vbscript: URIs are not allowed.`,
             );
           }
         }
@@ -272,18 +294,22 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         canvasPath: z
           .string()
           .min(1)
+          .max(500)
           .regex(/\.canvas$/i, "Path must end in .canvas")
           .describe("Relative path from vault root to the target .canvas file"),
         fromNode: z
           .string()
           .min(1)
-          .describe("UUID of the source (origin) node — must already exist on the canvas"),
+          .max(200)
+          .describe("UUID of the source (origin) node - must already exist on the canvas"),
         toNode: z
           .string()
           .min(1)
-          .describe("UUID of the target (destination) node — must already exist on the canvas"),
+          .max(200)
+          .describe("UUID of the target (destination) node - must already exist on the canvas"),
         label: z
           .string()
+          .max(1000)
           .optional()
           .describe("Optional text label rendered on the edge"),
         fromSide: z
@@ -298,12 +324,24 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     },
     async ({ canvasPath, fromNode, toNode, label, fromSide, toSide }) => {
       try {
+        // BUG-15: Reject self-loops early before touching the canvas file.
+        if (fromNode === toNode) {
+          return errorResult(
+            `Self-loop rejected: fromNode and toNode are the same ('${fromNode}'). Edges must connect two different nodes.`,
+          );
+        }
+
         const id = randomUUID();
         // Node-existence validated inside the lock to prevent a concurrent
         // deletion from sneaking in between the check and the write.
         class MissingNodeError extends Error {
           constructor(public side: "source" | "target", public nodeId: string) {
             super(`${side} node '${nodeId}' not found in canvas.`);
+          }
+        }
+        class DuplicateEdgeError extends Error {
+          constructor(public from: string, public to: string) {
+            super(`An edge from '${from}' to '${to}' already exists on the canvas.`);
           }
         }
         try {
@@ -314,6 +352,13 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
             if (!data.nodes.some((n) => n.id === toNode)) {
               throw new MissingNodeError("target", toNode);
             }
+            // BUG-15: Reject duplicate edges between the same node pair.
+            const isDuplicate = data.edges.some(
+              (e) => e.fromNode === fromNode && e.toNode === toNode,
+            );
+            if (isDuplicate) {
+              throw new DuplicateEdgeError(fromNode, toNode);
+            }
             const edge: CanvasData["edges"][number] = { id, fromNode, toNode };
             if (label) edge.label = label;
             if (fromSide) edge.fromSide = fromSide;
@@ -323,6 +368,9 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           });
         } catch (err) {
           if (err instanceof MissingNodeError) {
+            return errorResult(`Error: ${err.message}`);
+          }
+          if (err instanceof DuplicateEdgeError) {
             return errorResult(`Error: ${err.message}`);
           }
           throw err;

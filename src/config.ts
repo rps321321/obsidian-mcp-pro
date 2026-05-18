@@ -41,6 +41,21 @@ function getObsidianConfigPath(): string {
   return path.join(configDir, "obsidian", "obsidian.json");
 }
 
+function isObsidianConfig(value: unknown): value is ObsidianConfig {
+  if (value === null || typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  if (!obj.vaults || typeof obj.vaults !== "object") return false;
+
+  const vaults = obj.vaults as Record<string, unknown>;
+  for (const [, entry] of Object.entries(vaults)) {
+    if (entry === null || typeof entry !== "object") return false;
+    const vault = entry as Record<string, unknown>;
+    if (typeof vault.path !== "string") return false;
+  }
+
+  return true;
+}
+
 function isValidVaultPath(vaultPath: string): boolean {
   try {
     const obsidianDir = path.join(vaultPath, ".obsidian");
@@ -92,22 +107,25 @@ function resolveVaultFromObsidianConfig(): string | null {
   let config: ObsidianConfig;
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
-    config = JSON.parse(raw) as ObsidianConfig;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isObsidianConfig(parsed)) {
+      log.warn("Obsidian config failed runtime validation (missing or malformed vaults)", {
+        configPath,
+      });
+      return null;
+    }
+    config = parsed;
   } catch (err) {
     log.warn("Failed to parse Obsidian config", { configPath, err: err as Error });
     return null;
   }
 
-  if (!config.vaults || typeof config.vaults !== "object") {
+  if (Object.keys(config.vaults).length === 0) {
     log.warn("No vaults found in Obsidian config");
     return null;
   }
 
   const vaultEntries = Object.values(config.vaults);
-  if (vaultEntries.length === 0) {
-    log.warn("Obsidian config contains no vault entries");
-    return null;
-  }
 
   const desiredName = process.env.OBSIDIAN_VAULT_NAME;
 

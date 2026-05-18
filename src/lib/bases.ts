@@ -66,11 +66,20 @@ export interface ParsedBase {
  */
 const MAX_BASE_FILE_BYTES = 1_048_576;
 
+/** Cap on collected warnings so a pathological Base with thousands of
+ *  unrecognized clauses can't blow up memory. */
+const MAX_WARNINGS = 100;
+
+function pushWarning(warnings: string[], msg: string): void {
+  if (warnings.length < MAX_WARNINGS) warnings.push(msg);
+}
+
 export function parseBaseFile(raw: string): ParsedBase {
   const warnings: string[] = [];
   let doc: BaseDocument = {};
   if (raw.length > MAX_BASE_FILE_BYTES) {
-    warnings.push(
+    pushWarning(
+      warnings,
       `Base file exceeds size cap (${raw.length} > ${MAX_BASE_FILE_BYTES} bytes); refusing to parse to avoid YAML alias-bomb / DoS. Treating as empty Base.`,
     );
     return { doc, warnings };
@@ -84,10 +93,10 @@ export function parseBaseFile(raw: string): ParsedBase {
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       doc = parsed as BaseDocument;
     } else {
-      warnings.push("Top-level YAML is not an object; treating as empty Base.");
+      pushWarning(warnings, "Top-level YAML is not an object; treating as empty Base.");
     }
   } catch (err) {
-    warnings.push(`YAML parse error: ${(err as Error).message}`);
+    pushWarning(warnings, `YAML parse error: ${(err as Error).message}`);
   }
   return { doc, warnings };
 }
@@ -170,7 +179,7 @@ export function evaluateFilter(
   depth = 0,
 ): boolean {
   if (depth > MAX_FILTER_DEPTH) {
-    ctx.warnings.push(`Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; clauses past this depth were skipped.`);
+    pushWarning(ctx.warnings, `Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; clauses past this depth were skipped.`);
     return true;
   }
   if (filter === undefined) return true;
@@ -185,10 +194,10 @@ export function evaluateFilter(
     //     - Y
     // means "neither X nor Y", matching how the docs render it.
     const inner = filter.not;
-    if (Array.isArray(inner)) return !inner.every((f) => evaluateFilter(row, f, ctx, depth + 1));
+    if (Array.isArray(inner)) return !inner.some((f) => evaluateFilter(row, f, ctx, depth + 1));
     return !evaluateFilter(row, inner, ctx, depth + 1);
   }
-  ctx.warnings.push(`Unknown filter shape: ${JSON.stringify(filter)}`);
+  pushWarning(ctx.warnings, `Unknown filter shape: ${JSON.stringify(filter)}`);
   return true;
 }
 
@@ -231,16 +240,16 @@ function evaluateExpression(row: BaseRow, expr: string, ctx: EvaluationContext):
   // Try chained method form first: `file.name.contains("x")`.
   const method = trimmed.match(METHOD_RE);
   if (method) {
-    return evaluateMethod(row, method[1], method[2], splitArgs(method[3]), ctx);
+    return evaluateMethod(row, method[1]!, method[2]!, splitArgs(method[3]!), ctx);
   }
 
   // Function-call form: `name(args)`.
   const fn = trimmed.match(FUNC_RE);
-  if (fn) return evaluateFunction(row, fn[1], splitArgs(fn[2]), ctx);
+  if (fn) return evaluateFunction(row, fn[1]!, splitArgs(fn[2]!), ctx);
 
   // Comparison form: `lhs OP rhs`.
   const cmp = trimmed.match(COMPARISON_RE);
-  if (cmp) return evaluateComparison(row, cmp[1], cmp[2], cmp[3], ctx);
+  if (cmp) return evaluateComparison(row, cmp[1]!, cmp[2]!, cmp[3]!, ctx);
 
   // Bare identifier: truthiness check on a property.
   const v = readProperty(row, trimmed);
@@ -405,7 +414,7 @@ function evaluateMethod(
         if (target === null) return false;
         if (!row.links) {
           // Permissive: builder didn't supply links; warn and match-all.
-          ctx.warnings.push(`file.${method}: row has no links populated; treating as match.`);
+          pushWarning(ctx.warnings, `file.${method}: row has no links populated; treating as match.`);
           return true;
         }
         return matchesLink(row.links, target);
@@ -464,19 +473,19 @@ function evaluateValueMethod(
       if (typeof value === "object") return Object.keys(value as object).length > 0;
       return true;
     default:
-      ctx.warnings.push(`Unknown method: ${chainForWarnings}.${method}`);
+      pushWarning(ctx.warnings, `Unknown method: ${chainForWarnings}.${method}`);
       return true;
   }
 }
 
 function firstStringArg(args: string[], where: string, ctx: EvaluationContext): string | null {
   if (args.length === 0) {
-    ctx.warnings.push(`${where} expects a quoted string argument.`);
+    pushWarning(ctx.warnings, `${where} expects a quoted string argument.`);
     return null;
   }
-  const lit = unquote(args[0]);
+  const lit = unquote(args[0]!);
   if (lit === null) {
-    ctx.warnings.push(`${where} expects a quoted string; got: ${args[0]}`);
+    pushWarning(ctx.warnings, `${where} expects a quoted string; got: ${args[0]}`);
     return null;
   }
   return lit;
@@ -521,7 +530,7 @@ function evaluateFunction(
     case "taggedWith":
     case "file.hasTag": {
       // taggedWith(file, "tag") or file.hasTag("tag") in function form.
-      const tagArg = args.length === 2 ? unquote(args[1]) : unquote(args[0] ?? "");
+      const tagArg = args.length === 2 ? unquote(args[1]!) : unquote(args[0] ?? "");
       return matchesTag(row, tagArg);
     }
     case "file.inFolder": {
@@ -534,7 +543,7 @@ function evaluateFunction(
       return Object.prototype.hasOwnProperty.call(row.frontmatter, key);
     }
     default:
-      ctx.warnings.push(`Unknown filter function: ${name}`);
+      pushWarning(ctx.warnings, `Unknown filter function: ${name}`);
       return true;
   }
 }
@@ -578,6 +587,8 @@ function evaluateComparison(
 function looseEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null && b == null) return true;
+  // If only one side is null/undefined, they are not equal (avoids Number(null) === 0).
+  if (a == null || b == null) return false;
   if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
   return String(a) === String(b);
 }
@@ -599,7 +610,7 @@ export function queryBase(
   if (viewName && Array.isArray(base.views)) {
     const view = base.views.find((v) => v.name === viewName || v.type === viewName);
     if (!view) {
-      ctx.warnings.push(`View not found: "${viewName}"; using base-level filters only.`);
+      pushWarning(ctx.warnings, `View not found: "${viewName}"; using base-level filters only.`);
     } else {
       viewFilter = flattenFilter(view.filters as BaseFilter | BaseFilter[] | undefined);
       order = Array.isArray(view.order) ? view.order : undefined;
@@ -612,14 +623,33 @@ export function queryBase(
 
   if (order && order.length > 0) {
     matches.sort((a, b) => {
-      for (const key of order!) {
+      for (const raw of order!) {
+        // Support descending via "-key" prefix or "key:desc" / "key:descending" suffix.
+        let key = raw;
+        let desc = false;
+        if (key.startsWith("-")) {
+          desc = true;
+          key = key.slice(1);
+        } else if (/:desc(?:ending)?$/i.test(key)) {
+          desc = true;
+          key = key.replace(/:desc(?:ending)?$/i, "");
+        } else {
+          // Strip explicit ":asc" / ":ascending" suffix if present.
+          key = key.replace(/:asc(?:ending)?$/i, "");
+        }
         const va = readProperty(a, key);
         const vb = readProperty(b, key);
         if (va === vb) continue;
         if (va === undefined || va === null) return 1;
         if (vb === undefined || vb === null) return -1;
-        if (typeof va === "number" && typeof vb === "number") return va - vb;
-        return String(va).localeCompare(String(vb));
+        let cmp: number;
+        if (typeof va === "number" && typeof vb === "number") {
+          cmp = va - vb;
+        } else {
+          cmp = String(va).localeCompare(String(vb));
+        }
+        if (desc) cmp = -cmp;
+        if (cmp !== 0) return cmp;
       }
       return 0;
     });

@@ -1,8 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listBaseFiles, readBaseFile, listNotes, readNote } from "../lib/vault.js";
+import { listBaseFiles, readBaseFile, listNotes } from "../lib/vault.js";
 import { parseBaseFile, queryBase, buildRow } from "../lib/bases.js";
-import { mapConcurrent } from "../lib/concurrency.js";
+import { readAllCached } from "../lib/index-cache.js";
+import { extractWikilinks } from "../lib/markdown.js";
 import { sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 
@@ -56,6 +57,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Vault-relative path to the .base file."),
       },
     },
@@ -109,9 +111,11 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Vault-relative path to the .base file."),
         view: z
           .string()
+          .max(5000)
           .optional()
           .describe("Optional view name (or view type) to apply on top of the base-level filters."),
         limit: z
@@ -134,27 +138,35 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         const raw = await readBaseFile(vaultPath, basePath);
         const { doc, warnings } = parseBaseFile(raw);
         const notes = await listNotes(vaultPath);
-        // Per-note read failures must not silently drop notes from results
-        // (C6): surface them via onError so the caller sees which notes
-        // were skipped. Matches the pattern used in tools/read.ts
-        // (search_by_frontmatter, search_notes).
+        // PERF-4: Use the mtime-keyed content cache instead of reading each
+        // note individually. readAllCached stat()'s each path and only re-reads
+        // files whose mtime has moved, which makes repeat queries near-instant.
         const readFailures: string[] = [];
-        const rows = await mapConcurrent(
-          notes,
-          16,
-          async (notePath) => {
-            const content = await readNote(vaultPath, notePath);
-            return buildRow(notePath, content);
-          },
-          (err, notePath) => {
-            readFailures.push(notePath);
-            log.warn("query_base: note read failed", {
-              note: notePath,
-              err: err as Error,
-            });
-          },
-        );
-        const validRows = rows.filter((r): r is NonNullable<typeof r> => r !== undefined);
+        const { contents } = await readAllCached(vaultPath, notes, (relPath, err) => {
+          readFailures.push(relPath);
+          log.warn("query_base: note read failed", {
+            note: relPath,
+            err,
+          });
+        });
+        const validRows = notes
+          .filter((notePath) => contents.has(notePath))
+          .map((notePath) => {
+            const content = contents.get(notePath)!;
+            const row = buildRow(notePath, content);
+            // BUG-4: Populate row.links from the note's outgoing wikilinks so
+            // file.linksTo() / file.hasLink() filters evaluate correctly.
+            // Without this, row.links is undefined and the evaluator falls
+            // back to a permissive match-all.
+            const linkInfos = extractWikilinks(content);
+            row.links = linkInfos
+              .filter((l) => !l.isEmbed)
+              .map((l) => l.target);
+            row.embeds = linkInfos
+              .filter((l) => l.isEmbed)
+              .map((l) => l.target);
+            return row;
+          });
         const result = queryBase(validRows, doc, view);
         const allWarnings = [...warnings, ...result.warnings];
         if (readFailures.length > 0) {

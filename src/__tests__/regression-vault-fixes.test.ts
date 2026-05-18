@@ -77,9 +77,8 @@ describe("H12: listNotes folder normalization", () => {
     expect(notes).toEqual(["projects/ok.md"]);
   });
 
-  it("returns empty list when normalized folder doesn't exist", async () => {
-    const notes = await listNotes(vaultDir, "missing/");
-    expect(notes).toEqual([]);
+  it("throws when normalized folder doesn't exist (realpath rejects ENOENT)", async () => {
+    await expect(listNotes(vaultDir, "missing/")).rejects.toThrow();
   });
 });
 

@@ -78,6 +78,16 @@ function writeConfig(configPath: string, config: McpConfigFile): void {
     try { fs.unlinkSync(tmp); } catch { /* ignore */ }
     throw err;
   }
+
+  // SEC-16: Restrict config file to owner-only read/write.
+  // On Windows, POSIX permissions are not enforced, so skip to avoid errors.
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(configPath, 0o600);
+    } catch {
+      // Non-fatal: some filesystems (e.g. FAT32 mounts) don't support chmod.
+    }
+  }
 }
 
 export interface InstallOptions {
@@ -113,7 +123,33 @@ export function runInstall(options: InstallOptions): void {
 
   const env: Record<string, string> = {};
   if (options.vaultPath) {
-    env.OBSIDIAN_VAULT_PATH = path.resolve(options.vaultPath);
+    const resolvedVault = path.resolve(options.vaultPath);
+
+    // MISC-4: Validate vault path before storing in config.
+    if (resolvedVault.includes("\0")) {
+      throw new Error("Vault path contains null bytes; refusing to write");
+    }
+    if (!path.isAbsolute(resolvedVault)) {
+      throw new Error(
+        `Vault path must be absolute. Resolved path: ${resolvedVault}`,
+      );
+    }
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(resolvedVault);
+    } catch {
+      throw new Error(
+        `Vault path does not exist or is not accessible: ${resolvedVault}`,
+      );
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(
+        `Vault path is not a directory: ${resolvedVault}`,
+      );
+    }
+
+    env.OBSIDIAN_VAULT_PATH = resolvedVault;
   }
   if (options.vaultName) {
     // `vaultName` lands in a JSON env var consumed by Claude Desktop /

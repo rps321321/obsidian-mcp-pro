@@ -54,10 +54,10 @@ export function quoteWikilinksInFrontmatter(yamlBlock: string): string {
   const valuePrefix = /^([ \t]*(?:-|[^\s:][^:\n]*?:)[ \t]+)/;
   const lines = yamlBlock.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i]!;
     const m = line.match(valuePrefix);
     if (!m) continue;
-    const prefix = m[1];
+    const prefix = m[1]!;
     const value = line.slice(prefix.length);
     const rewritten = rewriteWikilinkValue(value);
     if (rewritten !== null) lines[i] = `${prefix}${rewritten}`;
@@ -169,8 +169,8 @@ function createCodeBlockTracker(): (line: string) => boolean {
     const fenceLine = line.match(/^ {0,3}(`{3,}|~{3,})/);
     if (fenceLine) {
       insideFence = true;
-      fenceChar = fenceLine[1][0];
-      fenceLength = fenceLine[1].length;
+      fenceChar = fenceLine[1]![0]!;
+      fenceLength = fenceLine[1]!.length;
       insideIndentedCode = false;
       prevWasBlank = false;
       return true;
@@ -236,7 +236,7 @@ export function extractWikilinks(content: string): LinkInfo[] {
 
     while ((match = wikilinkRegex.exec(cleaned)) !== null) {
       const isEmbed = match[1] === "!";
-      const inner = match[2];
+      const inner = match[2]!;
 
       // Split on first pipe for display text
       const pipeIndex = inner.indexOf("|");
@@ -347,7 +347,7 @@ export function extractWikilinkSpans(content: string): WikilinkSpan[] {
         if (isInRanges(matchStart, inlineRanges)) continue;
 
         const isEmbed = m[1] === "!";
-        const inner = m[2];
+        const inner = m[2]!;
         const pipeIndex = inner.indexOf("|");
         const before = pipeIndex >= 0 ? inner.slice(0, pipeIndex) : inner;
         const alias = pipeIndex >= 0 ? inner.slice(pipeIndex + 1).trim() : undefined;
@@ -418,8 +418,8 @@ export function extractMarkdownLinkSpans(content: string): MarkdownLinkSpan[] {
         if (isInRanges(matchStart, inlineRanges)) continue;
 
         const isEmbed = m[1] === "!";
-        const text = m[2];
-        const url = m[3];
+        const text = m[2]!;
+        const url = m[3]!;
         const title = m[4] ?? "";
         const hashIndex = url.indexOf("#");
         const urlPath = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
@@ -516,7 +516,7 @@ export function extractTags(content: string): string[] {
     tagRegex.lastIndex = 0;
 
     while ((match = tagRegex.exec(cleaned)) !== null) {
-      tagSet.add(match[1]);
+      tagSet.add(match[1]!);
     }
   }
 
@@ -612,7 +612,7 @@ export function resolveWikilink(
   // own block-ref syntax is `note#^id`, so `#` splits first and `^` is dead
   // in that case — but callers sometimes pass bare `note^id` strings and we
   // still handle them.
-  const cleanLink = link.split("#")[0].split("^")[0].trim();
+  const cleanLink = link.split("#")[0]!.split("^")[0]!.trim();
   if (!cleanLink) return null;
 
   const normalizedLink = cleanLink.replace(/\.md$/i, "");
@@ -638,7 +638,7 @@ export function resolveWikilink(
         if (prefix === "" || prefix.endsWith("/")) suffixCandidates.push(notePath);
       }
     }
-    if (suffixCandidates.length === 1) return suffixCandidates[0];
+    if (suffixCandidates.length === 1) return suffixCandidates[0]!;
     if (suffixCandidates.length > 1) {
       const sourceDir = path.dirname(currentNotePath).replace(/\\/g, "/");
       suffixCandidates.sort((a, b) => {
@@ -647,7 +647,7 @@ export function resolveWikilink(
         if (da !== db) return db - da;
         return a.length - b.length;
       });
-      return suffixCandidates[0];
+      return suffixCandidates[0]!;
     }
   }
 
@@ -660,7 +660,7 @@ export function resolveWikilink(
       .toLowerCase();
     if (noteBasename === linkBasename) candidates.push(notePath);
   }
-  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 1) return candidates[0]!;
   if (candidates.length > 1) {
     // Obsidian's actual rule is "nearest to the linking note" — the candidate
     // that shares the deepest directory prefix with `currentNotePath` wins.
@@ -672,7 +672,7 @@ export function resolveWikilink(
       if (da !== db) return db - da;
       return a.length - b.length;
     });
-    return candidates[0];
+    return candidates[0]!;
   }
 
   // 4. Alias fallback — Obsidian resolves `[[Display Name]]` to the note

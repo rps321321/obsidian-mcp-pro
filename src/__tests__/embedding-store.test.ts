@@ -40,8 +40,8 @@ describe("cosineSimilarity", () => {
     expect(cosineSimilarity([1, 1], [-1, -1])).toBeCloseTo(-1.0, 5);
   });
 
-  it("returns 0 for length mismatch instead of throwing", () => {
-    expect(cosineSimilarity([1, 2], [1, 2, 3])).toBe(0);
+  it("throws on dimension mismatch", () => {
+    expect(() => cosineSimilarity([1, 2], [1, 2, 3])).toThrow("dimension mismatch");
   });
 });
 

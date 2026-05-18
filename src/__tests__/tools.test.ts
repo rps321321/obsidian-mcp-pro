@@ -205,9 +205,8 @@ describe("Read Tools", () => {
     expect(notes[0]).toBe("folder/nested-note.md");
   });
 
-  it("listNotes should return empty array for non-existent folder", async () => {
-    const notes = await listNotes(vaultPath, "nonexistent");
-    expect(notes).toHaveLength(0);
+  it("listNotes should throw for non-existent folder", async () => {
+    await expect(listNotes(vaultPath, "nonexistent")).rejects.toThrow();
   });
 });
 

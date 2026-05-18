@@ -12,6 +12,9 @@ import { parseFrontmatter, extractTags, extractAliases } from "../lib/markdown.j
 import { findSection, findBlockById, stripBlockId } from "../lib/sections.js";
 import { getDailyNoteConfig } from "../config.js";
 
+/** Maximum number of concurrent file I/O operations for parallel vault scans. */
+const MAX_CONCURRENT_OPS = 16;
+
 export function registerReadTools(server: McpServer, vaultPath: string): void {
   function errorResult(text: string) {
     return { content: [{ type: "text" as const, text }], isError: true as const };
@@ -32,6 +35,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         query: z
           .string()
           .min(1)
+          .max(1000)
           .describe("Literal search string matched against note body text (not regex)"),
         caseSensitive: z
           .boolean()
@@ -48,6 +52,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           .describe("Maximum number of matching notes to return (1-500, default: 20)"),
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict search to this folder relative to the vault root (omit to search entire vault)"),
       },
@@ -115,13 +120,16 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         path: z
           .string()
           .min(1)
+          .max(500)
           .describe("Relative path from vault root to the note (e.g., 'folder/note.md'). Extension required."),
         section: z
           .string()
+          .max(500)
           .optional()
           .describe("Heading path (e.g., 'Tasks' or 'Project A/Status'). Returns just that section's body."),
         block: z
           .string()
+          .max(200)
           .optional()
           .describe("Block id (without the leading `^`). Returns just the paragraph or block tagged with that id."),
         lines: z
@@ -233,6 +241,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       inputSchema: {
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Folder relative to vault root to restrict the listing (omit to list the entire vault)"),
         limit: z
@@ -359,18 +368,29 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         property: z
           .string()
           .min(1)
+          .max(200)
           .describe("Frontmatter key to look up (e.g., 'status', 'type', 'author')"),
         value: z
           .string()
           .min(1)
+          .max(1000)
           .describe("Value to match against the property (case-insensitive; matches any array element)"),
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict search to this folder relative to the vault root (omit to search entire vault)"),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(500)
+          .optional()
+          .default(50)
+          .describe("Maximum number of matching notes to return (1-500, default: 50)"),
       },
     },
-    async ({ property, value, folder }) => {
+    async ({ property, value, folder, maxResults }) => {
       try {
         const notes = await listNotes(vaultPath, folder);
         const valueLower = value.toLowerCase();
@@ -383,7 +403,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         type Hit = { path: string; frontmatter: Record<string, unknown> };
         const perNote = await mapConcurrent<string, Hit | undefined>(
           notes,
-          16,
+          MAX_CONCURRENT_OPS,
           async (notePath) => {
             const content = await readNote(vaultPath, notePath);
             const { data: frontmatterData } = parseFrontmatter(content);
@@ -404,12 +424,12 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           },
         );
 
-        const matches: Hit[] = [];
+        const allMatches: Hit[] = [];
         for (const entry of perNote) {
-          if (entry) matches.push(entry);
+          if (entry) allMatches.push(entry);
         }
 
-        if (matches.length === 0) {
+        if (allMatches.length === 0) {
           return {
             content: [
               {
@@ -420,8 +440,12 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           };
         }
 
+        const totalMatches = allMatches.length;
+        const truncated = totalMatches > maxResults;
+        const matches = truncated ? allMatches.slice(0, maxResults) : allMatches;
+
         const lines: string[] = [
-          `Found ${matches.length} note(s) where "${property}" matches "${value}":`,
+          `Found ${totalMatches} note(s) where "${property}" matches "${value}"${truncated ? ` (showing first ${maxResults})` : ""}:`,
           "",
         ];
 
@@ -431,6 +455,10 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             lines.push(`  ${key}: ${JSON.stringify(val)}`);
           }
           lines.push("");
+        }
+
+        if (truncated) {
+          lines.push(`(${totalMatches - maxResults} more result(s) omitted. Increase maxResults or narrow the search.)`);
         }
 
         return {
@@ -465,10 +493,12 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           .describe("Maximum number of notes to return (1-1000, default: 20)."),
         since: z
           .string()
+          .max(50)
           .optional()
           .describe("Filter to notes modified at or after this point. Accepts ISO 8601 (YYYY-MM-DD or full timestamp) or a relative span like '7d', '24h', '2w'."),
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict to notes within this folder (relative to vault root). Omit to scan the entire vault."),
       },
@@ -486,7 +516,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         type Row = { path: string; mtimeMs: number };
         const stats = await mapConcurrent<string, Row | undefined>(
           notes,
-          16,
+          MAX_CONCURRENT_OPS,
           async (notePath) => {
             try {
               const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
@@ -541,6 +571,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       inputSchema: {
         folder: z
           .string()
+          .max(500)
           .optional()
           .describe("Restrict stats to this folder (relative to vault root). Omit for whole-vault stats."),
       },
@@ -555,61 +586,47 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           log.warn("get_vault_stats: note read failed", { note, err });
         });
 
-        // Single combined pass: each note pays at most one fs.stat (in
-        // parallel with bounded concurrency). The previous shape ran an
-        // entire second `mapConcurrent` calling `getNoteStats` (which itself
-        // does `resolveVaultPathSafe` + `fs.stat`) just to find the most
-        // recent note - a full extra O(n) walk over the vault. Folding the
-        // stat into the same per-note worker that aggregates bytes/words/
-        // tags halves the syscall budget without changing observable output.
-        interface PerNote {
-          bytes: number;
-          words: number;
-          tags: string[];
-          mtimeMs: number | null;
-        }
-        const perNote = await mapConcurrent<string, PerNote | undefined>(
-          notes,
-          16,
-          async (notePath) => {
-            const content = contents.get(notePath);
-            if (content === undefined) return undefined;
-            const bytes = Buffer.byteLength(content, "utf-8");
-            // Word count: parse frontmatter out so YAML keys don't inflate
-            // the count, then split body on whitespace.
-            const { content: body } = parseFrontmatter(content);
-            const matches = body.match(/\S+/g);
-            const words = matches ? matches.length : 0;
-            const tags = extractTags(content);
-            let mtimeMs: number | null = null;
-            try {
-              const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
-              const st = await fs.stat(fullPath);
-              mtimeMs = st.mtimeMs;
-            } catch {
-              // Best-effort: if stat fails we still count the note's content
-              // but it can't be a most-recent candidate.
-            }
-            return { bytes, words, tags, mtimeMs };
-          },
-        );
-
+        // Two-phase approach: (1) synchronous pass over already-cached
+        // contents for bytes/words/tags (no I/O needed), then (2) bounded-
+        // concurrency stat calls only for mtime. This avoids wrapping pure
+        // CPU work in the async concurrency harness.
         let totalBytes = 0;
         let totalWords = 0;
         let untagged = 0;
         const tagSet = new Set<string>();
-        let mostRecent: { path: string; mtimeMs: number } | null = null;
-        for (let i = 0; i < notes.length; i++) {
-          const row = perNote[i];
-          if (!row) continue;
-          totalBytes += row.bytes;
-          totalWords += row.words;
-          if (row.tags.length === 0) untagged++;
-          for (const t of row.tags) tagSet.add(t.toLowerCase());
-          if (row.mtimeMs !== null) {
-            if (!mostRecent || row.mtimeMs > mostRecent.mtimeMs) {
-              mostRecent = { path: notes[i], mtimeMs: row.mtimeMs };
+        for (const notePath of notes) {
+          const content = contents.get(notePath);
+          if (content === undefined) continue;
+          totalBytes += Buffer.byteLength(content, "utf-8");
+          const { content: body } = parseFrontmatter(content);
+          const wordMatches = body.match(/\S+/g);
+          totalWords += wordMatches ? wordMatches.length : 0;
+          const tags = extractTags(content);
+          if (tags.length === 0) untagged++;
+          for (const t of tags) tagSet.add(t.toLowerCase());
+        }
+
+        // Stat calls need I/O - use bounded concurrency.
+        type MtimeRow = { path: string; mtimeMs: number };
+        const mtimeRows = await mapConcurrent<string, MtimeRow | undefined>(
+          notes,
+          MAX_CONCURRENT_OPS,
+          async (notePath) => {
+            try {
+              const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
+              const st = await fs.stat(fullPath);
+              return { path: notePath, mtimeMs: st.mtimeMs };
+            } catch {
+              return undefined;
             }
+          },
+        );
+
+        let mostRecent: { path: string; mtimeMs: number } | null = null;
+        for (const row of mtimeRows) {
+          if (!row) continue;
+          if (!mostRecent || row.mtimeMs > mostRecent.mtimeMs) {
+            mostRecent = { path: row.path, mtimeMs: row.mtimeMs };
           }
         }
 
@@ -653,6 +670,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         name: z
           .string()
           .min(1)
+          .max(500)
           .describe("Alias or display name to resolve, e.g. 'My Project'."),
         includeBasename: z
           .boolean()
@@ -666,22 +684,34 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const target = name.trim().toLowerCase();
         if (!target) return errorResult("name must not be empty");
         const notes = await listNotes(vaultPath);
-        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
-          log.warn("resolve_alias: note read failed", { note, err });
-        });
 
-        const aliasMatches: string[] = [];
+        // Basename matches are a pure path comparison - no file I/O needed.
         const basenameMatches: string[] = [];
-        for (const notePath of notes) {
-          if (includeBasename) {
+        if (includeBasename) {
+          for (const notePath of notes) {
             const basename = path.basename(notePath, path.extname(notePath)).toLowerCase();
             if (basename === target) basenameMatches.push(notePath);
           }
-          const content = contents.get(notePath);
-          if (content === undefined) continue;
-          const aliases = extractAliases(content);
-          if (aliases.some((a) => a.toLowerCase() === target)) aliasMatches.push(notePath);
         }
+
+        // For alias matches, read frontmatter per-note with bounded
+        // concurrency instead of loading the entire vault into memory.
+        // Per-note failures are logged and skipped.
+        const aliasMatches: string[] = [];
+        await mapConcurrent<string, void>(
+          notes,
+          MAX_CONCURRENT_OPS,
+          async (notePath) => {
+            const content = await readNote(vaultPath, notePath);
+            const aliases = extractAliases(content);
+            if (aliases.some((a) => a.toLowerCase() === target)) {
+              aliasMatches.push(notePath);
+            }
+          },
+          (err, notePath) => {
+            log.warn("resolve_alias: note read failed", { note: notePath, err: err as Error });
+          },
+        );
 
         const total = aliasMatches.length + basenameMatches.length;
         if (total === 0) {
@@ -719,7 +749,7 @@ function parseSince(input: string): number | null {
   const rel = trimmed.match(/^(\d+)\s*(h|d|w)$/i);
   if (rel) {
     const n = Number(rel[1]);
-    const unit = rel[2].toLowerCase();
+    const unit = rel[2]!.toLowerCase();
     const ms = unit === "h" ? 3600_000 : unit === "d" ? 86_400_000 : 7 * 86_400_000;
     return Date.now() - n * ms;
   }

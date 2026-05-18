@@ -17,9 +17,9 @@ function errorResult(text: string) {
 
 export function registerTagTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
-    "get_tags",
+    "list_tags",
     {
-      title: "Get All Tags",
+      title: "List All Tags",
       description:
         "Enumerate every unique tag used across the vault along with the number of notes each tag appears in. Detects tags from both inline #hashtags and YAML frontmatter, normalizes them case-insensitively, and returns a sorted list plus the total unique tag count. Use to build a tag cloud, pick categories, audit taxonomy, or discover available tags before calling search_by_tag.",
       annotations: {
@@ -44,7 +44,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         // moved since the last vault-wide scan. Per-file failures are
         // logged and dropped so one unreadable note can't abort the index.
         const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
-          log.warn("get_tags: note read failed", { note, err });
+          log.warn("list_tags: note read failed", { note, err });
         });
 
         for (const notePath of notes) {
@@ -89,7 +89,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           content: [{ type: "text" as const, text: lines.join("\n") }],
         };
       } catch (err) {
-        log.error("get_tags failed", { tool: "get_tags", err: err as Error });
+        log.error("list_tags failed", { tool: "list_tags", err: err as Error });
         return errorResult(`Error listing tags: ${sanitizeError(err)}`);
       }
     },
@@ -110,6 +110,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         tag: z
           .string()
           .min(1)
+          .max(200)
           .describe("Tag to search for, with or without # prefix (e.g., 'project' or '#project'). Matches nested tags like 'project/alpha'."),
         includeContent: z
           .boolean()
@@ -148,7 +149,8 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           if (hasMatch) {
             const entry: { path: string; preview?: string } = { path: notePath };
             if (includeContent) {
-              entry.preview = content.slice(0, 200).trim();
+              const stripped = content.replace(/^---\n[\s\S]*?\n---\n/, "");
+              entry.preview = stripped.slice(0, 200).trim();
             }
             matchingNotes.push(entry);
           }
@@ -200,11 +202,13 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         oldName: z
           .string()
           .min(1)
+          .max(200)
           .regex(/^[^#\s/][^\s]*$/, "Tag name must not start with # or whitespace; pass the bare name")
           .describe("Existing tag name (without leading #), e.g. 'project'."),
         newName: z
           .string()
           .min(1)
+          .max(200)
           .regex(/^[^#\s/][^\s]*$/, "Tag name must not start with # or whitespace; pass the bare name")
           .describe("New tag name (without leading #), e.g. 'client'."),
         hierarchical: z

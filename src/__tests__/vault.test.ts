@@ -105,9 +105,8 @@ describe("listNotes", () => {
     expect(notes).toEqual([]);
   });
 
-  it("should return empty array for non-existent folder", async () => {
-    const notes = await listNotes(vaultDir, "does-not-exist");
-    expect(notes).toEqual([]);
+  it("should throw for non-existent folder", async () => {
+    await expect(listNotes(vaultDir, "does-not-exist")).rejects.toThrow();
   });
 
   it("should filter by subfolder when folder is provided", async () => {

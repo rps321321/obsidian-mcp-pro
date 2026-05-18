@@ -119,7 +119,7 @@ function sliceByHeadings(body: string): Array<{ text: string; headingPath: strin
 
   const out: Array<{ text: string; headingPath: string[] }> = [];
   // Preamble chunk: anything above the first splitting heading.
-  const firstStart = splitters[0].lineStart;
+  const firstStart = splitters[0]!.lineStart;
   if (firstStart > 0) {
     const text = body.slice(0, firstStart).trim();
     if (text.length > 0) out.push({ text, headingPath: [] });
@@ -130,12 +130,12 @@ function sliceByHeadings(body: string): Array<{ text: string; headingPath: strin
   // that don't bleed into siblings).
   const path: { level: number; text: string }[] = [];
   for (let i = 0; i < splitters.length; i++) {
-    const h = splitters[i];
-    while (path.length > 0 && path[path.length - 1].level >= h.level) path.pop();
+    const h = splitters[i]!;
+    while (path.length > 0 && path[path.length - 1]!.level >= h.level) path.pop();
     path.push({ level: h.level, text: h.text });
 
     const nextStart = i + 1 < splitters.length
-      ? splitters[i + 1].lineStart
+      ? splitters[i + 1]!.lineStart
       : body.length;
     const sliceStart = headingLineEnd(body, h);
     const text = body.slice(sliceStart, nextStart).trim();

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import { resolveVaultPathSafe } from "./vault.js";
@@ -248,7 +249,7 @@ async function doFlush(vaultPath: string, state: VaultCacheState): Promise<void>
   const dir = path.dirname(file);
   try {
     await fs.mkdir(dir, { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
+    const tmp = `${file}.${process.pid}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(snapshot), "utf-8");
     await fs.rename(tmp, file);
   } catch (err) {
@@ -328,14 +329,23 @@ export async function readAllCached(
     return undefined;
   });
 
-  // Prune entries that weren't asked for this round. This stops the cache
-  // from holding stale paths after a vault reorg or folder filter change.
-  for (const key of cache.keys()) {
-    if (!seen.has(key)) {
+  // Prune stale entries whose files no longer exist on disk. Previous
+  // versions evicted every entry outside the current `seen` set, which
+  // meant a folder-scoped call (e.g. reading only `folder-a/`) would
+  // destroy cached entries for `folder-b/`, `folder-c/`, etc. Now we
+  // only remove entries for files that have actually been deleted.
+  const pruneKeys = Array.from(cache.keys()).filter((k) => !seen.has(k));
+  await mapConcurrent(pruneKeys, READ_CONCURRENCY, async (key) => {
+    const entry = cache.get(key);
+    if (!entry) return;
+    try {
+      await fs.access(entry.fullPath);
+    } catch {
+      // File no longer exists on disk - evict the stale entry.
       cache.delete(key);
       state.dirty = true;
     }
-  }
+  });
 
   if (state.dirty) scheduleFlush(vaultPath, state);
 
