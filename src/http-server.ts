@@ -44,6 +44,8 @@ const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 // Streamable HTTP responses stay open for the duration of a tool call, so
 // this must be generous enough for large vault scans (search, link graph).
 const REQUEST_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+const SIGNALS = ["SIGINT", "SIGTERM"] as const;
+const installedSignalHandlers = new Map<NodeJS.Signals, () => void>();
 
 class BodyTooLargeError extends Error {
   constructor() {
@@ -77,7 +79,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
       try {
         resolve(JSON.parse(raw));
       } catch (err) {
-        reject(err);
+        reject(err instanceof Error ? err : new Error("Invalid JSON body"));
       }
     });
     req.on("error", reject);
@@ -128,10 +130,15 @@ function constantTimeEqual(a: string, b: string): boolean {
 function originMatches(origin: string, pattern: string): boolean {
   if (pattern === origin) return true;
   if (pattern.endsWith(":*")) {
-    const prefix = pattern.slice(0, -1); // "http://localhost:"
-    return origin.startsWith(prefix);
+    const base = pattern.slice(0, -2); // "http://localhost"
+    return origin === base || origin.startsWith(`${base}:`);
   }
   return false;
+}
+
+function originAllowed(origin: string, allowedOrigins: string[]): boolean {
+  if (allowedOrigins.includes("*")) return true;
+  return allowedOrigins.some((pattern) => originMatches(origin, pattern));
 }
 
 function setCors(
@@ -214,6 +221,10 @@ function clientIp(req: IncomingMessage): string {
 }
 
 export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServerHandle> {
+  const bearerToken = opts.bearerToken?.trim();
+  if (opts.bearerToken !== undefined && !bearerToken) {
+    throw new Error("HTTP bearer token cannot be empty");
+  }
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const lastActivity = new Map<string, number>();
   const touch = (sid: string): void => { lastActivity.set(sid, Date.now()); };
@@ -261,19 +272,37 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // DNS-rebinding protection.
   const allowedHosts: string[] = [];
 
-  const httpServer = createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     // Cap wall-clock time for POST requests only. GET is used by the
     // Streamable HTTP transport for long-lived SSE streams that intentionally
     // go write-silent between events — `socket.setTimeout` would reap them
     // as "idle" after 2 minutes and break valid clients. DELETE is a
     // fire-and-forget session teardown and doesn't need a timeout.
     if (req.method === "POST") {
-      req.setTimeout(REQUEST_TIMEOUT_MS);
-      res.setTimeout(REQUEST_TIMEOUT_MS);
+      const onTimeout = (): void => {
+        if (!res.headersSent) {
+          res.setHeader("Connection", "close");
+          sendJson(res, 408, { error: "Request timeout" });
+        }
+        req.destroy();
+      };
+      req.setTimeout(REQUEST_TIMEOUT_MS, onTimeout);
+      res.setTimeout(REQUEST_TIMEOUT_MS, onTimeout);
     }
 
     setCors(req, res, allowedOrigins);
     setSecurityHeaders(req, res);
+    const requestOrigin = req.headers.origin;
+    if (typeof requestOrigin === "string" && !originAllowed(requestOrigin, allowedOrigins)) {
+      log.warn("Rejected request from disallowed Origin", {
+        origin: requestOrigin,
+        method: req.method,
+        path: req.url ?? "",
+        ip: clientIp(req),
+      });
+      sendJson(res, 403, { error: "Origin not allowed" });
+      return;
+    }
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
@@ -305,7 +334,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           status: "ok",
           version: opts.version ?? "",
         };
-        if (!opts.bearerToken) body.sessions = transports.size;
+        if (!bearerToken) body.sessions = transports.size;
         sendJson(res, 200, body);
         return;
       }
@@ -315,10 +344,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         // version endpoint and, when a Bearer token is configured, must
         // require it — anonymous POSTs were previously a free
         // unauthenticated reflection point.
-        if (req.method !== "GET" && opts.bearerToken) {
+        if (req.method !== "GET" && bearerToken) {
           const header = req.headers.authorization ?? "";
           const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-          if (!constantTimeEqual(token, opts.bearerToken)) {
+          if (!constantTimeEqual(token, bearerToken)) {
             res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
             sendJson(res, 401, { error: "Unauthorized" });
             return;
@@ -331,10 +360,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       return;
     }
 
-    if (opts.bearerToken) {
+    if (bearerToken) {
       const header = req.headers.authorization ?? "";
       const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-      if (!constantTimeEqual(token, opts.bearerToken)) {
+      if (!constantTimeEqual(token, bearerToken)) {
         log.warn("Authentication failure", {
           method: req.method,
           path: url.pathname,
@@ -390,6 +419,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
               touch(sid);
             },
             allowedHosts,
+            allowedOrigins,
             enableDnsRebindingProtection: true,
           });
           transport.onclose = () => {
@@ -445,6 +475,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         sendJson(res, 500, { error: "Internal server error" });
       }
     }
+  };
+
+  const httpServer = createServer((req, res) => {
+    void handleRequest(req, res);
   });
 
   await new Promise<void>((resolve) => {
@@ -466,13 +500,20 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
   log.info(`HTTP server listening`, {
     url: `http://${opts.host}:${boundPort}/mcp`,
-    bearerAuth: Boolean(opts.bearerToken),
+    bearerAuth: Boolean(bearerToken),
     allowedOrigins: allowedOrigins.join(","),
     rateLimitPerMinute: opts.rateLimitPerMinute ?? 0,
   });
-  if (!opts.bearerToken) {
-    log.warn("WARNING: HTTP server starting without authentication. Set MCP_AUTH_TOKEN to enable bearer token auth.");
+  if (!bearerToken) {
+    log.warn("WARNING: HTTP server starting without authentication. Set MCP_HTTP_TOKEN to enable bearer token auth.");
   }
+
+  const installSignals = opts.installSignalHandlers ?? true;
+  const onSignal = (): void => {
+    void stop().finally(() => {
+      process.exit(0);
+    });
+  };
 
   const stop = async (): Promise<void> => {
     log.info(`Shutting down HTTP server`);
@@ -488,27 +529,23 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     // sockets that aren't currently mid-response so `close()` can return.
     httpServer.closeAllConnections?.();
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    if (installSignals) {
+      for (const sig of SIGNALS) {
+        if (installedSignalHandlers.get(sig) === onSignal) {
+          process.off(sig, onSignal);
+          installedSignalHandlers.delete(sig);
+        }
+      }
+    }
   };
 
-  const installSignals = opts.installSignalHandlers ?? true;
   if (installSignals) {
-    const onSignal = async (): Promise<void> => {
-      await stop();
-      process.exit(0);
-    };
-    // Drop any prior listeners we may have installed. Tests and embedders
-    // that start/stop the server repeatedly in the same process would
-    // otherwise accumulate listeners and trip Node's default
-    // MaxListenersExceededWarning at 11 boots. We intentionally clear
-    // ALL listeners on these signals because (a) we own the handler we
-    // just defined, (b) any prior obsidian-mcp-pro handler is exactly
-    // the one we're about to replace, and (c) host processes that need
-    // their own SIGINT/SIGTERM behavior should pass
-    // `installSignalHandlers: false`.
-    process.removeAllListeners("SIGINT");
-    process.removeAllListeners("SIGTERM");
-    process.on("SIGINT", onSignal);
-    process.on("SIGTERM", onSignal);
+    for (const sig of SIGNALS) {
+      const previous = installedSignalHandlers.get(sig);
+      if (previous) process.off(sig, previous);
+      process.on(sig, onSignal);
+      installedSignalHandlers.set(sig, onSignal);
+    }
   }
 
   return {

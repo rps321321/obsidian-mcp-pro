@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "fs/promises";
+import path from "path";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createTestEnv, textContent, isError, type TestEnv } from "./handlers/harness.js";
 
 // Regression coverage for three link-tool findings:
@@ -27,7 +29,7 @@ afterEach(async () => {
 });
 
 // --------------------------------------------------------------------------
-// H5: find_broken_links should not be dramatically slower than search_notes
+// H5: find_broken_links should fan out note reads instead of serializing them
 // --------------------------------------------------------------------------
 
 /** Build a 50-note vault with one broken link to exercise the scan loop
@@ -44,46 +46,53 @@ function makeBroadVault(noteCount: number): Record<string, string> {
 }
 
 describe("H5: find_broken_links uses bounded parallelism, not a serial loop", () => {
-  it("completes within 2x of search_notes wall-clock on a 50-note vault", async () => {
+  it("performs overlapping note reads on a cold 50-note vault", async () => {
     env = await createTestEnv({
       skipFixtures: true,
       extraFiles: makeBroadVault(50),
     });
 
-    // Warm both code paths once so the timing comparison reflects steady
-    // state and not first-touch FS effects.
-    await env.client.callTool({ name: "search_notes", arguments: { query: "body-keyword" } });
-    await env.client.callTool({ name: "find_broken_links", arguments: {} });
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    let noteReads = 0;
+    const originalReadFile = fs.readFile.bind(fs);
+    const readSpy = vi.spyOn(fs, "readFile").mockImplementation(
+      async (...args: Parameters<typeof fs.readFile>) => {
+        const fileArg = args[0];
+        const filePath = typeof fileArg === "string" ? fileArg : undefined;
+        const isVaultNote = filePath !== undefined
+          && filePath.startsWith(env.vaultDir + path.sep)
+          && filePath.endsWith(".md");
 
-    const t1 = Date.now();
-    const searchResult = await env.client.callTool({
-      name: "search_notes",
-      arguments: { query: "body-keyword" },
-    });
-    const searchMs = Date.now() - t1;
+        if (!isVaultNote) {
+          return originalReadFile(...args);
+        }
 
-    const t2 = Date.now();
-    const brokenResult = await env.client.callTool({
-      name: "find_broken_links",
-      arguments: {},
-    });
-    const brokenMs = Date.now() - t2;
+        activeReads++;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        noteReads++;
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return await originalReadFile(...args);
+        } finally {
+          activeReads--;
+        }
+      },
+    );
 
-    expect(isError(searchResult)).toBe(false);
-    expect(isError(brokenResult)).toBe(false);
+    try {
+      const brokenResult = await env.client.callTool({
+        name: "find_broken_links",
+        arguments: {},
+      });
 
-    // Sanity-check: the scan actually found the planted broken link.
-    expect(textContent(brokenResult)).toContain("missing-target");
-
-    // Allow generous slack: 2x search_notes, plus a 200ms absolute floor so
-    // tiny per-call jitter on fast machines doesn't flip the ratio. The
-    // original sequential implementation was easily 5-10x slower at this
-    // vault size.
-    const budget = Math.max(searchMs * 2, searchMs + 200);
-    expect(
-      brokenMs,
-      `find_broken_links took ${brokenMs}ms vs search_notes ${searchMs}ms`,
-    ).toBeLessThanOrEqual(budget);
+      expect(isError(brokenResult)).toBe(false);
+      expect(textContent(brokenResult)).toContain("missing-target");
+      expect(noteReads).toBe(50);
+      expect(maxActiveReads).toBeGreaterThan(1);
+    } finally {
+      readSpy.mockRestore();
+    }
   });
 });
 

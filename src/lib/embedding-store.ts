@@ -2,6 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import { createHash, randomBytes } from "crypto";
 import { log } from "./logger.js";
+import { isPersistenceEnabled } from "./index-cache.js";
+import { resolveVaultInternalPathSafe } from "./vault.js";
 
 /**
  * Persistent embedding store.
@@ -116,12 +118,25 @@ function stateFor(vaultPath: string): StoreState {
   return s;
 }
 
-function storePath(vaultPath: string): string {
-  return path.join(path.resolve(vaultPath), STORE_REL_PATH);
+function storePath(vaultPath: string): Promise<string> {
+  return resolveVaultInternalPathSafe(vaultPath, STORE_REL_PATH);
 }
 
 function key(notePath: string, chunkIndex: number): string {
   return `${notePath}::${chunkIndex}`;
+}
+
+function validateVector(vector: unknown, expectedDimension: number | null): string | null {
+  if (!Array.isArray(vector) || vector.length === 0) return "vector must be a non-empty number array";
+  for (const value of vector) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return "vector contains a non-finite value";
+    }
+  }
+  if (expectedDimension !== null && vector.length !== expectedDimension) {
+    return `vector dimension mismatch (expected ${expectedDimension}, got ${vector.length})`;
+  }
+  return null;
 }
 
 export function hashText(text: string): string {
@@ -136,9 +151,14 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
   if (state.loadingPromise) return state.loadingPromise;
 
   const doLoad = async (): Promise<StoreState> => {
+    if (!isPersistenceEnabled()) {
+      state.loaded = true;
+      state.loadingPromise = null;
+      return state;
+    }
     let raw: string;
     try {
-      raw = await fs.readFile(storePath(vaultPath), "utf-8");
+      raw = await fs.readFile(await storePath(vaultPath), "utf-8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         log.warn("embedding-store: failed to read snapshot", { err: err as Error });
@@ -161,7 +181,8 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       snapshot.version !== STORE_VERSION ||
       !Array.isArray(snapshot.embeddings) ||
       typeof snapshot.providerId !== "string" ||
-      typeof snapshot.model !== "string"
+      typeof snapshot.model !== "string" ||
+      typeof snapshot.dimension !== "number"
     ) {
       log.warn("embedding-store: snapshot has unexpected shape; ignoring");
       state.loaded = true;
@@ -186,7 +207,7 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       // Silently drop entries whose vector length doesn't match the snapshot's
       // declared dimension. Guards against hand-edited or partially-corrupted
       // snapshots where one row's length drifted from the rest.
-      if (entry.vector.length !== snapshot.dimension) continue;
+      if (validateVector(entry.vector, snapshot.dimension) !== null) continue;
       state.byKey.set(key(entry.notePath, entry.chunkIndex), entry);
       let owned = state.byNote.get(entry.notePath);
       if (!owned) {
@@ -196,7 +217,7 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       owned.add(key(entry.notePath, entry.chunkIndex));
     }
     for (const [note, hash] of Object.entries(snapshot.noteHashes ?? {})) {
-      if (typeof hash === "string") state.noteHashes.set(note, hash);
+      if (typeof hash === "string" && state.byNote.has(note)) state.noteHashes.set(note, hash);
     }
     // Mark loaded only AFTER all async I/O and parsing is complete.
     state.loaded = true;
@@ -212,6 +233,10 @@ export async function saveStore(vaultPath: string): Promise<void> {
   const state = stateFor(vaultPath);
   if (!state.dirty) return;
   if (state.providerId === null || state.model === null) return; // nothing valid to write
+  if (!isPersistenceEnabled()) {
+    state.dirty = false;
+    return;
+  }
 
   // If a save is already in flight, mark that another pass is needed and
   // return. The in-flight save will re-check the flag when it finishes.
@@ -262,7 +287,13 @@ async function doSave(vaultPath: string, state: StoreState): Promise<void> {
     });
     return;
   }
-  const file = storePath(vaultPath);
+  let file: string;
+  try {
+    file = await storePath(vaultPath);
+  } catch (err) {
+    log.warn("embedding-store: snapshot path failed vault-boundary check", { err: err as Error });
+    return;
+  }
   // Include a random suffix so two concurrent saves in the same process
   // (same PID) don't fight over the same tmp file and clobber each other.
   const tmp = `${file}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
@@ -293,7 +324,7 @@ export async function clearStore(
 ): Promise<void> {
   stores.delete(path.resolve(vaultPath));
   if (options?.removeSnapshot) {
-    try { await fs.unlink(storePath(vaultPath)); } catch { /* ignore */ }
+    try { await fs.unlink(await storePath(vaultPath)); } catch { /* ignore */ }
   }
 }
 
@@ -332,6 +363,14 @@ export function setNoteChunks(
   model: string,
 ): void {
   const state = stateFor(vaultPath);
+  let nextDimension = state.dimension;
+  for (const ch of chunks) {
+    const error = validateVector(ch.vector, nextDimension);
+    if (error !== null) {
+      throw new Error(`Invalid embedding for ${ch.notePath}#${ch.chunkIndex}: ${error}`);
+    }
+    if (nextDimension === null) nextDimension = ch.vector.length;
+  }
   // Drop any prior chunks owned by this note.
   const prior = state.byNote.get(notePath);
   if (prior) {
@@ -346,8 +385,8 @@ export function setNoteChunks(
       const k = key(ch.notePath, ch.chunkIndex);
       state.byKey.set(k, ch);
       owned.add(k);
-      if (state.dimension === null) state.dimension = ch.vector.length;
     }
+    state.dimension = nextDimension;
     state.byNote.set(notePath, owned);
     state.noteHashes.set(notePath, contentHash);
   }

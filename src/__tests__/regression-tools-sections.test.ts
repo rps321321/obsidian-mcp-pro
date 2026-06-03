@@ -130,6 +130,24 @@ describe("regression: replace_in_note ReDoS guards (C3)", () => {
     expect(onDisk).not.toContain("Standalone");
   });
 
+  it("treats replacement dollar tokens literally when regex=false", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "literal-replace.md"), "foo foo\n", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "literal-replace.md",
+        find: "foo",
+        replace: "$&",
+        regex: false,
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "literal-replace.md"), "utf-8");
+    expect(onDisk).toBe("$& $&\n");
+  });
+
   it("returns a SyntaxError-shaped error for malformed regex (try/catch)", async () => {
     const result = await env.client.callTool({
       name: "replace_in_note",
@@ -225,5 +243,24 @@ describe("regression: edit_block normalizes leading ^ (O8)", () => {
     // The zod refine catches this at the wire boundary, so it surfaces as an
     // error response rather than a successful no-op.
     expect(isError(result)).toBe(true);
+  });
+
+  it("does not delete the heading immediately above a block anchor", async () => {
+    const note = "# Tasks\nTodo item ^task\n\nOther stuff.\n";
+    await fs.writeFile(path.join(env.vaultDir, "heading-block.md"), note, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "edit_block",
+      arguments: {
+        path: "heading-block.md",
+        block: "task",
+        newContent: "Updated todo",
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "heading-block.md"), "utf-8");
+    expect(onDisk).toContain("# Tasks\nUpdated todo ^task");
+    expect(onDisk).not.toContain("Todo item");
   });
 });

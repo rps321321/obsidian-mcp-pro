@@ -53,6 +53,7 @@ function readConfig(configPath: string): McpConfigFile {
   } catch (err) {
     throw new Error(
       `Existing config at ${configPath} is not valid JSON. Fix or delete it before re-running install. (${sanitizeError(err)})`,
+      { cause: err },
     );
   }
 }

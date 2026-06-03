@@ -237,8 +237,8 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
             finalX = 50 * count;
             finalY = 50 * count;
           } else {
-            finalX = autoStaggerX ? 0 : (x as number);
-            finalY = autoStaggerY ? 0 : (y as number);
+            finalX = autoStaggerX ? 0 : (x);
+            finalY = autoStaggerY ? 0 : (y);
           }
 
           const node: CanvasNode = {

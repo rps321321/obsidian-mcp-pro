@@ -13,7 +13,7 @@ beforeEach(() => {
   process.stderr.write = ((chunk: string | Uint8Array) => {
     captured.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
     return true;
-  }) as typeof process.stderr.write;
+  });
 });
 
 afterEach(() => {
@@ -24,7 +24,7 @@ afterEach(() => {
 
 describe("logger", () => {
   it("filters messages below the configured level", () => {
-    configureLogger({ level: "warn" });
+    configureLogger({ level: "warn", format: "text" });
     log.debug("nope");
     log.info("also nope");
     log.warn("yes");

@@ -27,6 +27,22 @@ afterEach(async () => {
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
 
+async function linkCacheDirOutside(outsideDir: string): Promise<boolean> {
+  await fs.mkdir(path.join(vaultDir, ".obsidian"), { recursive: true });
+  try {
+    await fs.symlink(
+      outsideDir,
+      path.join(vaultDir, ".obsidian", "cache"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EACCES" || code === "EINVAL") return false;
+    throw err;
+  }
+}
+
 describe("cosineSimilarity", () => {
   it("returns 1.0 for identical vectors", () => {
     expect(cosineSimilarity([1, 2, 3], [1, 2, 3])).toBeCloseTo(1.0, 5);
@@ -164,5 +180,25 @@ describe("snapshot persistence", () => {
     ], "ollama", "model-a");
     invalidateIfIncompatible(vaultDir, "ollama", "model-b");
     expect(snapshotForTests(vaultDir).totalChunks).toBe(0);
+  });
+
+  it("does not persist through a .obsidian/cache symlink outside the vault", async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "embed-outside-"));
+    try {
+      const linked = await linkCacheDirOutside(outsideDir);
+      if (!linked) return;
+
+      await loadStore(vaultDir);
+      setNoteChunks(vaultDir, "a.md", "h", [
+        { notePath: "a.md", chunkIndex: 1, headingPath: [], text: "x", hash: "h", vector: [1] },
+      ], "ollama", "model-a");
+      await saveStore(vaultDir);
+
+      await expect(
+        fs.access(path.join(outsideDir, "mcp-pro-embeddings.json")),
+      ).rejects.toThrow();
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });

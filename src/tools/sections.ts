@@ -266,7 +266,9 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
             );
           }
           if (count === 0) return existing;
-          return existing.replace(pattern, replace);
+          return regex
+            ? existing.replace(pattern, replace)
+            : existing.replace(pattern, () => replace);
         });
         return textResult(
           count === 0
