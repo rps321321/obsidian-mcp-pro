@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - MCP-forwarded log payloads now redact vault-relative path-like fields such as `note`, `relPath`, and nested `path`, preventing read-scan failures from exposing private note names to connected clients.
+- MCP log redaction now recognizes compound path field names such as `sourcePath` and `target_path`, and duplicate-alias logs group note paths under a redacted `notes` field.
 
 ## [2.2.0] - 2026-06-03
 

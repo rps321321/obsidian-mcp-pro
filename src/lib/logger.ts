@@ -71,6 +71,16 @@ const VAULT_PATH_FIELD_KEYS = new Set([
   "vault",
   "vaultpath",
 ]);
+const VAULT_PATH_FIELD_TOKENS = new Set([
+  "file",
+  "files",
+  "note",
+  "notes",
+  "path",
+  "paths",
+  "root",
+  "roots",
+]);
 
 const VAULT_PATH_EXTENSIONS = new Set([
   ".avif",
@@ -167,7 +177,15 @@ function sanitizeLogData(input: Record<string, unknown>): Record<string, unknown
 }
 
 function isVaultPathField(key: string): boolean {
-  return VAULT_PATH_FIELD_KEYS.has(key.toLowerCase());
+  const lower = key.toLowerCase();
+  if (VAULT_PATH_FIELD_KEYS.has(lower)) return true;
+  const tokens = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const last = tokens.at(-1);
+  return last !== undefined && VAULT_PATH_FIELD_TOKENS.has(last);
 }
 
 // Returns true when a string looks like a vault-relative file path: it contains
