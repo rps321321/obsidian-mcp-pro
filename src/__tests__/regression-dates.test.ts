@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatMomentDate } from "../lib/dates.js";
+import { formatMomentDate, formatLocalDateOnly, parseLocalDateOnly } from "../lib/dates.js";
 
 // Regression coverage for two audit findings on the moment-style formatter
 // in src/lib/dates.ts:
@@ -159,5 +159,17 @@ describe("formatMomentDate — backward compatibility", () => {
 
   it("still honors bracketed literals around new tokens", () => {
     expect(formatMomentDate(d, "[week] WW")).toBe("week 15");
+  });
+});
+
+describe("local date-only parsing", () => {
+  it("rejects calendar-impossible dates instead of normalizing them", () => {
+    expect(parseLocalDateOnly("2026-02-31")).toBeNull();
+    expect(parseLocalDateOnly("2025-02-29")).toBeNull();
+    expect(parseLocalDateOnly("2024-02-29")).toBeInstanceOf(Date);
+  });
+
+  it("formats the local calendar date without UTC conversion", () => {
+    expect(formatLocalDateOnly(new Date(2026, 0, 2, 23, 30))).toBe("2026-01-02");
   });
 });

@@ -43,6 +43,20 @@ describe("write handlers — create_note", () => {
     expect(onDisk).toContain("Body.");
   });
 
+  it("quotes wikilinks in created note frontmatter for Obsidian Properties", async () => {
+    const result = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "with-link-fm.md",
+        content: "Body.",
+        frontmatter: JSON.stringify({ related: "[[Note A]]" }),
+      },
+    });
+    expect(isError(result)).toBe(false);
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "with-link-fm.md"), "utf-8");
+    expect(onDisk).toContain('related: "[[Note A]]"');
+  });
+
   it("returns isError (not throws) on malformed frontmatter JSON", async () => {
     const result = await env.client.callTool({
       name: "create_note",
@@ -205,6 +219,15 @@ describe("write handlers — create_daily_note", () => {
     });
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/already exists/i);
+  });
+
+  it("rejects calendar-impossible dates instead of normalizing them", async () => {
+    const result = await env.client.callTool({
+      name: "create_daily_note",
+      arguments: { date: "2026-02-31", content: "x" },
+    });
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/Invalid date/);
   });
 });
 

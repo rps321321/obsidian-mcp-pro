@@ -39,7 +39,7 @@ export function registerPrompts(server: McpServer): void {
               `Review my Obsidian daily note${date ? ` for ${date}` : " for today"}.`,
               "",
               "Steps:",
-              "1. Call get_daily_note" + (date ? ` with date=\"${date}\"` : "") + ".",
+              "1. Call get_daily_note" + (date ? ` with date="${date}"` : "") + ".",
               "2. Summarize what I worked on (1-3 bullet points).",
               "3. List any unchecked tasks (`- [ ] …`) with the section they came from.",
               "4. Identify wikilinks in the note. Call get_recent_notes with since=\"7d\" and limit=200 once to get the set of notes touched in the last 7 days. Any linked note NOT in that set is a candidate to revisit. List up to 5 such links. Do not call get_note per link.",
@@ -78,7 +78,7 @@ export function registerPrompts(server: McpServer): void {
               `Roll up the last 7 days of daily notes${endDate ? ` ending ${endDate}` : ""} into a single summary.`,
               "",
               "Steps:",
-              `1. Call get_recent_notes with since=\"7d\"${endDate ? `, endDate=\"${endDate}\"` : ""} and limit=200 to fetch all notes touched in the 7-day window in a single request. Filter the results to daily notes (by path pattern or folder). If a daily note is missing from the results, note the gap but do not make additional calls per day.`,
+              `1. Call get_recent_notes with since="7d"${endDate ? `, endDate="${endDate}"` : ""} and limit=200 to fetch all notes touched in the 7-day window in a single request. Filter the results to daily notes (by path pattern or folder). If a daily note is missing from the results, note the gap but do not make additional calls per day.`,
               "2. Identify 3-5 recurring themes across the week.",
               "3. List decisions made and their context.",
               "4. Pull all unchecked tasks still open at week end.",
@@ -119,11 +119,11 @@ export function registerPrompts(server: McpServer): void {
           content: {
             type: "text" as const,
             text: [
-              `Find stale notes${folder ? ` in folder \"${folder}\"` : ""} (untouched ${days ?? "90"}+ days).`,
+              `Find stale notes${folder ? ` in folder "${folder}"` : ""} (untouched ${days ?? "90"}+ days).`,
               "",
               "Steps:",
-              `1. Call get_recent_notes with limit=1000${folder ? ` and folder=\"${folder}\"` : ""} (no \`since\` filter) to get every note ordered by most-recent-mtime first. Each row already includes an ISO timestamp, so no need to call get_note per row. The stalest notes sit at the bottom of the list.`,
-              `2. Filter to notes whose mtime is older than ${days ?? "90"} days. Cap the candidate set at 25. (Optional cross-check: call get_recent_notes a second time with since=\"${days ?? "90"}d\"; anything NOT in that set is stale.)`,
+              `1. Call get_recent_notes with limit=1000${folder ? ` and folder="${folder}"` : ""} (no \`since\` filter) to get every note ordered by most-recent-mtime first. Each row already includes an ISO timestamp, so no need to call get_note per row. The stalest notes sit at the bottom of the list.`,
+              `2. Filter to notes whose mtime is older than ${days ?? "90"} days. Cap the candidate set at 25. (Optional cross-check: call get_recent_notes a second time with since="${days ?? "90"}d"; anything NOT in that set is stale.)`,
               "3. Call find_orphans once and find_broken_links once. Use the returned paths as lookup sets; do not call get_note per candidate.",
               "4. Group the (already capped) candidates into three buckets using the two lookup sets:",
               "   - Stale + orphaned (low retention value)",
@@ -174,9 +174,9 @@ export function registerPrompts(server: McpServer): void {
               "",
               "Steps:",
               path
-                ? `1. Call get_note with path=\"${path}\".`
+                ? `1. Call get_note with path="${path}".`
                 : tag
-                  ? `1. Call search_by_tag with tag=\"${tag}\". If it returns more than 20 notes, ask the user to narrow the tag before fanning out. Otherwise call get_note on each of the (capped at 20) results.`
+                  ? `1. Call search_by_tag with tag="${tag}". If it returns more than 20 notes, ask the user to narrow the tag before fanning out. Otherwise call get_note on each of the (capped at 20) results.`
                   : "1. Ask the user which note(s) to scan (cap at 20), then call get_note for each.",
               `2. For each note, parse all unchecked task lines (\`- [ ] …\`).`,
               `3. Group by note (or by section heading where they appear).`,
@@ -212,9 +212,9 @@ export function registerPrompts(server: McpServer): void {
               "",
               "Steps:",
               tag
-                ? `1. Call search_by_tag with tag=\"${tag}\".`
+                ? `1. Call search_by_tag with tag="${tag}".`
                 : folder
-                  ? `1. Call list_notes with folder=\"${folder}\".`
+                  ? `1. Call list_notes with folder="${folder}".`
                   : "1. Ask the user for tag or folder.",
               "2. Cap the candidate set at 40 notes (sample evenly across the result if there are more, or ask the user to narrow scope). For each capped candidate, call get_note with `lines: '1-15'` to keep token usage low.",
               "3. Cluster the notes into 3-7 groups by theme. For each cluster, write a one-line description and 5-15 wikilinks.",

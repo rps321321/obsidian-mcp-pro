@@ -151,6 +151,16 @@ describe("tag handlers — rename_tag", () => {
     expect(textContent(search)).toContain("note-a.md");
   });
 
+  it("rejects new tag names the parser cannot round-trip", async () => {
+    const result = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "draft", newName: "client.name" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/tag parser|validation/i);
+  });
+
   // Regression for the v1.8.1-audit HIGH finding: rename_tag must hold
   // the vault-wide rewrite lock so a concurrent move_note's plan/apply
   // pipeline can't see bytes shifting underneath it. Without the lock,

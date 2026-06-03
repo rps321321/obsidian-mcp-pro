@@ -301,6 +301,7 @@ export function findBlockById(content: string, id: string): BlockSpan | null {
     for (let k = i - 1; k >= 0; k--) {
       if (lines[k]!.text.trim() === "") break;
       if (fenced[k]) break;
+      if (/^#{1,6}\s/.test(lines[k]!.text)) break;
       blockStart = k;
     }
     return {
