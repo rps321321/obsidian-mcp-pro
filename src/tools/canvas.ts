@@ -1,13 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPathSafe } from "../lib/vault.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import type { CanvasNode, CanvasData } from "../types.js";
 import { randomUUID } from "crypto";
 
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
+function displayCanvasValue(value: string): string {
+  return escapeControlChars(value);
 }
 
 export function registerCanvasTools(server: McpServer, vaultPath: string): void {
@@ -32,7 +36,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           return { content: [{ type: "text" as const, text: "No canvas files found in the vault." }] };
         }
 
-        const formatted = files.map((f, i) => `${i + 1}. ${f}`).join("\n");
+        const formatted = files.map((f, i) => `${i + 1}. ${displayCanvasValue(f)}`).join("\n");
         return {
           content: [{ type: "text" as const, text: `Found ${files.length} canvas file(s):\n\n${formatted}` }],
         };
@@ -68,7 +72,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         const data = await readCanvasFile(vaultPath, canvasPath);
         const lines: string[] = [];
 
-        lines.push(`Canvas: ${canvasPath}`);
+        lines.push(`Canvas: ${displayCanvasValue(canvasPath)}`);
         lines.push(`Nodes: ${data.nodes.length} | Edges: ${data.edges.length}`);
         lines.push("");
 
@@ -91,12 +95,14 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
               preview = `Group: ${node.label}`;
             }
 
-            lines.push(`  [${node.id}] type=${node.type} pos=${pos} size=${size}`);
+            lines.push(
+              `  [${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)} pos=${pos} size=${size}`,
+            );
             if (preview) {
-              lines.push(`    content: ${preview}`);
+              lines.push(`    content: ${displayCanvasValue(preview)}`);
             }
             if (node.color) {
-              lines.push(`    color: ${node.color}`);
+              lines.push(`    color: ${displayCanvasValue(node.color)}`);
             }
           }
           lines.push("");
@@ -105,13 +111,15 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         if (data.edges.length > 0) {
           lines.push("--- Edges ---");
           for (const edge of data.edges) {
-            const label = edge.label ? ` [${edge.label}]` : "";
+            const label = edge.label ? ` [${displayCanvasValue(edge.label)}]` : "";
             const sides = [
-              edge.fromSide ? `from-side=${edge.fromSide}` : "",
-              edge.toSide ? `to-side=${edge.toSide}` : "",
+              edge.fromSide ? `from-side=${displayCanvasValue(edge.fromSide)}` : "",
+              edge.toSide ? `to-side=${displayCanvasValue(edge.toSide)}` : "",
             ].filter(Boolean).join(" ");
             const sideInfo = sides ? ` (${sides})` : "";
-            lines.push(`  ${edge.fromNode} -> ${edge.toNode}${label}${sideInfo}`);
+            lines.push(
+              `  ${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${label}${sideInfo}`,
+            );
           }
         }
 
@@ -211,7 +219,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
             await resolveVaultPathSafe(vaultPath, content);
           } catch {
             return errorResult(
-              `Invalid file reference: "${content}" must be a relative path inside the vault.`,
+              `Invalid file reference: "${displayCanvasValue(content)}" must be a relative path inside the vault.`,
             );
           }
         }
@@ -221,7 +229,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           // canvas is opened in Obsidian or exported to HTML.
           if (/^(javascript|data|vbscript):/i.test(content)) {
             return errorResult(
-              `Invalid URL scheme in "${content}". javascript:, data:, and vbscript: URIs are not allowed.`,
+              `Invalid URL scheme in "${displayCanvasValue(content)}". javascript:, data:, and vbscript: URIs are not allowed.`,
             );
           }
         }
@@ -327,7 +335,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         // BUG-15: Reject self-loops early before touching the canvas file.
         if (fromNode === toNode) {
           return errorResult(
-            `Self-loop rejected: fromNode and toNode are the same ('${fromNode}'). Edges must connect two different nodes.`,
+            `Self-loop rejected: fromNode and toNode are the same ('${displayCanvasValue(fromNode)}'). Edges must connect two different nodes.`,
           );
         }
 
@@ -336,12 +344,14 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         // deletion from sneaking in between the check and the write.
         class MissingNodeError extends Error {
           constructor(public side: "source" | "target", public nodeId: string) {
-            super(`${side} node '${nodeId}' not found in canvas.`);
+            super(`${side} node '${displayCanvasValue(nodeId)}' not found in canvas.`);
           }
         }
         class DuplicateEdgeError extends Error {
           constructor(public from: string, public to: string) {
-            super(`An edge from '${from}' to '${to}' already exists on the canvas.`);
+            super(
+              `An edge from '${displayCanvasValue(from)}' to '${displayCanvasValue(to)}' already exists on the canvas.`,
+            );
           }
         }
         try {
@@ -377,7 +387,10 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         }
 
         return {
-          content: [{ type: "text" as const, text: `Edge added successfully.\nID: ${id}\nFrom: ${fromNode} -> To: ${toNode}${label ? `\nLabel: ${label}` : ""}` }],
+          content: [{
+            type: "text" as const,
+            text: `Edge added successfully.\nID: ${id}\nFrom: ${displayCanvasValue(fromNode)} -> To: ${displayCanvasValue(toNode)}${label ? `\nLabel: ${displayCanvasValue(label)}` : ""}`,
+          }],
         };
       } catch (err) {
         log.error("add_canvas_edge failed", { tool: "add_canvas_edge", err: err as Error });

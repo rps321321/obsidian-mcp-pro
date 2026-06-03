@@ -55,6 +55,55 @@ describe("canvas handlers — read_canvas", () => {
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/malformed JSON/i);
   });
+
+  it("escapes control characters in vault-authored canvas output", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "dirty.canvas"),
+      JSON.stringify({
+        nodes: [
+          {
+            id: "bad\nnode",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 80,
+            text: "first\nsecond",
+          },
+          {
+            id: "clean",
+            type: "text",
+            x: 300,
+            y: 0,
+            width: 200,
+            height: 80,
+            text: "clean",
+          },
+        ],
+        edges: [
+          {
+            id: "edge-1",
+            fromNode: "bad\nnode",
+            toNode: "clean",
+            label: "label\nspoof",
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "dirty.canvas" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("[bad\\nnode] type=text");
+    expect(text).toContain("content: first\\nsecond");
+    expect(text).toContain("bad\\nnode -> clean [label\\nspoof]");
+    expect(text).not.toContain("bad\nnode");
+    expect(text).not.toContain("label\nspoof");
+  });
 });
 
 describe("canvas handlers — add_canvas_node", () => {
@@ -176,5 +225,36 @@ describe("canvas handlers — add_canvas_edge", () => {
     });
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/target node.*ghost.*not found/i);
+  });
+
+  it("escapes control characters in missing-node errors", async () => {
+    const result = await env.client.callTool({
+      name: "add_canvas_edge",
+      arguments: {
+        canvasPath: "boards/test.canvas",
+        fromNode: "ghost\nnode",
+        toNode: "n2",
+      },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("source node 'ghost\\nnode' not found");
+    expect(text).not.toContain("ghost\nnode");
+  });
+
+  it("escapes control characters in the success message label", async () => {
+    const result = await env.client.callTool({
+      name: "add_canvas_edge",
+      arguments: {
+        canvasPath: "boards/test.canvas",
+        fromNode: "n2",
+        toNode: "n1",
+        label: "safe\nlabel",
+      },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("Label: safe\\nlabel");
+    expect(text).not.toContain("safe\nlabel");
   });
 });
