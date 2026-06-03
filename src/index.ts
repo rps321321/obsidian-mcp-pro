@@ -81,7 +81,7 @@ export function parseArgs(argv: string[]): CliOptions {
       // /proc/<pid>/cmdline, or crash dumps. Mutate both the local argv copy
       // and process.argv (which a caller may pass a slice of).
       argv[i] = "***";
-      const pIdx = process.argv.indexOf(opts.bearerToken!);
+      const pIdx = process.argv.indexOf(opts.bearerToken);
       if (pIdx !== -1) process.argv[pIdx] = "***";
     } else if (a.startsWith("--token=")) {
       opts.bearerToken = a.slice("--token=".length);
@@ -124,6 +124,12 @@ export function parseArgs(argv: string[]): CliOptions {
   if (opts.bearerToken === undefined && process.env.MCP_HTTP_TOKEN) {
     opts.bearerToken = process.env.MCP_HTTP_TOKEN;
   }
+  if (opts.bearerToken !== undefined) {
+    opts.bearerToken = opts.bearerToken.trim();
+    if (!opts.bearerToken) {
+      throw new Error("--token / MCP_HTTP_TOKEN cannot be empty");
+    }
+  }
   if (!Number.isFinite(opts.port) || opts.port < 1 || opts.port > 65535) {
     throw new Error(`Invalid port: ${opts.port}`);
   }
@@ -150,7 +156,7 @@ Serve options:
   --host=<addr>                             HTTP bind host (default: 127.0.0.1)
   --port=<n>                                HTTP port (default: 3333)
   --token=<secret>                          Require Bearer <secret> (prefer env MCP_HTTP_TOKEN to avoid leaking via ps/cmdline)
-  --allow-origin=<origins>                  Comma-separated CORS allowlist (default: *)
+  --allow-origin=<origins>                  Comma-separated CORS/Origin allowlist (default: localhost-only)
   --rate-limit=<n>                          Max requests per minute per IP (default: unlimited)
 
 Install options:
@@ -231,7 +237,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
           ],
         };
       } catch (err) {
-        throw new Error(`Failed to read note: ${sanitizeError(err)}`);
+        throw new Error(`Failed to read note: ${sanitizeError(err)}`, { cause: err });
       }
     }
   );
@@ -462,11 +468,12 @@ function installProcessErrorHandlers(): void {
   };
   process.on("beforeExit", () => { void flush(); });
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.on(sig, async () => {
-      await flush();
+    process.on(sig, () => {
+      void flush().finally(() => {
       // Restore default behavior so the second signal terminates promptly.
-      process.removeAllListeners(sig);
-      process.kill(process.pid, sig);
+        process.removeAllListeners(sig);
+        process.kill(process.pid, sig);
+      });
     });
   }
 }

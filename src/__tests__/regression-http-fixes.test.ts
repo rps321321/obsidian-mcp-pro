@@ -282,8 +282,8 @@ describe("regression: M5 — repeated startHttpServer does not leak signal liste
     // pre + 2 (the pre-fix accumulation). We assert exactly 1 because the
     // fix unconditionally calls removeAllListeners, which wipes any
     // baseline too. That's fine for our CLI shutdown use case.
-    expect(process.listenerCount("SIGINT")).toBe(1);
-    expect(process.listenerCount("SIGTERM")).toBe(1);
+    expect(process.listenerCount("SIGINT")).toBe(preSigint + 1);
+    expect(process.listenerCount("SIGTERM")).toBe(preSigterm + 1);
 
     // Sanity: we definitely did not let the count exceed Node's default
     // max-listeners warning threshold (10).
@@ -295,5 +295,74 @@ describe("regression: M5 — repeated startHttpServer does not leak signal liste
     // the assertion so the test is deterministic regardless of harness.
     void preSigint;
     void preSigterm;
+  });
+});
+
+describe("regression: HTTP Origin validation rejects browser DNS-rebinding attempts", () => {
+  it("rejects a POST to /mcp from an Origin outside the allowlist", async () => {
+    const token = "origin-test-token";
+    const handle = await startOnEphemeral({ bearerToken: token });
+    handles.push(handle);
+
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "origin-test", version: "0.0.0" },
+      },
+    });
+    const res = await rawRequest(handle.port, {
+      method: "POST",
+      path: "/mcp",
+      host: `127.0.0.1:${handle.port}`,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${token}`,
+        Origin: "https://attacker.example",
+      },
+      body,
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toContain("Origin not allowed");
+  });
+
+  it("rejects preflight requests from an Origin outside the allowlist", async () => {
+    const handle = await startOnEphemeral({ allowedOrigins: ["https://app.example"] });
+    handles.push(handle);
+
+    const res = await rawRequest(handle.port, {
+      method: "OPTIONS",
+      path: "/mcp",
+      host: `127.0.0.1:${handle.port}`,
+      headers: { Origin: "https://attacker.example" },
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("allows matching localhost Origins without requiring an explicit port", async () => {
+    const handle = await startOnEphemeral();
+    handles.push(handle);
+
+    const res = await rawRequest(handle.port, {
+      method: "OPTIONS",
+      path: "/mcp",
+      host: `127.0.0.1:${handle.port}`,
+      headers: { Origin: "http://localhost" },
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost");
+  });
+});
+
+describe("regression: HTTP bearer token must not be empty", () => {
+  it("rejects whitespace-only programmatic tokens", async () => {
+    await expect(startOnEphemeral({ bearerToken: "   " })).rejects.toThrow(/token.*empty/i);
   });
 });

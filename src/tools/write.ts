@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import matter from "gray-matter";
 import {
   writeNote,
   appendToNote,
@@ -13,7 +12,7 @@ import {
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 import { sanitizeError, escapeControlChars } from "../lib/errors.js";
-import { formatMomentDate } from "../lib/dates.js";
+import { formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
 import { log } from "../lib/logger.js";
 
 function textResult(text: string) {
@@ -29,7 +28,7 @@ function ensureMdExtension(filePath: string): string {
 }
 
 function buildFrontmatterContent(frontmatterObj: Record<string, unknown>, body: string): string {
-  return matter.stringify(body, frontmatterObj);
+  return updateFrontmatter(body, frontmatterObj);
 }
 
 // Frontmatter must be a YAML mapping at the root. `JSON.parse` happily returns
@@ -272,10 +271,10 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     async ({ date, content, templatePath }) => {
       try {
         const config = await getDailyNoteConfig(vaultPath);
-        const targetDate = date ? new Date(date + "T00:00:00") : new Date();
+        const targetDate = date ? parseLocalDateOnly(date) : new Date();
 
-        if (isNaN(targetDate.getTime())) {
-          return errorResult("Error: Invalid date format. Use YYYY-MM-DD.");
+        if (!targetDate) {
+          return errorResult("Error: Invalid date. Use YYYY-MM-DD.");
         }
 
         const dateStr = formatMomentDate(targetDate, config.format);

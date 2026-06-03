@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./handlers/harness.js";

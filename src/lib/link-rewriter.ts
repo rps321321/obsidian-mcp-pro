@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import path from "path";
 import {
   listCanvasFiles,
   readNote,
@@ -141,7 +142,7 @@ export async function planMoveRewrites(
       // Skip absolute / external URLs — only intra-vault references rewrite.
       if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) || url.startsWith("/")) continue;
       const decoded = safeDecode(url);
-      const resolved = resolveWikilink(decoded, notePath, preMoveNotes, { aliasMap });
+      const resolved = resolveMarkdownLinkPath(decoded, notePath, preMoveNotes, aliasMap);
       if (resolved !== oldPath) continue;
 
       // Preserve the user's choice of with/without `.md` extension and their
@@ -150,7 +151,7 @@ export async function planMoveRewrites(
       // to the full path automatically.
       const hadExt = /\.md$/i.test(decoded);
       const decodedBare = decoded.replace(/\.md$/i, "");
-      const newBare = formatWikilinkTarget(newPath, decodedBare, postMoveNotes);
+      const newBare = formatMarkdownLinkTarget(newPath, decodedBare, notePath, postMoveNotes);
       const newUrl = encodeUrlPath(hadExt ? `${newBare}.md` : newBare);
       const replacement = `${span.isEmbed ? "!" : ""}[${span.text}](${newUrl}${span.fragment}${span.title})`;
       const expected = content.slice(span.start, span.end);
@@ -295,7 +296,7 @@ export async function planDeleteRewrites(
       // Skip absolute / external URLs — only intra-vault refs strip.
       if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) || url.startsWith("/")) continue;
       const decoded = safeDecode(url);
-      const resolved = resolveWikilink(decoded, notePath, preDeleteNotes, { aliasMap });
+      const resolved = resolveMarkdownLinkPath(decoded, notePath, preDeleteNotes, aliasMap);
       if (resolved !== deletedPath) continue;
 
       const replacement = span.isEmbed ? "" : span.text;
@@ -492,6 +493,54 @@ function safeDecode(s: string): string {
   } catch {
     return s;
   }
+}
+
+function resolveMarkdownLinkPath(
+  decodedPath: string,
+  notePath: string,
+  allNotes: string[],
+  aliasMap: Map<string, string>,
+): string | null {
+  if (isExplicitRelativePath(decodedPath)) {
+    const resolved = path.posix.normalize(
+      path.posix.join(referrerDir(notePath), decodedPath),
+    );
+    if (resolved === "." || resolved === ".." || resolved.startsWith("../")) {
+      return null;
+    }
+    return resolveWikilink(resolved, notePath, allNotes, { aliasMap });
+  }
+
+  return resolveWikilink(decodedPath, notePath, allNotes, { aliasMap });
+}
+
+function formatMarkdownLinkTarget(
+  newPath: string,
+  originalBare: string,
+  notePath: string,
+  allNotes: string[],
+): string {
+  if (!isExplicitRelativePath(originalBare)) {
+    return formatWikilinkTarget(newPath, originalBare, allNotes);
+  }
+
+  const newBarePath = newPath.replace(/\.md$/i, "");
+  const fromDir = referrerDir(notePath) || ".";
+  let relative = path.posix.relative(fromDir, newBarePath);
+  if (!relative || relative === "") relative = path.posix.basename(newBarePath);
+  if (originalBare.startsWith("./") && !relative.startsWith(".")) {
+    relative = `./${relative}`;
+  }
+  return relative;
+}
+
+function isExplicitRelativePath(p: string): boolean {
+  return p.startsWith("./") || p.startsWith("../");
+}
+
+function referrerDir(notePath: string): string {
+  const dir = path.posix.dirname(notePath.replace(/\\/g, "/"));
+  return dir === "." ? "" : dir;
 }
 
 /** Encode a vault-relative path for use inside a markdown link URL. Keeps

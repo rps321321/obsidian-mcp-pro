@@ -21,6 +21,22 @@ async function write(rel: string, content: string): Promise<void> {
   await fs.writeFile(full, content);
 }
 
+async function linkCacheDirOutside(outsideDir: string): Promise<boolean> {
+  await fs.mkdir(path.join(vaultDir, ".obsidian"), { recursive: true });
+  try {
+    await fs.symlink(
+      outsideDir,
+      path.join(vaultDir, ".obsidian", "cache"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EACCES" || code === "EINVAL") return false;
+    throw err;
+  }
+}
+
 describe("readAllCached", () => {
   it("returns content for every requested path on first call (all misses)", async () => {
     await write("a.md", "alpha");
@@ -153,5 +169,23 @@ describe("persistent cache", () => {
     await fs.access(snap); // exists
     await clearCache(vaultDir, { removeSnapshot: true });
     await expect(fs.access(snap)).rejects.toThrow();
+  });
+
+  it("does not persist through a .obsidian/cache symlink outside the vault", async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-outside-"));
+    try {
+      const linked = await linkCacheDirOutside(outsideDir);
+      if (!linked) return;
+
+      await write("a.md", "alpha");
+      await readAllCached(vaultDir, ["a.md"]);
+      await flushNow(vaultDir);
+
+      await expect(
+        fs.access(path.join(outsideDir, "mcp-pro-index-cache.json")),
+      ).rejects.toThrow();
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });

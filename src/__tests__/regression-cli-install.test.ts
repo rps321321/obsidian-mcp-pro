@@ -59,6 +59,20 @@ describe("parseArgs token redaction (C7)", () => {
     const opts = parseArgs(process.argv.slice(2));
     expect(opts.bearerToken).toBe("abc123");
   });
+
+  it("should reject an empty inline token instead of silently disabling auth", () => {
+    process.argv = ["node", "script", "--token="];
+    expect(() => parseArgs(process.argv.slice(2))).toThrow(/token.*empty/i);
+  });
+
+  it("should reject a whitespace MCP_HTTP_TOKEN", () => {
+    process.env.MCP_HTTP_TOKEN = "   ";
+    try {
+      expect(() => parseArgs([])).toThrow(/token.*empty/i);
+    } finally {
+      delete process.env.MCP_HTTP_TOKEN;
+    }
+  });
 });
 
 describe("runInstall serverName sanitization (H2)", () => {

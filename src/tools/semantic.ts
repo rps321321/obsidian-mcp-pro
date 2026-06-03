@@ -129,19 +129,21 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         }
         const pending: PendingChunk[] = [];
         const noteHashByPath = new Map<string, string>();
+        const expectedChunksByNote = new Map<string, number>();
 
         for (const notePath of notes) {
           const content = contents.get(notePath);
           if (content === undefined) continue;
           const contentHash = hashText(content);
-          noteHashByPath.set(notePath, contentHash);
           if (!force && noteIsCurrent(vaultPath, notePath, contentHash)) {
             stats.notesUnchanged++;
             stats.notesScanned++;
             await reportProgress(stats.notesScanned, notes.length, `Unchanged ${notePath}`);
             continue;
           }
+          noteHashByPath.set(notePath, contentHash);
           const chunks = chunkNote(content);
+          expectedChunksByNote.set(notePath, chunks.length);
           for (const ch of chunks) {
             pending.push({
               notePath,
@@ -157,6 +159,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
 
         // Embed pending chunks in batches.
         const noteChunks = new Map<string, ChunkEmbedding[]>();
+        const failedNotes = new Set<string>();
         for (let i = 0; i < pending.length; i += EMBED_BATCH_SIZE) {
           const batch = pending.slice(i, i + EMBED_BATCH_SIZE);
           let vectors: number[][];
@@ -165,6 +168,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           } catch (err) {
             for (const item of batch) {
               stats.failed.push({ path: item.notePath, error: (err as Error).message });
+              failedNotes.add(item.notePath);
             }
             continue;
           }
@@ -174,6 +178,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             const vector = vectors[j];
             if (!Array.isArray(vector)) {
               stats.failed.push({ path: item.notePath, error: "provider returned no vector" });
+              failedNotes.add(item.notePath);
               continue;
             }
             const list = noteChunks.get(item.notePath) ?? [];
@@ -200,11 +205,20 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           );
         }
 
-        for (const [notePath, chunks] of noteChunks) {
-          const contentHash = noteHashByPath.get(notePath);
-          if (!contentHash) continue;
+        for (const [notePath, contentHash] of noteHashByPath) {
+          const expectedChunks = expectedChunksByNote.get(notePath) ?? 0;
+          const chunks = noteChunks.get(notePath) ?? [];
+          if (failedNotes.has(notePath) || chunks.length !== expectedChunks) {
+            if (!failedNotes.has(notePath)) {
+              stats.failed.push({
+                path: notePath,
+                error: `embedded ${chunks.length}/${expectedChunks} chunks`,
+              });
+            }
+            continue;
+          }
           setNoteChunks(vaultPath, notePath, contentHash, chunks, provider.id, provider.model);
-          stats.notesEmbedded++;
+          if (chunks.length > 0) stats.notesEmbedded++;
         }
 
         // Drop chunks for notes that no longer exist (only meaningful when

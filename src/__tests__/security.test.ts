@@ -102,15 +102,15 @@ describe.skipIf(!CASE_INSENSITIVE_FS)("writeNote exclusive — case collision", 
 // Windows DOS device names — fail fast instead of binding to the device
 // ---------------------------------------------------------------------------
 describe.skipIf(process.platform !== "win32")("resolveVaultPath — Windows reserved names", () => {
-  it("rejects bare device names (CON, PRN, AUX, NUL)", () => {
+  it("rejects bare device names (CON, PRN, AUX, NUL)", async () => {
     for (const name of ["CON", "PRN", "AUX", "NUL"]) {
-      expect(() => resolveVaultPathSafe(vaultDir, name)).rejects.toThrow(/reserved/i);
+      await expect(resolveVaultPathSafe(vaultDir, name)).rejects.toThrow(/reserved/i);
     }
   });
 
-  it("rejects device names with any extension (case-insensitive)", () => {
+  it("rejects device names with any extension (case-insensitive)", async () => {
     for (const name of ["con.md", "Con.txt", "NUL.json", "lpt1.md", "COM3.anything"]) {
-      expect(() => resolveVaultPathSafe(vaultDir, name)).rejects.toThrow(/reserved/i);
+      await expect(resolveVaultPathSafe(vaultDir, name)).rejects.toThrow(/reserved/i);
     }
   });
 
