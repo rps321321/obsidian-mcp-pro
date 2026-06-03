@@ -38,9 +38,8 @@ function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
 
-function displayAttachmentValue(value: string): string {
-  return escapeControlChars(value);
-}
+/** Escape control characters in a value before embedding it in a display string. */
+const displayAttachmentValue = escapeControlChars;
 
 /** Group attachments by their lower-cased extension for the summary line. */
 function summarizeByExtension(paths: readonly string[]): Map<string, number> {
