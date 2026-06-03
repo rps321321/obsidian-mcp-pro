@@ -7,12 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-03
+
+### Breaking Changes
+
+- Dropped support for Node.js 18, 20, and 22. The server now requires Node.js 24 or newer (`engines.node >=24.0.0`).
+
 ### Changed
 
-- Raised the supported runtime baseline to Node.js 24 (`engines.node >=24.0.0`).
 - Updated the TypeScript build target to Node 24-era settings (`ES2024`, `NodeNext`) and refreshed the toolchain to current compatible packages: MCP SDK 1.29, Zod 4, TypeScript 6, ESLint 10, and Node 24 type definitions.
 - Preserved caught error causes in newly wrapped errors required by ESLint 10 while keeping client-facing error messages sanitized.
 - Removed the GitHub Actions CI and publish workflows and rely on the local `npm run verify` gate (lint, type-check, tests, build, audit, package dry-run) before merge and publish.
+
+## [2.1.0] - 2026-06-03
+
+### Added
+
+- **`file.size`, `file.ctime`, `file.mtime`** filters now work in `query_base` for Obsidian `.base` files. Stats are collected concurrently for good performance on large vaults.
+- New `toComparableString` helper in the Bases DSL for consistent, safe string coercion during comparisons and chained methods (`.contains`, `.startsWith`, `.equals`, etc.). Improves reliability when filtering on numeric, boolean, or complex property values.
+
+### Fixed
+
+- CLI token handling: `--token` and `MCP_HTTP_TOKEN` values are now trimmed. Empty tokens are rejected with a clear error instead of causing confusing auth failures later.
+- Process lifecycle: SIGINT/SIGTERM shutdown handlers were refactored to properly sequence log flushing and avoid leaving unhandled promise rejections.
+- ESLint: enabled full `recommendedTypeChecked` ruleset (catches more promise and type issues at lint time). Switched the typed parser to use a dedicated `tsconfig.eslint.json` (narrower `include`, better for the linter). Additional `no-unsafe-*` rules are relaxed only inside test files.
+
+### Changed
+
+- **vitest** devDependency bumped from ^3 to ^4.1.8 (lockfile updated; all tests continue to pass).
+- `.gitignore` now excludes common AI coding assistant local directories (`.claude/`, `.codex/`, `.greptile/`, `.cursor/`, `.windsurf/`, etc.) and `generated-images/` scratch space. The previous rule for `.claude/settings.local.json` is superseded by a broader, future-proof pattern. Shared project config can still be committed via `.claude/settings.json` using `git add -f` if desired.
+
+### Tests
+
+- Added `src/__tests__/handlers/bases.test.ts` exercising the new file stat filters in `query_base`.
+- Many existing regression and handler tests updated for the Bases improvements and vitest v4.
 
 ## [2.0.0] - 2026-05-18
 
