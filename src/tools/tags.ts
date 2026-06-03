@@ -5,7 +5,7 @@ import { extractTags } from "../lib/markdown.js";
 import { isValidTagName, rewriteAllTags } from "../lib/tag-rewriter.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { makeProgressReporter } from "../lib/progress.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { formatFailedPath } from "../lib/tool-output.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 import { log } from "../lib/logger.js";
@@ -14,6 +14,10 @@ import type { TagInfo } from "../types.js";
 
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
+function displayTagSearchValue(value: string): string {
+  return escapeControlChars(value);
 }
 
 export function registerTagTools(server: McpServer, vaultPath: string): void {
@@ -160,19 +164,21 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         if (matchingNotes.length === 0) {
           return {
             content: [
-              { type: "text" as const, text: `No notes found with tag #${searchTag}` },
+              { type: "text" as const, text: `No notes found with tag #${displayTagSearchValue(searchTag)}` },
             ],
           };
         }
 
         const lines: string[] = [];
-        lines.push(`Found ${matchingNotes.length} ${matchingNotes.length === 1 ? "note" : "notes"} with tag #${searchTag}`);
+        lines.push(
+          `Found ${matchingNotes.length} ${matchingNotes.length === 1 ? "note" : "notes"} with tag #${displayTagSearchValue(searchTag)}`,
+        );
         lines.push("");
 
         for (const note of matchingNotes) {
-          lines.push(`- ${note.path}`);
+          lines.push(`- ${displayTagSearchValue(note.path)}`);
           if (note.preview) {
-            lines.push(`  ${note.preview}`);
+            lines.push(`  ${displayTagSearchValue(note.preview)}`);
             lines.push("");
           }
         }

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Failure summaries for tag renames and semantic indexing now escape control characters in vault-relative paths before returning them to MCP clients.
 - Canvas responses now escape control characters in displayed node ids, edge labels, previews, and rejected input before returning them to MCP clients.
 - MCP resources now register through the current SDK `registerResource` API, with regression coverage for resource listing and reads.
+- `search_by_tag` now escapes control characters in displayed tag labels, note paths, and content previews before returning them to MCP clients.
 
 ## [2.2.0] - 2026-06-03
 
