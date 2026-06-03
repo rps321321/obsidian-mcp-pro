@@ -1,0 +1,52 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style", "info"],
+  "triggerOnUpdates": true,
+  "statusCheck": false,
+  "ignorePatterns": "node_modules/**\ndist/**\nbuild/**\n.next/**\ncoverage/**\n*.lock\n**/*.generated.*\n**/generated/**",
+  "summarySection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": true
+  },
+  "issuesTableSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": true
+  },
+  "confidenceScoreSection": {
+    "included": true
+  },
+  "rules": [
+    {
+      "id": "migration-cleanup",
+      "rule": "When a provider, framework, database, payment system, auth system, analytics tool, storage layer, or architecture is replaced, flag old runtime paths, packages, env vars, docs, tests, adapters, generated clients, and compatibility wrappers that remain unintentionally.",
+      "severity": "high"
+    },
+    {
+      "id": "privacy-by-design",
+      "rule": "Flag personal-data collection, analytics, tracking, logging, AI-provider calls, retention, deletion, or third-party processor usage that lacks data minimisation, purpose, retention/deletion behavior, and user-rights handling.",
+      "severity": "high"
+    },
+    {
+      "id": "wcag-aaa-ui",
+      "rule": "For user-facing UI, flag accessibility and layout risks: overlapping or clipped text, unstable sizing, poor keyboard/focus behavior, missing labels, color-only state, insufficient contrast, reflow/zoom issues, reduced-motion problems, and WCAG 2.2 AAA concerns where feasible.",
+      "severity": "high"
+    },
+    {
+      "id": "auth-payments-uploads-webhooks",
+      "rule": "For auth, payments, uploads, admin surfaces, and webhooks, flag missing server-side authorization, signature verification, idempotency, CSRF where relevant, upload type/size validation, unsafe public storage, and destructive actions without confirmation.",
+      "severity": "high"
+    },
+    {
+      "id": "dependency-hygiene",
+      "rule": "Flag unnecessary new dependencies, duplicated tooling, stale packages after migrations, dependency changes without rationale, and package/config drift against existing project conventions.",
+      "severity": "medium"
+    },
+    {
+      "id": "freshness-source-of-truth",
+      "rule": "Flag code or docs that appear based on stale framework/API assumptions when the repo, official docs, or dependency source should be checked.",
+      "severity": "medium"
+    }
+  ]
+}

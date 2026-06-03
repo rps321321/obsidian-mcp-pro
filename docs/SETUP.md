@@ -104,4 +104,4 @@ OBSIDIAN_VAULT_NAME="My Vault"
 ```
 
 ### Node.js version
-Requires Node.js >= 18.17.0. Check with `node --version`.
+Requires Node.js >= 24.0.0. Check with `node --version`.

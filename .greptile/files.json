@@ -1,0 +1,24 @@
+{
+  "files": [
+    {
+      "path": "README.md",
+      "description": "Project overview, setup, and intended workflows"
+    },
+    {
+      "path": "AGENTS.md",
+      "description": "Agent/project coding instructions, if present"
+    },
+    {
+      "path": "docs/architecture.md",
+      "description": "Architecture overview, if present"
+    },
+    {
+      "path": "docs/privacy.md",
+      "description": "Privacy/GDPR notes and data handling, if present"
+    },
+    {
+      "path": "docs/api.md",
+      "description": "API contracts, if present"
+    }
+  ]
+}
