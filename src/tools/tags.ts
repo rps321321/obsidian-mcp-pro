@@ -6,6 +6,7 @@ import { isValidTagName, rewriteAllTags } from "../lib/tag-rewriter.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { makeProgressReporter } from "../lib/progress.js";
 import { sanitizeError } from "../lib/errors.js";
+import { formatFailedPath } from "../lib/tool-output.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 import { log } from "../lib/logger.js";
 
@@ -308,7 +309,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         ];
         if (failed.length > 0) {
           lines.push(`  Skipped due to errors: ${failed.length}`);
-          for (const f of failed.slice(0, 5)) lines.push(`    - ${f.path}: ${sanitizeError(f.error)}`);
+          for (const f of failed.slice(0, 5)) lines.push(formatFailedPath(f.path, f.error, "    "));
           if (failed.length > 5) lines.push(`    ...and ${failed.length - 5} more`);
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
