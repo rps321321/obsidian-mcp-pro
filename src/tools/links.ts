@@ -531,7 +531,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         lines.push(`Fully isolated (no links in or out): ${fullyIsolated.length}`);
         for (const note of cappedIsolated) {
-          lines.push(`  - ${note.path}`);
+          lines.push(`  - ${displayLinkValue(note.path)}`);
         }
         if (cappedIsolated.length < fullyIsolated.length) {
           lines.push(`  ... and ${fullyIsolated.length - cappedIsolated.length} more`);
@@ -539,7 +539,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         lines.push(`\nNo backlinks (not linked by any note): ${noBacklinks.length}`);
         for (const note of cappedNoBacklinks) {
-          lines.push(`  - ${note.path}`);
+          lines.push(`  - ${displayLinkValue(note.path)}`);
         }
         if (cappedNoBacklinks.length < noBacklinks.length) {
           lines.push(`  ... and ${noBacklinks.length - cappedNoBacklinks.length} more`);
@@ -548,7 +548,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         if (includeOutlinksCheck) {
           lines.push(`\nNo outlinks (links to no other notes): ${noOutlinks.length}`);
           for (const note of cappedNoOutlinks) {
-            lines.push(`  - ${note.path}`);
+            lines.push(`  - ${displayLinkValue(note.path)}`);
           }
           if (cappedNoOutlinks.length < noOutlinks.length) {
             lines.push(`  ... and ${noOutlinks.length - cappedNoOutlinks.length} more`);
@@ -657,7 +657,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
 
         if (brokenBySource.size === 0) {
-          const scopeStr = folder ? ` in folder: ${folder}` : "";
+          const scopeStr = folder ? ` in folder: ${displayLinkValue(folder)}` : "";
           return {
             content: [
               {
@@ -674,17 +674,17 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
 
         const lines: string[] = [];
-        const scopeStr = folder ? ` (folder: ${folder})` : "";
+        const scopeStr = folder ? ` (folder: ${displayLinkValue(folder)})` : "";
         lines.push(`Broken links report${scopeStr}\n`);
 
         let shown = 0;
         for (const [sourcePath, brokenLinks] of brokenBySource) {
           if (shown >= maxResults) break;
-          lines.push(`${sourcePath}:`);
+          lines.push(`${displayLinkValue(sourcePath)}:`);
           for (const bl of brokenLinks) {
             if (shown >= maxResults) break;
             const lineStr = bl.line > 0 ? ` (line ${bl.line})` : "";
-            lines.push(`  - [[${bl.targetLink}]]${lineStr}`);
+            lines.push(`  - [[${displayLinkValue(bl.targetLink)}]]${lineStr}`);
             shown++;
           }
           lines.push("");
@@ -777,7 +777,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
 
         if (!resolvedStart) {
-          return errorResult(`No note found matching path: ${startPath}`);
+          return errorResult(`No note found matching path: ${displayLinkValue(startPath)}`);
         }
 
         // BFS traversal with maxResults cap to prevent explosion at higher depths
@@ -845,7 +845,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
             content: [
               {
                 type: "text" as const,
-                text: `No neighbors found for: ${resolvedStart} (depth: ${depth}, direction: ${direction})`,
+                text: `No neighbors found for: ${displayLinkValue(resolvedStart)} (depth: ${depth}, direction: ${direction})`,
               },
             ],
           };
@@ -862,9 +862,9 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         const truncatedStr = truncated ? " (TRUNCATED)" : "";
         const lines: string[] = [
-          `Graph neighbors of: ${resolvedStart}`,
+          `Graph neighbors of: ${displayLinkValue(resolvedStart)}`,
           `Direction: ${direction} | Max depth: ${depth} | Found: ${visited.size} note(s)${truncatedStr}\n`,
-          resolvedStart,
+          displayLinkValue(resolvedStart),
         ];
 
         const sortedDepths = [...byDepth.keys()].sort((a, b) => a - b);
@@ -880,7 +880,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
                 : neighbor.direction === "outbound"
                   ? "→"
                   : "↔";
-            lines.push(`${indent}${arrow} ${neighbor.path} (depth ${d})`);
+            lines.push(`${indent}${arrow} ${displayLinkValue(neighbor.path)} (depth ${d})`);
           }
         }
 

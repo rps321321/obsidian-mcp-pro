@@ -187,6 +187,25 @@ describe("link handlers — find_broken_links", () => {
     });
     expect(textContent(result)).toMatch(/No broken links/i);
   });
+
+  it("escapes control characters in broken link targets", async () => {
+    const created = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "tab-broken-report.md",
+        content: "# Tab broken report\n\nThis points at [[bad\ttarget]].",
+      },
+    });
+    expect(isError(created)).toBe(false);
+
+    const result = await env.client.callTool({
+      name: "find_broken_links",
+      arguments: {},
+    });
+    const text = textContent(result);
+    expect(text).toContain("[[bad\\ttarget]]");
+    expect(text).not.toContain("bad\ttarget");
+  });
 });
 
 describe("link handlers — get_graph_neighbors", () => {
@@ -229,5 +248,16 @@ describe("link handlers — get_graph_neighbors", () => {
       arguments: { path: "does-not-exist", depth: 1 },
     });
     expect(isError(result)).toBe(true);
+  });
+
+  it("escapes control characters in unresolvable start paths", async () => {
+    const result = await env.client.callTool({
+      name: "get_graph_neighbors",
+      arguments: { path: "missing\nstart", depth: 1 },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("No note found matching path: missing\\nstart");
+    expect(text).not.toContain("missing\nstart");
   });
 });
