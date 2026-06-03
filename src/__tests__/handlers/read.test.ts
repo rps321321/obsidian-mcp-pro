@@ -441,4 +441,15 @@ describe("read handlers — resolve_alias", () => {
     expect(isError(result)).toBe(false);
     expect(textContent(result)).toMatch(/No alias or basename match/i);
   });
+
+  it("escapes control characters in no-match alias labels", async () => {
+    const result = await env.client.callTool({
+      name: "resolve_alias",
+      arguments: { name: "nope\nalias" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain('No alias or basename match for "nope\\nalias"');
+    expect(text).not.toContain("nope\nalias");
+  });
 });
