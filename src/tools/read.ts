@@ -511,7 +511,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       try {
         const sinceMs = since ? parseSince(since) : null;
         if (since && sinceMs === null) {
-          return errorResult(`Invalid 'since' value: "${since}". Use ISO date or relative span like '7d', '24h', '2w'.`);
+          return errorResult(`Invalid 'since' value: "${displayReadValue(since)}". Use ISO date or relative span like '7d', '24h', '2w'.`);
         }
         const notes = await listNotes(vaultPath, folder);
 
@@ -542,16 +542,16 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const top = rows.slice(0, limit);
 
         if (top.length === 0) {
-          return { content: [{ type: "text" as const, text: since ? `No notes modified since ${since}.` : "No notes in the vault." }] };
+          return { content: [{ type: "text" as const, text: since ? `No notes modified since ${displayReadValue(since)}.` : "No notes in the vault." }] };
         }
 
         const lines: string[] = [
-          `${rows.length} note(s)${since ? ` modified since ${since}` : ""}${rows.length > limit ? ` (showing first ${limit})` : ""}:`,
+          `${rows.length} note(s)${since ? ` modified since ${displayReadValue(since)}` : ""}${rows.length > limit ? ` (showing first ${limit})` : ""}:`,
           "",
         ];
         for (const r of top) {
           const iso = new Date(r.mtimeMs).toISOString();
-          lines.push(`- ${r.path}  (${iso})`);
+          lines.push(`- ${displayReadValue(r.path)}  (${iso})`);
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
