@@ -13,6 +13,9 @@ mcp-publisher.exe
 mcp-publisher.tar.gz
 .playwright-mcp/
 
+# Local maintenance state (ledger + heartbeat) — operational, not public history
+.agent/
+
 # Claude Code per-machine settings (permissions, allowlists). Shared
 # project config should live in `.claude/settings.json` (no `.local`),
 # which stays tracked so collaborators share the same rules.
