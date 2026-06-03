@@ -54,6 +54,24 @@ const MCP_LEVEL: Record<Exclude<LogLevel, "silent">, "debug" | "info" | "warning
   error: "error",
 };
 
+const VAULT_PATH_FIELD_KEYS = new Set([
+  "configpath",
+  "currentroot",
+  "file",
+  "files",
+  "fullpath",
+  "note",
+  "notepath",
+  "notes",
+  "path",
+  "paths",
+  "relativepath",
+  "relpath",
+  "snapshotroot",
+  "vault",
+  "vaultpath",
+]);
+
 export function configureLogger(opts: {
   level?: LogLevel;
   format?: LogFormat;
@@ -121,19 +139,30 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
 function sanitizeLogData(input: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input)) {
-    out[k] = sanitizeValue(v);
+    out[k] = sanitizeValue(k, v);
   }
   return out;
 }
 
-function sanitizeValue(v: unknown): unknown {
-  if (typeof v === "string") return stripPaths(v);
-  if (Array.isArray(v)) return v.map(sanitizeValue);
+function isVaultPathField(key: string): boolean {
+  return VAULT_PATH_FIELD_KEYS.has(key.toLowerCase());
+}
+
+function sanitizeValue(key: string, v: unknown, redactVaultPath = false): unknown {
+  const shouldRedactVaultPath = redactVaultPath || isVaultPathField(key);
+  if (typeof v === "string") {
+    const stripped = stripPaths(v);
+    if (stripped !== v) return stripped;
+    return shouldRedactVaultPath ? "<vault path>" : stripped;
+  }
+  if (Array.isArray(v)) {
+    return v.map((inner) => sanitizeValue(key, inner, shouldRedactVaultPath));
+  }
   if (v && typeof v === "object") {
     const obj = v as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const [k, inner] of Object.entries(obj)) {
-      out[k] = sanitizeValue(inner);
+      out[k] = sanitizeValue(k, inner, shouldRedactVaultPath);
     }
     return out;
   }
