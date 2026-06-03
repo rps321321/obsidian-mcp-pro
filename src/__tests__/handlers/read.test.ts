@@ -215,6 +215,23 @@ describe("read handlers — get_daily_note", () => {
     expect(textContent(result)).toMatch(/not found/i);
   });
 
+  it("escapes control characters in configured missing daily-note paths", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "daily\nnotes", format: "YYYY-MM-DD" }),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "get_daily_note",
+      arguments: { date: "1999-01-01" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('expected at "daily\\nnotes/1999-01-01.md"');
+    expect(text).not.toContain("daily\nnotes");
+  });
+
   it("rejects malformed dates at the schema layer", async () => {
     const result = await env.client.callTool({
       name: "get_daily_note",
