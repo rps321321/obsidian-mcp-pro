@@ -243,6 +243,36 @@ describe("read handlers — search_by_frontmatter", () => {
     expect(textContent(result)).toMatch(/No notes found/i);
   });
 
+  it("escapes control characters in no-match property and value labels", async () => {
+    const result = await env.client.callTool({
+      name: "search_by_frontmatter",
+      arguments: { property: "status\nfield", value: "cancelled\nvalue" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain('frontmatter "status\\nfield" matching "cancelled\\nvalue"');
+    expect(text).not.toContain("status\nfield");
+    expect(text).not.toContain("cancelled\nvalue");
+  });
+
+  it("escapes control characters in matched frontmatter output", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "frontmatter-dirty.md"),
+      "---\nstatus: \"tab\\tvalue\"\n---\n# Dirty frontmatter\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "search_by_frontmatter",
+      arguments: { property: "status", value: "tab\tvalue" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain('"status" matches "tab\\tvalue"');
+    expect(text).toContain('status: "tab\\tvalue"');
+    expect(text).not.toContain("tab\tvalue");
+  });
+
   it("scopes to a folder when requested", async () => {
     const result = await env.client.callTool({
       name: "search_by_frontmatter",
