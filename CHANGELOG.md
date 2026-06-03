@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Note moves and trash deletes now reuse the Windows rename retry path, reducing transient `EPERM`/`EBUSY` failures when another process briefly has the file open.
 - Index and embedding cache snapshot writes now share the same Windows rename retry path, avoiding avoidable cold-cache rebuilds after brief file-handle conflicts.
 - Failure summaries for tag renames and semantic indexing now escape control characters in vault-relative paths before returning them to MCP clients.
+- Canvas responses now escape control characters in displayed node ids, edge labels, previews, and rejected input before returning them to MCP clients.
 
 ## [2.2.0] - 2026-06-03
 
