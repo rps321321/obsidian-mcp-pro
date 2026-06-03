@@ -154,7 +154,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           const headingPath = section.split("/").map((s) => s.trim()).filter(Boolean);
           const found = findSection(content, headingPath);
           if (!found) {
-            return errorResult(`Section not found: "${section}" in ${notePath}`);
+            return errorResult(`Section not found: "${displayReadValue(section)}" in ${displayReadValue(notePath)}`);
           }
           return {
             content: [
@@ -169,7 +169,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         if (block) {
           const found = findBlockById(content, block);
           if (!found) {
-            return errorResult(`Block not found: "^${block}" in ${notePath}`);
+            return errorResult(`Block not found: "^${displayReadValue(block)}" in ${displayReadValue(notePath)}`);
           }
           return {
             content: [
