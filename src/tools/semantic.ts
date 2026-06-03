@@ -19,6 +19,7 @@ import {
 } from "../lib/embedding-store.js";
 import { makeProgressReporter } from "../lib/progress.js";
 import { sanitizeError } from "../lib/errors.js";
+import { formatFailedPath } from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 
@@ -240,7 +241,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         if (stats.notesPruned > 0) lines.push(`  Notes pruned:    ${stats.notesPruned}`);
         if (stats.failed.length > 0) {
           lines.push(`  Failures:        ${stats.failed.length}`);
-          for (const f of stats.failed.slice(0, 5)) lines.push(`    - ${f.path}: ${sanitizeError(f.error)}`);
+          for (const f of stats.failed.slice(0, 5)) lines.push(formatFailedPath(f.path, f.error, "    "));
           if (stats.failed.length > 5) lines.push(`    ...and ${stats.failed.length - 5} more`);
         }
         return textResult(lines.join("\n"));
