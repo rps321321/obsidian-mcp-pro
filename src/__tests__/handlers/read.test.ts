@@ -135,6 +135,28 @@ describe("read handlers — get_note", () => {
     });
     expect(isError(result)).toBe(true);
   });
+
+  it("escapes control characters in missing section errors", async () => {
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "note-a.md", section: "Missing\nHeading" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('Section not found: "Missing\\nHeading" in note-a.md');
+    expect(text).not.toContain("Missing\nHeading");
+  });
+
+  it("escapes control characters in missing block errors", async () => {
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "note-a.md", block: "bad\nblock" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('Block not found: "^bad\\nblock" in note-a.md');
+    expect(text).not.toContain("bad\nblock");
+  });
 });
 
 describe("read handlers — list_notes", () => {
