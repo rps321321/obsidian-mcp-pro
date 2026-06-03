@@ -11,7 +11,8 @@ import {
 } from "../lib/vault.js";
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
-import { sanitizeError, escapeControlChars } from "../lib/errors.js";
+import { sanitizeError } from "../lib/errors.js";
+import { formatFailedPath } from "../lib/tool-output.js";
 import { formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
 import { log } from "../lib/logger.js";
 
@@ -385,7 +386,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             const MAX_DISPLAY = 5;
             lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
-              lines.push(`  - ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`);
+              lines.push(formatFailedPath(f.path, f.error));
             }
             const remaining = result.failedReferrers.length - MAX_DISPLAY;
             if (remaining > 0) {
@@ -526,7 +527,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             const MAX_DISPLAY = 5;
             lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
-              lines.push(`  - ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`);
+              lines.push(formatFailedPath(f.path, f.error));
             }
             const remaining = result.failedReferrers.length - MAX_DISPLAY;
             if (remaining > 0) {
