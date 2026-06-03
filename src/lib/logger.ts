@@ -170,9 +170,10 @@ function isVaultPathField(key: string): boolean {
   return VAULT_PATH_FIELD_KEYS.has(key.toLowerCase());
 }
 
-// Treat path-shaped values as vault-local paths, but leave bare labels alone.
-// A note title like "therapy" can still pass through; redacting every string
-// under `note` or `file` made MCP-visible diagnostics too vague.
+// Returns true when a string looks like a vault-relative file path: it contains
+// a path separator, or ends with one of the extensions Obsidian files can carry.
+// Trade-off: bare note names without an extension or slash (e.g. "therapy") are
+// not considered vault paths and will be forwarded as-is to MCP clients.
 function looksLikeVaultPath(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
