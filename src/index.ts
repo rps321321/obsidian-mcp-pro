@@ -212,9 +212,10 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
 
   // --- MCP Resources ---
 
-  server.resource(
+  server.registerResource(
     "note",
     new ResourceTemplate("obsidian://note/{+path}", { list: undefined }),
+    {},
     async (uri: URL, params: Variables) => {
       if (!vaultPath) throw new Error(noVaultError);
       const rawPath = params.path;
@@ -242,7 +243,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
     }
   );
 
-  server.resource("tags", "obsidian://tags", async (uri) => {
+  server.registerResource("tags", "obsidian://tags", {}, async (uri) => {
     if (!vaultPath) throw new Error(noVaultError);
     const tagIndex: Record<string, string[]> = {};
     const notes = await listNotes(vaultPath);
@@ -275,7 +276,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
     };
   });
 
-  server.resource("daily", "obsidian://daily", async (uri) => {
+  server.registerResource("daily", "obsidian://daily", {}, async (uri) => {
     if (!vaultPath) throw new Error(noVaultError);
     const dailyConfig = await getDailyNoteConfig(vaultPath);
     let filename = formatMomentDate(new Date(), dailyConfig.format);
