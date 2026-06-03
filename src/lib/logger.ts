@@ -170,6 +170,9 @@ function isVaultPathField(key: string): boolean {
   return VAULT_PATH_FIELD_KEYS.has(key.toLowerCase());
 }
 
+// Treat path-shaped values as vault-local paths, but leave bare labels alone.
+// A note title like "therapy" can still pass through; redacting every string
+// under `note` or `file` made MCP-visible diagnostics too vague.
 function looksLikeVaultPath(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
