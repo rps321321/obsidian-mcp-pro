@@ -20,7 +20,7 @@ import {
   getBlockedExtension,
   verifyImageMagicBytes,
 } from "../lib/mime.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 
 /** Cap on attachment size returned by `get_attachment` — base64 inflates by
@@ -36,6 +36,10 @@ function textResult(text: string) {
 
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
+function displayAttachmentValue(value: string): string {
+  return escapeControlChars(value);
 }
 
 /** Group attachments by their lower-cased extension for the summary line. */
@@ -145,23 +149,23 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         if (filtered.length === 0) {
           return textResult(
             extension
-              ? `No attachments with extension "${extension}".`
+              ? `No attachments with extension "${displayAttachmentValue(extension)}".`
               : "No attachments in this vault.",
           );
         }
         const truncated = filtered.slice(0, limit);
         const lines: string[] = [
-          `${filtered.length} attachment(s)${extension ? ` (.${extension.replace(/^\./, "")})` : ""}${filtered.length > limit ? ` (showing first ${limit})` : ""}:`,
+          `${filtered.length} attachment(s)${extension ? ` (.${displayAttachmentValue(extension.replace(/^\./, ""))})` : ""}${filtered.length > limit ? ` (showing first ${limit})` : ""}:`,
           "",
         ];
         const summary = summarizeByExtension(filtered);
         if (summary.size > 1) {
           lines.push("By extension:");
           const entries = Array.from(summary.entries()).sort((a, b) => b[1] - a[1]);
-          for (const [ext, n] of entries) lines.push(`  ${ext}  ${n}`);
+          for (const [ext, n] of entries) lines.push(`  ${displayAttachmentValue(ext)}  ${n}`);
           lines.push("");
         }
-        for (const p of truncated) lines.push(`- ${p}`);
+        for (const p of truncated) lines.push(`- ${displayAttachmentValue(p)}`);
         return textResult(lines.join("\n"));
       } catch (err) {
         log.error("list_attachments failed", { tool: "list_attachments", err: err as Error });
@@ -263,10 +267,11 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
           lines.push("");
           for (const p of truncated) {
             const sz = sizes.get(p);
-            lines.push(sz !== undefined ? `- ${p}  (${sz.toLocaleString()} bytes)` : `- ${p}`);
+            const displayedPath = displayAttachmentValue(p);
+            lines.push(sz !== undefined ? `- ${displayedPath}  (${sz.toLocaleString()} bytes)` : `- ${displayedPath}`);
           }
         } else {
-          for (const p of truncated) lines.push(`- ${p}`);
+          for (const p of truncated) lines.push(`- ${displayAttachmentValue(p)}`);
         }
 
         return textResult(lines.join("\n"));
@@ -312,7 +317,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const lowerPath = relPath.toLowerCase();
         if (lowerPath.endsWith(".md") || lowerPath.endsWith(".canvas") || lowerPath.endsWith(".base")) {
           return errorResult(
-            `Refusing to fetch "${relPath}" via get_attachment - use get_note / read_canvas / read_base instead.`,
+            `Refusing to fetch "${displayAttachmentValue(relPath)}" via get_attachment - use get_note / read_canvas / read_base instead.`,
           );
         }
 
@@ -320,7 +325,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const blockedExt = getBlockedExtension(relPath);
         if (blockedExt) {
           return errorResult(
-            `Blocked: "${relPath}" has a dangerous extension (${blockedExt}). ` +
+            `Blocked: "${displayAttachmentValue(relPath)}" has a dangerous extension (${displayAttachmentValue(blockedExt)}). ` +
             `Executable file types are not served as attachments.`,
           );
         }
@@ -330,7 +335,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const limit = maxBytes ?? DEFAULT_GET_ATTACHMENT_LIMIT;
         if (stat.size > limit) {
           return errorResult(
-            `Attachment "${relPath}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
+            `Attachment "${displayAttachmentValue(relPath)}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
           );
         }
 
@@ -338,6 +343,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const mime = detectMimeType(relPath);
         const category = categorizeMimeType(mime);
         const basename = path.basename(relPath);
+        const displayedBasename = displayAttachmentValue(basename);
 
         // SEC-8: SVG files can contain embedded <script> tags and event
         // handlers, making them an XSS vector. Return SVG content as
@@ -348,7 +354,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
             content: [
               {
                 type: "text" as const,
-                text: `Attached: ${basename} (SVG returned as text/plain for security - SVGs may contain embedded scripts)\n` +
+                text: `Attached: ${displayedBasename} (SVG returned as text/plain for security - SVGs may contain embedded scripts)\n` +
                       `Size: ${stat.size.toLocaleString()} bytes`,
               },
               {
@@ -385,7 +391,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         if (category === "image") {
           return {
             content: [
-              { type: "text" as const, text: `Attached: ${basename} (${mime}, ${stat.size.toLocaleString()} bytes)${magicWarning}` },
+              { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${stat.size.toLocaleString()} bytes)${magicWarning}` },
               { type: "image" as const, data, mimeType: mime },
             ],
           };
@@ -393,14 +399,14 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         if (category === "audio") {
           return {
             content: [
-              { type: "text" as const, text: `Attached: ${basename} (${mime}, ${stat.size.toLocaleString()} bytes)` },
+              { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${stat.size.toLocaleString()} bytes)` },
               { type: "audio" as const, data, mimeType: mime },
             ],
           };
         }
         return {
           content: [
-            { type: "text" as const, text: `Attached: ${basename} (${mime}, ${stat.size.toLocaleString()} bytes)` },
+            { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${stat.size.toLocaleString()} bytes)` },
             {
               type: "resource" as const,
               resource: {
