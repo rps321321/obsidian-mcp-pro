@@ -115,6 +115,31 @@ describe("logger", () => {
     expect(dataStr).toContain("<path>");
   });
 
+  it("redacts vault-relative path fields from forwarded MCP payload", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    log.warn("search_notes: note read failed", {
+      note: "private/therapy.md",
+      relPath: "finance/taxes-2026.md",
+      nested: { path: "projects/acquisition.md" },
+    });
+
+    const stderrOut = captured.join("");
+    expect(stderrOut).toContain("private/therapy.md");
+    expect(stderrOut).toContain("finance/taxes-2026.md");
+    expect(stderrOut).toContain("projects/acquisition.md");
+
+    expect(sendLoggingMessage).toHaveBeenCalledTimes(1);
+    const [params] = sendLoggingMessage.mock.calls[0];
+    const dataStr = JSON.stringify(params.data);
+    expect(dataStr).not.toContain("therapy");
+    expect(dataStr).not.toContain("taxes");
+    expect(dataStr).not.toContain("acquisition");
+    expect(dataStr).toContain("<vault path>");
+  });
+
   it("strips paths recursively from nested objects (e.g. serialized errors)", () => {
     const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
     const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
