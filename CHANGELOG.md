@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_note` now escapes control characters in missing section and block error labels before returning them to MCP clients.
 - `resolve_alias` now escapes control characters in displayed alias labels and result paths before returning them to MCP clients.
 - `get_daily_note` now escapes control characters in displayed configured daily-note paths before returning them to MCP clients.
+- `get_outlinks` now escapes control characters in displayed note paths and wikilink targets before returning them to MCP clients.
 
 ## [2.2.0] - 2026-06-03
 
