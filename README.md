@@ -18,9 +18,9 @@
 [![npm downloads](https://img.shields.io/npm/dm/obsidian-mcp-pro.svg)](https://www.npmjs.com/package/obsidian-mcp-pro)
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-449_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
-[![Tool Quality](https://img.shields.io/badge/Glama-23_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
+[![Node >= 24](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)](https://nodejs.org/)
+[![Tests](https://img.shields.io/badge/tests-664_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![Tool Quality](https://img.shields.io/badge/Glama-41_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, manipulate canvases, query Bases, edit by heading or block reference, run semantic search, and pull binary attachments. All through the [Model Context Protocol](https://modelcontextprotocol.io/).
 
@@ -520,12 +520,19 @@ npm install
 # Build
 npm run build
 
+# Run the full local maintenance gate
+npm run verify
+
 # Run in development (watch mode)
 npm run dev
 
 # Start the server locally
 OBSIDIAN_VAULT_PATH=/path/to/vault npm start
 ```
+
+For the company-grade maintenance and R&D operating plan, see [docs/DEVELOPMENT_GOAL.md](./docs/DEVELOPMENT_GOAL.md).
+
+GitHub Actions workflows are manual-only in this repository. Use `npm run verify` as the required local gate before merging or publishing.
 
 ### Project Structure
 

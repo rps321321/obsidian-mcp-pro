@@ -26,7 +26,7 @@ It auto-detects your vault from Obsidian's config, so zero setup for most users.
 - TypeScript, MIT licensed
 - Uses the official `@modelcontextprotocol/sdk`
 - Works with Claude Desktop, Claude Code, Cursor, Windsurf, or any MCP-compatible client
-- Node >= 18, install via `npx -y obsidian-mcp-pro`
+- Node >= 24, install via `npx -y obsidian-mcp-pro`
 
 This is not tied to any specific LLM or client. MCP is an open protocol -- if your tool speaks MCP, this server works with it.
 

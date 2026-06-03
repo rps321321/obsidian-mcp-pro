@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Raised the supported runtime baseline to Node.js 24 (`engines.node >=24.0.0`).
+- Updated the TypeScript build target to Node 24-era settings (`ES2024`, `NodeNext`) and refreshed the toolchain to current compatible packages: MCP SDK 1.29, Zod 4, TypeScript 6, ESLint 10, and Node 24 type definitions.
+- Preserved caught error causes in newly wrapped errors required by ESLint 10 while keeping client-facing error messages sanitized.
+- Removed the GitHub Actions CI and publish workflows and rely on the local `npm run verify` gate (lint, type-check, tests, build, audit, package dry-run) before merge and publish.
+
 ## [2.0.0] - 2026-05-18
 
 Full-codebase security and correctness audit: 75+ fixes across 42 files, verified against current library documentation. Major version bump due to breaking changes in tool naming, parameter requirements, and default behavior.
