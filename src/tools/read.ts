@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import { searchInContents, readNote, listNotes, resolveVaultPathSafe } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 import { formatLocalDateOnly, formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
@@ -14,6 +14,10 @@ import { getDailyNoteConfig } from "../config.js";
 
 /** Maximum number of concurrent file I/O operations for parallel vault scans. */
 const MAX_CONCURRENT_OPS = 16;
+
+function displayReadValue(value: string): string {
+  return escapeControlChars(value);
+}
 
 export function registerReadTools(server: McpServer, vaultPath: string): void {
   function errorResult(text: string) {
@@ -76,21 +80,21 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             content: [
               {
                 type: "text" as const,
-                text: `No results found for "${query}"`,
+                text: `No results found for "${displayReadValue(query)}"`,
               },
             ],
           };
         }
 
         const lines: string[] = [
-          `Found ${results.length} result(s) for "${query}":`,
+          `Found ${results.length} result(s) for "${displayReadValue(query)}":`,
           "",
         ];
 
         for (const result of results) {
-          lines.push(`## ${result.relativePath}`);
+          lines.push(`## ${displayReadValue(result.relativePath)}`);
           for (const match of result.matches) {
-            lines.push(`  Line ${match.line}: ${match.content}`);
+            lines.push(`  Line ${match.line}: ${displayReadValue(match.content)}`);
           }
           lines.push("");
         }
