@@ -93,6 +93,17 @@ describe("tag handlers — search_by_tag", () => {
     expect(textContent(result)).toMatch(/No notes found/i);
   });
 
+  it("escapes control characters in the searched tag label", async () => {
+    const result = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "does-not\nexist" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("No notes found with tag #does-not\\nexist");
+    expect(text).not.toContain("does-not\nexist");
+  });
+
   it("includes a 200-char preview when includeContent=true", async () => {
     const result = await env.client.callTool({
       name: "search_by_tag",
@@ -104,6 +115,8 @@ describe("tag handlers — search_by_tag", () => {
     expect(text).toContain("note-b.md");
     // Frontmatter is now stripped from previews, so verify body content appears instead.
     expect(text).toMatch(/Note A|Note B/);
+    expect(text).toContain("# Note A\\n\\nLinks to [[note-b]]");
+    expect(text).not.toContain("# Note A\n\nLinks to [[note-b]]");
   });
 
   it("honors maxResults cap", async () => {
