@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search_by_frontmatter` now escapes control characters in displayed property labels, value labels, result paths, and frontmatter rows before returning them to MCP clients.
 - `get_recent_notes` now escapes control characters in displayed `since` labels and note paths before returning them to MCP clients.
 - `get_note` now escapes control characters in missing section and block error labels before returning them to MCP clients.
+- `resolve_alias` now escapes control characters in displayed alias labels and result paths before returning them to MCP clients.
 
 ## [2.2.0] - 2026-06-03
 

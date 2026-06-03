@@ -719,18 +719,18 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
 
         const total = aliasMatches.length + basenameMatches.length;
         if (total === 0) {
-          return { content: [{ type: "text" as const, text: `No alias or basename match for "${name}"` }] };
+          return { content: [{ type: "text" as const, text: `No alias or basename match for "${displayReadValue(name)}"` }] };
         }
 
-        const lines: string[] = [`Matches for "${name}":`, ""];
+        const lines: string[] = [`Matches for "${displayReadValue(name)}":`, ""];
         if (aliasMatches.length > 0) {
           lines.push(`Alias matches (${aliasMatches.length}):`);
-          for (const p of aliasMatches) lines.push(`  - ${p}`);
+          for (const p of aliasMatches) lines.push(`  - ${displayReadValue(p)}`);
         }
         if (basenameMatches.length > 0) {
           if (aliasMatches.length > 0) lines.push("");
           lines.push(`Basename matches (${basenameMatches.length}):`);
-          for (const p of basenameMatches) lines.push(`  - ${p}`);
+          for (const p of basenameMatches) lines.push(`  - ${displayReadValue(p)}`);
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
