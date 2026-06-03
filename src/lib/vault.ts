@@ -385,6 +385,19 @@ async function assertRealPathWithinVault(
   }
 }
 
+function isReadAllowed(relativePath: string): boolean {
+  try {
+    assertAllowed(relativePath, "read");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function filterReadable(entries: string[]): string[] {
+  return entries.filter(isReadAllowed);
+}
+
 // TOCTOU note: there is a small window between the realpath check in
 // `assertRealPathWithinVault` and the caller's actual use of the returned
 // path. If a symlink target is swapped by an external process (Obsidian,
@@ -401,6 +414,34 @@ export async function resolveVaultPathSafe(
   access: AccessKind = "read",
 ): Promise<string> {
   const resolved = resolveVaultPath(vaultPath, relativePath, access);
+  await assertRealPathWithinVault(resolved, vaultPath);
+  return resolved;
+}
+
+export async function resolveVaultInternalPathSafe(
+  vaultPath: string,
+  relativePath: string,
+): Promise<string> {
+  if (!vaultPath) {
+    throw new Error("Vault path is not configured");
+  }
+  if (relativePath.includes("\0")) {
+    throw new Error("Invalid path: contains null byte");
+  }
+  if (
+    /^[A-Za-z]:/.test(relativePath) ||
+    relativePath.startsWith("/") ||
+    relativePath.startsWith("\\")
+  ) {
+    throw new Error(
+      `Invalid path: must be vault-relative, not absolute (${relativePath})`,
+    );
+  }
+  const resolved = path.resolve(vaultPath, relativePath);
+  const resolvedVault = path.resolve(vaultPath);
+  if (!resolved.startsWith(resolvedVault + path.sep) && resolved !== resolvedVault) {
+    throw new Error(`Path traversal detected: ${relativePath}`);
+  }
   await assertRealPathWithinVault(resolved, vaultPath);
   return resolved;
 }
@@ -426,7 +467,7 @@ export async function listNotes(
   // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
   // at every traversal level, and `resolveVaultPathSafe` rejects an
   // excluded `folder` argument up front.
-  if (!normalizedFolder) return entries.sort();
+  if (!normalizedFolder) return filterReadable(entries).sort();
   return entries.map((rel) => `${normalizedFolder}/${rel}`).sort();
 }
 
@@ -620,6 +661,28 @@ export interface DeleteNoteResult {
   failedReferrers: Array<{ path: string; error: string }>;
 }
 
+async function pathExists(fullPath: string): Promise<boolean> {
+  try {
+    await fs.lstat(fullPath);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw err;
+  }
+}
+
+async function chooseTrashPath(trashFullPath: string): Promise<string> {
+  if (!(await pathExists(trashFullPath))) return trashFullPath;
+
+  const parsed = path.parse(trashFullPath);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const suffix = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const candidate = path.join(parsed.dir, `${parsed.name}.${suffix}${parsed.ext}`);
+    if (!(await pathExists(candidate))) return candidate;
+  }
+  throw new Error(`Could not allocate unique trash path for ${path.basename(trashFullPath)}`);
+}
+
 export async function deleteNote(
   vaultPath: string,
   relativePath: string,
@@ -666,7 +729,8 @@ export async function deleteNote(
         // Realpath check on the canonical destination: rejects a symlinked
         // `.trash` (or any intermediate dir) that resolves outside the vault.
         await assertRealPathWithinVault(trashFullPath, vaultPath);
-        await fs.rename(fullPath, trashFullPath);
+        const finalTrashPath = await chooseTrashPath(trashFullPath);
+        await fs.rename(fullPath, finalTrashPath);
       } else {
         await fs.unlink(fullPath);
       }
@@ -906,7 +970,7 @@ export async function listCanvasFiles(
   // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
   // at every traversal level.
   const entries = await walkVault(await getRealVaultRoot(vaultPath), [".canvas"]);
-  return entries.sort();
+  return filterReadable(entries).sort();
 }
 
 export async function listBaseFiles(
@@ -915,7 +979,7 @@ export async function listBaseFiles(
   // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
   // at every traversal level.
   const entries = await walkVault(await getRealVaultRoot(vaultPath), [".base"]);
-  return entries.sort();
+  return filterReadable(entries).sort();
 }
 
 /**
@@ -932,7 +996,7 @@ export async function listAttachments(
     await getRealVaultRoot(vaultPath),
     [".md", ".canvas", ".base"],
   );
-  return entries.sort();
+  return filterReadable(entries).sort();
 }
 
 export async function getAttachmentStats(

@@ -17,7 +17,7 @@ import {
   type EmbeddingProvider,
 } from "../lib/embedding-providers.js";
 import { log } from "../lib/logger.js";
-import { createTestEnv, textContent, isError, type TestEnv } from "./handlers/harness.js";
+import { createTestEnv, isError, textContent, type TestEnv } from "./handlers/harness.js";
 
 // Regression coverage for the second wave of embedding-stack findings:
 //   - FN-H1: OllamaProvider probe used to be followed by a full embedBatched
@@ -72,7 +72,7 @@ describe("OllamaProvider probe vector reuse (FN-H1)", () => {
         embeddings: inputs.map((s) => [s.charCodeAt(0), s.length, 0]),
       });
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     const texts = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
     const vectors = await provider!.embed(texts);
@@ -103,7 +103,7 @@ describe("OllamaProvider probe vector reuse (FN-H1)", () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({ embeddings: [[1, 2, 3]] }),
     );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     const vectors = await provider!.embed(["only-one"]);
     expect(vectors).toEqual([[1, 2, 3]]);
@@ -120,7 +120,7 @@ describe("OllamaProvider probe vector reuse (FN-H1)", () => {
       const inputs = body.input ?? [];
       return jsonResponse({ embeddings: inputs.map(() => [1, 2, 3]) });
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     // Cold call warms the provider: probe(1) + batch(2).
     await provider!.embed(["a", "b", "c"]);
@@ -278,5 +278,53 @@ describe("index_vault per-vault serialization (FN-M2)", () => {
     // call's prune wiped the other's work.
     const snap = snapshotForTests(env.vaultDir);
     expect(snap.totalNotes).toBe(3);
+  });
+});
+
+describe("index_vault partial-note failures", () => {
+  let env: TestEnv;
+
+  class PartialProvider implements EmbeddingProvider {
+    readonly id = "mock-partial";
+    readonly model = "m";
+    constructor(private readonly complete: boolean) {}
+    async embed(texts: string[]): Promise<number[][]> {
+      if (this.complete) return texts.map(() => [1, 0, 0]);
+      return texts.map((_, index) =>
+        index === 0 ? [1, 0, 0] : undefined as unknown as number[],
+      );
+    }
+  }
+
+  beforeEach(async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "multi.md": "# Alpha\n\nalpha body\n\n# Beta\n\nbeta body",
+      },
+    });
+  });
+
+  afterEach(async () => {
+    setProviderForTests(null);
+    resetProviderForTests();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    await env.cleanup();
+  });
+
+  it("does not mark a note current unless every chunk embeds successfully", async () => {
+    setProviderForTests(new PartialProvider(false));
+    const partial = await env.client.callTool({ name: "index_vault", arguments: {} });
+    expect(isError(partial)).toBe(false);
+    expect(textContent(partial)).toMatch(/Failures:\s+1/);
+    expect(snapshotForTests(env.vaultDir).totalChunks).toBe(0);
+    expect(snapshotForTests(env.vaultDir).totalNotes).toBe(0);
+
+    setProviderForTests(new PartialProvider(true));
+    const complete = await env.client.callTool({ name: "index_vault", arguments: {} });
+    expect(isError(complete)).toBe(false);
+    expect(textContent(complete)).toContain("Notes embedded:  1");
+    expect(snapshotForTests(env.vaultDir).totalChunks).toBe(2);
+    expect(snapshotForTests(env.vaultDir).totalNotes).toBe(1);
   });
 });

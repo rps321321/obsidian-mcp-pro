@@ -88,6 +88,15 @@ describe("moveNote — wikilink rewriting", () => {
     expect(await readNote(vaultDir, "ref.md")).toBe("[link](archive/idea.md) here");
   });
 
+  it("preserves explicitly relative markdown links when rewriting after a move", async () => {
+    await seed("inbox/idea.md", "x");
+    await seed("refs/ref.md", "[link](../inbox/idea.md) here");
+    await moveNote(vaultDir, "inbox/idea.md", "archive/idea.md");
+    expect(await readNote(vaultDir, "refs/ref.md")).toBe(
+      "[link](../archive/idea.md) here",
+    );
+  });
+
   it("rewrites markdown link without extension and preserves fragment", async () => {
     await seed("inbox/idea.md", "x");
     await seed("ref.md", "[link](inbox/idea#Section)");
@@ -489,6 +498,20 @@ describe("planDeleteRewrites", () => {
 
     expect(result.updated).toEqual(["ref.md"]);
     expect(await readNote(vaultDir, "ref.md")).toBe("Read the topic carefully.");
+  });
+
+  it("strips explicitly relative markdown links to the deleted file", async () => {
+    await seed("notes/topic.md", "# Topic");
+    await seed("refs/ref.md", "Read [the topic](../notes/topic.md) carefully.");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "notes/topic.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual(["refs/ref.md"]);
+    expect(await readNote(vaultDir, "refs/ref.md")).toBe(
+      "Read the topic carefully.",
+    );
   });
 
   it("does not touch references in unrelated files", async () => {

@@ -443,34 +443,34 @@ function evaluateValueMethod(
     case "contains": {
       const needle = firstStringArg(args, `${chainForWarnings}.contains`, ctx);
       if (needle === null) return false;
-      if (Array.isArray(value)) return value.map(String).some((v) => v.includes(needle));
-      return String(value ?? "").includes(needle);
+      if (Array.isArray(value)) return value.map(toComparableString).some((v) => v.includes(needle));
+      return toComparableString(value).includes(needle);
     }
     case "startsWith": {
       const needle = firstStringArg(args, `${chainForWarnings}.startsWith`, ctx);
       if (needle === null) return false;
-      return String(value ?? "").startsWith(needle);
+      return toComparableString(value).startsWith(needle);
     }
     case "endsWith": {
       const needle = firstStringArg(args, `${chainForWarnings}.endsWith`, ctx);
       if (needle === null) return false;
-      return String(value ?? "").endsWith(needle);
+      return toComparableString(value).endsWith(needle);
     }
     case "equals": {
       const other = args[0] !== undefined ? unquote(args[0]) ?? args[0].trim() : "";
-      return String(value ?? "") === other;
+      return toComparableString(value) === other;
     }
     case "isEmpty":
       if (value === null || value === undefined) return true;
       if (typeof value === "string") return value.length === 0;
       if (Array.isArray(value)) return value.length === 0;
-      if (typeof value === "object") return Object.keys(value as object).length === 0;
+      if (typeof value === "object") return Object.keys(value).length === 0;
       return false;
     case "isNotEmpty":
       if (value === null || value === undefined) return false;
       if (typeof value === "string") return value.length > 0;
       if (Array.isArray(value)) return value.length > 0;
-      if (typeof value === "object") return Object.keys(value as object).length > 0;
+      if (typeof value === "object") return Object.keys(value).length > 0;
       return true;
     default:
       pushWarning(ctx.warnings, `Unknown method: ${chainForWarnings}.${method}`);
@@ -575,11 +575,11 @@ function evaluateComparison(
       return a <= b;
     }
     case "contains": {
-      if (Array.isArray(left)) return left.map(String).includes(String(right));
-      return String(left ?? "").includes(String(right ?? ""));
+      if (Array.isArray(left)) return left.map(toComparableString).includes(toComparableString(right));
+      return toComparableString(left).includes(toComparableString(right));
     }
-    case "startsWith": return String(left ?? "").startsWith(String(right ?? ""));
-    case "endsWith": return String(left ?? "").endsWith(String(right ?? ""));
+    case "startsWith": return toComparableString(left).startsWith(toComparableString(right));
+    case "endsWith": return toComparableString(left).endsWith(toComparableString(right));
     default: return false;
   }
 }
@@ -590,7 +590,20 @@ function looseEqual(a: unknown, b: unknown): boolean {
   // If only one side is null/undefined, they are not equal (avoids Number(null) === 0).
   if (a == null || b == null) return false;
   if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
-  return String(a) === String(b);
+  return toComparableString(a) === toComparableString(b);
+}
+
+function toComparableString(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -603,7 +616,7 @@ export function queryBase(
   viewName?: string,
 ): QueryResult {
   const ctx: EvaluationContext = { warnings: [] };
-  const baseFilter = flattenFilter(base.filters as BaseFilter | BaseFilter[] | undefined);
+  const baseFilter = flattenFilter(base.filters);
   let viewFilter: BaseFilter | undefined;
   let order: string[] | undefined;
 
@@ -612,7 +625,7 @@ export function queryBase(
     if (!view) {
       pushWarning(ctx.warnings, `View not found: "${viewName}"; using base-level filters only.`);
     } else {
-      viewFilter = flattenFilter(view.filters as BaseFilter | BaseFilter[] | undefined);
+      viewFilter = flattenFilter(view.filters);
       order = Array.isArray(view.order) ? view.order : undefined;
     }
   }
@@ -623,7 +636,7 @@ export function queryBase(
 
   if (order && order.length > 0) {
     matches.sort((a, b) => {
-      for (const raw of order!) {
+      for (const raw of order) {
         // Support descending via "-key" prefix or "key:desc" / "key:descending" suffix.
         let key = raw;
         let desc = false;
@@ -646,7 +659,7 @@ export function queryBase(
         if (typeof va === "number" && typeof vb === "number") {
           cmp = va - vb;
         } else {
-          cmp = String(va).localeCompare(String(vb));
+          cmp = toComparableString(va).localeCompare(toComparableString(vb));
         }
         if (desc) cmp = -cmp;
         if (cmp !== 0) return cmp;

@@ -35,12 +35,12 @@ describe("updateFrontmatter wikilink quoting", () => {
 
   it("quotes every item of a wikilink array", () => {
     const out = updateFrontmatter("body\n", { links: ["[[A]]", "[[B]]"] });
-    expect(out).toMatch(/^  - "\[\[A\]\]"$/m);
-    expect(out).toMatch(/^  - "\[\[B\]\]"$/m);
+    expect(out).toMatch(/^ {2}- "\[\[A\]\]"$/m);
+    expect(out).toMatch(/^ {2}- "\[\[B\]\]"$/m);
     // Sanity: the bare unquoted forms must NOT appear in the frontmatter.
     const fm = out.slice(0, out.indexOf("\n---", 4));
-    expect(fm).not.toMatch(/^  - \[\[A\]\]$/m);
-    expect(fm).not.toMatch(/^  - \[\[B\]\]$/m);
+    expect(fm).not.toMatch(/^ {2}- \[\[A\]\]$/m);
+    expect(fm).not.toMatch(/^ {2}- \[\[B\]\]$/m);
   });
 
   it("round-trips: quoted output parses back to the original wikilink string", () => {

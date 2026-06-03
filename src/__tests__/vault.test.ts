@@ -282,6 +282,20 @@ describe("deleteNote", () => {
     );
     expect(trashContent).toBe("nested");
   });
+
+  it("should not overwrite an existing trashed note", async () => {
+    await writeNote(vaultDir, "doomed.md", "first");
+    await deleteNote(vaultDir, "doomed.md");
+    await writeNote(vaultDir, "doomed.md", "second");
+    await deleteNote(vaultDir, "doomed.md");
+
+    const trashDir = path.join(vaultDir, ".trash");
+    const entries = await fs.readdir(trashDir);
+    expect(await fs.readFile(path.join(trashDir, "doomed.md"), "utf-8")).toBe("first");
+    const collisionCopy = entries.find((entry) => /^doomed\.\d+-[0-9a-f]{8}\.md$/i.test(entry));
+    expect(collisionCopy).toBeDefined();
+    expect(await fs.readFile(path.join(trashDir, collisionCopy!), "utf-8")).toBe("second");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -554,7 +568,7 @@ describe("atomic writes", () => {
     ] as const);
     for (const content of contents) {
       expect(typeof content).toBe("string");
-      expect([seed.length, next.length]).toContain((content as string).length);
+      expect([seed.length, next.length]).toContain((content).length);
     }
   });
 });

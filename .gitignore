@@ -13,7 +13,26 @@ mcp-publisher.exe
 mcp-publisher.tar.gz
 .playwright-mcp/
 
-# Claude Code per-machine settings (permissions, allowlists). Shared
-# project config should live in `.claude/settings.json` (no `.local`),
-# which stays tracked so collaborators share the same rules.
-.claude/settings.local.json
+# AI coding assistant / agent local state, per-machine settings, caches,
+# session locks, and memory files. These are user- and machine-specific and
+# must never enter the repository.
+#
+# - If you intentionally want to share project-level rules/allowlists across
+#   collaborators, create `.claude/settings.json` (no `.local` suffix) and
+#   force-add it with `git add -f .claude/settings.json` when the directory
+#   rule would otherwise exclude it.
+# - This pattern also protects against future files the tools may create
+#   (caches, DBs, other locks, etc.).
+.claude/
+.codex/
+.greptile/
+
+# Other common AI / agentic dev tooling local state (future-proofing)
+.cursor/
+.windsurf/
+.aider/
+.continue/
+
+# Scratch / generated asset directories from AI image/video tools
+# (committed artwork lives in assets/; this dir is for local experiments).
+generated-images/

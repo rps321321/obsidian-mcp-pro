@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
-import { resolveVaultPathSafe } from "./vault.js";
+import { resolveVaultInternalPathSafe, resolveVaultPathSafe } from "./vault.js";
 import { mapConcurrent } from "./concurrency.js";
 import { log } from "./logger.js";
 
@@ -64,7 +64,7 @@ interface VaultCacheState {
 
 const caches = new Map<string, VaultCacheState>(); // vaultRoot -> state
 
-function isPersistenceEnabled(): boolean {
+export function isPersistenceEnabled(): boolean {
   const v = process.env.OBSIDIAN_CACHE_DISABLED;
   return !(v === "1" || v === "true" || v === "yes");
 }
@@ -79,8 +79,8 @@ function stateFor(vaultPath: string): VaultCacheState {
   return s;
 }
 
-function cacheFilePath(vaultPath: string): string {
-  return path.join(path.resolve(vaultPath), CACHE_REL_PATH);
+async function cacheFilePath(vaultPath: string): Promise<string> {
+  return resolveVaultInternalPathSafe(vaultPath, CACHE_REL_PATH);
 }
 
 interface PersistedEntry {
@@ -102,7 +102,14 @@ async function loadFromDisk(vaultPath: string, state: VaultCacheState): Promise<
     return;
   }
 
-  const file = cacheFilePath(vaultPath);
+  let file: string;
+  try {
+    file = await cacheFilePath(vaultPath);
+  } catch (err) {
+    log.warn("index-cache: snapshot path failed vault-boundary check", { err: err as Error });
+    state.loaded = true;
+    return;
+  }
   let raw: string;
   try {
     raw = await fs.readFile(file, "utf-8");
@@ -242,10 +249,17 @@ async function doFlush(vaultPath: string, state: VaultCacheState): Promise<void>
       mtimeMs: entry.mtimeMs,
     };
   }
+  let file: string;
+  try {
+    file = await cacheFilePath(vaultPath);
+  } catch (err) {
+    state.dirty = true;
+    log.warn("index-cache: snapshot path failed vault-boundary check", { err: err as Error });
+    return;
+  }
   // Snapshot is captured. From this point any setEntry will flip dirty back
   // to true and the next flushVaultCache call will see it.
   state.dirty = false;
-  const file = cacheFilePath(vaultPath);
   const dir = path.dirname(file);
   try {
     await fs.mkdir(dir, { recursive: true });
@@ -399,7 +413,7 @@ export async function clearCache(
   }
   caches.delete(root);
   if (options?.removeSnapshot) {
-    try { await fs.unlink(cacheFilePath(vaultPath)); } catch { /* ignore */ }
+    try { await fs.unlink(await cacheFilePath(vaultPath)); } catch { /* ignore */ }
   }
 }
 

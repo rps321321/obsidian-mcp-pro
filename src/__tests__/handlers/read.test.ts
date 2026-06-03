@@ -175,6 +175,15 @@ describe("read handlers — get_daily_note", () => {
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/YYYY-MM-DD|validation|regex/i);
   });
+
+  it("rejects calendar-impossible dates instead of normalizing them", async () => {
+    const result = await env.client.callTool({
+      name: "get_daily_note",
+      arguments: { date: "2026-02-31" },
+    });
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/Invalid date/);
+  });
 });
 
 describe("read handlers — search_by_frontmatter", () => {

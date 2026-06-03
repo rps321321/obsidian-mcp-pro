@@ -167,7 +167,7 @@ class OllamaProvider implements EmbeddingProvider {
     const res = await fetch(`${this.baseUrl}/api/embed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: this.model, input: texts }),
+      body: JSON.stringify({ model: this.model, input: texts, truncate: false }),
       signal: AbortSignal.timeout(EMBED_REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) {

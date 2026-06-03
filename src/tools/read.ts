@@ -7,7 +7,7 @@ import { readAllCached } from "../lib/index-cache.js";
 import { sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import { mapConcurrent } from "../lib/concurrency.js";
-import { formatMomentDate } from "../lib/dates.js";
+import { formatLocalDateOnly, formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
 import { parseFrontmatter, extractTags, extractAliases } from "../lib/markdown.js";
 import { findSection, findBlockById, stripBlockId } from "../lib/sections.js";
 import { getDailyNoteConfig } from "../config.js";
@@ -298,13 +298,13 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     async ({ date }) => {
       try {
         const config = await getDailyNoteConfig(vaultPath);
-        const targetDate = date ?? new Date().toISOString().slice(0, 10);
+        const targetDate = date ?? formatLocalDateOnly();
 
         if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
           return errorResult(`Invalid date format: "${targetDate}". Use YYYY-MM-DD.`);
         }
-        const parsed = new Date(`${targetDate}T00:00:00`);
-        if (Number.isNaN(parsed.getTime())) {
+        const parsed = parseLocalDateOnly(targetDate);
+        if (!parsed) {
           return errorResult(`Invalid date: "${targetDate}".`);
         }
 
@@ -411,8 +411,8 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             if (propValue === undefined) return undefined;
 
             const stringified = Array.isArray(propValue)
-              ? propValue.map(String)
-              : [String(propValue)];
+              ? propValue.map(toSearchableString)
+              : [toSearchableString(propValue)];
             const isMatch = stringified.some((v) => v.toLowerCase() === valueLower);
             return isMatch ? { path: notePath, frontmatter: frontmatterData } : undefined;
           },
@@ -735,6 +735,19 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       }
     },
   );
+}
+
+function toSearchableString(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 /**

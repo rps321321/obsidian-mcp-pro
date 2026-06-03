@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listNotes, readNote, updateNote, withFileLock, vaultRewriteLockKey } from "../lib/vault.js";
 import { extractTags } from "../lib/markdown.js";
-import { rewriteAllTags } from "../lib/tag-rewriter.js";
+import { isValidTagName, rewriteAllTags } from "../lib/tag-rewriter.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { makeProgressReporter } from "../lib/progress.js";
 import { sanitizeError } from "../lib/errors.js";
@@ -203,13 +203,13 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           .string()
           .min(1)
           .max(200)
-          .regex(/^[^#\s/][^\s]*$/, "Tag name must not start with # or whitespace; pass the bare name")
+          .refine(isValidTagName, "Tag name contains characters Obsidian's tag parser will not recognize")
           .describe("Existing tag name (without leading #), e.g. 'project'."),
         newName: z
           .string()
           .min(1)
           .max(200)
-          .regex(/^[^#\s/][^\s]*$/, "Tag name must not start with # or whitespace; pass the bare name")
+          .refine(isValidTagName, "Tag name contains characters Obsidian's tag parser will not recognize")
           .describe("New tag name (without leading #), e.g. 'client'."),
         hierarchical: z
           .boolean()

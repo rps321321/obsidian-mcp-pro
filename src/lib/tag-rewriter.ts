@@ -18,6 +18,11 @@ import { quoteWikilinksInFrontmatter } from "./markdown.js";
 // so `#anchor` inside a heading isn't matched as a tag.
 const TAG_CHAR = "[a-zA-Z0-9\\u00C0-\\u024F\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u309F\\u30A0-\\u30FF\\uAC00-\\uD7AF_/-]";
 const TAG_HEAD = "[a-zA-Z\\u00C0-\\u024F\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u309F\\u30A0-\\u30FF\\uAC00-\\uD7AF_]";
+const TAG_NAME_RE = new RegExp(`^${TAG_HEAD}${TAG_CHAR}*$`);
+
+export function isValidTagName(name: string): boolean {
+  return TAG_NAME_RE.test(name);
+}
 
 interface FenceState {
   insideFence: boolean;
@@ -168,7 +173,8 @@ function rewriteFrontmatterData(
     if (value === undefined) continue;
     if (Array.isArray(value)) {
       let keyChanged = false;
-      const next = value.map((item) => {
+      const items = value as unknown[];
+      const next = items.map((item): unknown => {
         if (typeof item !== "string") return item;
         const renamed = applyRename(item, opts);
         if (renamed !== null) {

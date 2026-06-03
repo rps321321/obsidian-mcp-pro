@@ -7,6 +7,7 @@ import {
   saveStore,
   clearStore,
   setNoteChunks,
+  noteIsCurrent,
   searchEmbeddings,
   snapshotForTests,
 } from "../lib/embedding-store.js";
@@ -155,6 +156,89 @@ describe("snapshot dimension validation (finding #24)", () => {
     // The bad-dimension entry must NOT appear in any result.
     const allNotes = new Set(hits.map((h) => h.notePath));
     expect(allNotes.has("bad.md")).toBe(false);
+    expect(noteIsCurrent(vaultDir, "bad.md", "h2")).toBe(false);
+  });
+});
+
+describe("live embedding vector validation", () => {
+  it("rejects non-finite vectors before mutating existing note chunks", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(
+      vaultDir,
+      "a.md",
+      "good",
+      [{ notePath: "a.md", chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [1, 0, 0] }],
+      "test",
+      "m",
+    );
+
+    expect(() =>
+      setNoteChunks(
+        vaultDir,
+        "a.md",
+        "bad",
+        [{ notePath: "a.md", chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [Number.NaN, 0, 0] }],
+        "test",
+        "m",
+      ),
+    ).toThrow(/non-finite/i);
+
+    expect(noteIsCurrent(vaultDir, "a.md", "good")).toBe(true);
+    const hits = searchEmbeddings(vaultDir, [1, 0, 0], { limit: 10 });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.notePath).toBe("a.md");
+  });
+
+  it("rejects mixed dimensions before mutating existing note chunks", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(
+      vaultDir,
+      "a.md",
+      "good",
+      [{ notePath: "a.md", chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [1, 0, 0] }],
+      "test",
+      "m",
+    );
+
+    expect(() =>
+      setNoteChunks(
+        vaultDir,
+        "b.md",
+        "bad",
+        [{ notePath: "b.md", chunkIndex: 1, headingPath: [], text: "y", hash: "th", vector: [1, 0] }],
+        "test",
+        "m",
+      ),
+    ).toThrow(/dimension mismatch/i);
+
+    expect(snapshotForTests(vaultDir).totalNotes).toBe(1);
+    expect(noteIsCurrent(vaultDir, "b.md", "bad")).toBe(false);
+  });
+});
+
+describe("OBSIDIAN_CACHE_DISABLED covers embedding persistence", () => {
+  it("keeps embedding chunks in memory but does not write a snapshot", async () => {
+    process.env.OBSIDIAN_CACHE_DISABLED = "1";
+    try {
+      await loadStore(vaultDir);
+      setNoteChunks(
+        vaultDir,
+        "a.md",
+        "h",
+        [{ notePath: "a.md", chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [1, 2, 3] }],
+        "test",
+        "m",
+      );
+
+      await saveStore(vaultDir);
+
+      expect(snapshotForTests(vaultDir).totalChunks).toBe(1);
+      await expect(
+        fs.access(path.join(vaultDir, ".obsidian", "cache", "mcp-pro-embeddings.json")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      delete process.env.OBSIDIAN_CACHE_DISABLED;
+    }
   });
 });
 
@@ -198,7 +282,7 @@ describe("OllamaProvider probe (M16)", () => {
       expect((body.input as unknown[]).length).toBe(1);
       return jsonResponse({ embeddings: [[1, 2, 3]] });
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     // First real call: 5 texts. Probe sees 1, then the real batched call
     // sees 5.
@@ -208,7 +292,7 @@ describe("OllamaProvider probe (M16)", () => {
       // Always return one vector per input.
       return jsonResponse({ embeddings: inputs.map(() => [1, 2, 3]) });
     });
-    globalThis.fetch = fetchMockReal as unknown as typeof fetch;
+    globalThis.fetch = fetchMockReal;
 
     const vectors = await provider!.embed(["a", "b", "c", "d", "e"]);
     expect(vectors).toHaveLength(5);
@@ -219,7 +303,9 @@ describe("OllamaProvider probe (M16)", () => {
     const firstCallBody = JSON.parse(String((fetchMockReal.mock.calls[0][1] as RequestInit).body));
     const secondCallBody = JSON.parse(String((fetchMockReal.mock.calls[1][1] as RequestInit).body));
     expect((firstCallBody.input as unknown[]).length).toBe(1);
+    expect(firstCallBody.truncate).toBe(false);
     expect((secondCallBody.input as unknown[]).length).toBe(4);
+    expect(secondCallBody.truncate).toBe(false);
   });
 
   it("re-probes on the next call after a transient (non-404) probe failure", async () => {
@@ -238,7 +324,7 @@ describe("OllamaProvider probe (M16)", () => {
       // Subsequent calls succeed.
       return jsonResponse({ embeddings: inputs.map(() => [9, 9, 9]) });
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     // First call should reject — the probe failed for a non-404 reason and
     // we don't silently downgrade to per-item on transient errors.
@@ -277,7 +363,7 @@ describe("OllamaProvider probe (M16)", () => {
       expect(typeof body.prompt).toBe("string");
       return jsonResponse({ embedding: [0.1, 0.2, 0.3] });
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     const out1 = await provider!.embed(["a", "b"]);
     expect(out1).toHaveLength(2);

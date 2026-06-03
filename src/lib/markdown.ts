@@ -14,7 +14,7 @@ export function parseFrontmatter(content: string): {
   try {
     const result = matter(content);
     return {
-      data: result.data as Record<string, unknown>,
+      data: result.data,
       content: result.content,
     };
   } catch {

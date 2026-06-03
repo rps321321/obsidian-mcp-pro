@@ -43,7 +43,7 @@ export interface ProgressReporter {
 export function makeProgressReporter(extra: ProgressMeta): ProgressReporter {
   const token = extra._meta?.progressToken;
   if (token === undefined) {
-    return async () => undefined;
+    return () => Promise.resolve();
   }
   let lastSent = 0;
   return async (progress, total, message) => {

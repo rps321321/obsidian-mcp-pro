@@ -40,8 +40,18 @@ export function sanitizeError(err: unknown): string {
   const code = typeof e.code === "string" ? e.code : undefined;
   if (code && FS_ERROR_MESSAGES[code]) return FS_ERROR_MESSAGES[code];
 
-  const msg = typeof e.message === "string" ? e.message : String(err);
+  const msg = typeof e.message === "string" ? e.message : fallbackErrorMessage(err);
   return escapeControlChars(stripPaths(msg));
+}
+
+function fallbackErrorMessage(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (err === null || err === undefined) return "Unknown error";
+  try {
+    return JSON.stringify(err) ?? "Unknown error";
+  } catch {
+    return "Unknown error";
+  }
 }
 
 /**
