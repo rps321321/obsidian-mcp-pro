@@ -334,6 +334,17 @@ describe("read handlers — get_recent_notes", () => {
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/Invalid 'since' value/i);
   });
+
+  it("escapes control characters in invalid since values", async () => {
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { since: "bad\nsince" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('Invalid \'since\' value: "bad\\nsince"');
+    expect(text).not.toContain("bad\nsince");
+  });
 });
 
 describe("read handlers — get_vault_stats", () => {
