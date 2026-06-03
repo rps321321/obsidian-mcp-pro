@@ -16,6 +16,7 @@ import { readAllCached, clearCache, flushNow } from "../lib/index-cache.js";
 //         the file became readable again.
 
 let vaultDir: string;
+const itWin32 = process.platform === "win32" ? it : it.skip;
 
 beforeEach(async () => {
   vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-flush-test-"));
@@ -34,6 +35,24 @@ async function writeFile(rel: string, content: string): Promise<void> {
 }
 
 describe("flushVaultCache concurrent dirty-flag handling (C2)", () => {
+  itWin32("retries transient Windows rename failures while persisting snapshots", async () => {
+    await writeFile("a.md", "alpha");
+    await readAllCached(vaultDir, ["a.md"]);
+
+    const realRename = fs.rename.bind(fs);
+    const renameSpy = vi.spyOn(fs, "rename");
+    renameSpy
+      .mockRejectedValueOnce(Object.assign(new Error("simulated EBUSY"), { code: "EBUSY" }))
+      .mockImplementation(realRename);
+
+    await flushNow(vaultDir);
+
+    expect(renameSpy).toHaveBeenCalledTimes(2);
+    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
+    const parsed = JSON.parse(await fs.readFile(snap, "utf-8"));
+    expect(parsed.entries["a.md"]?.content).toBe("alpha");
+  });
+
   it("persists writes that arrive while an earlier flush is mid-write", async () => {
     // Stage: warm the cache with one entry so the first flush has data.
     await writeFile("a.md", "alpha");

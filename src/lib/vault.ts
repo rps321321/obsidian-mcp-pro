@@ -3,6 +3,7 @@ import path from "path";
 import { randomBytes } from "crypto";
 import { mapConcurrent } from "./concurrency.js";
 import { assertAllowed, type AccessKind } from "./permissions.js";
+import { renameWithRetry } from "./fs-ops.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 
 // Bounded fan-out for vault-wide scans. Higher values saturate the event loop
@@ -69,32 +70,6 @@ export function vaultRewriteLockKey(vaultPath: string): string {
  * against concurrent writers to the *same* target path still requires the
  * per-path lock (otherwise two concurrent renames race on the final name).
  */
-// Windows raises EPERM/EBUSY/EACCES from `fs.rename` when another handle has
-// the target open for read (Win32's default share mode is stricter than
-// POSIX). Readers typically release within a few ms — retry with linear
-// backoff before surfacing the error. POSIX renames never hit this transient
-// class: on POSIX, EACCES from rename(2) means the caller structurally lacks
-// write permission on a containing directory, which will not clear by
-// waiting — so we only retry these codes on Windows.
-const RENAME_RETRY_CODES: ReadonlySet<string> = process.platform === "win32"
-  ? new Set(["EPERM", "EBUSY", "EACCES"])
-  : new Set();
-const RENAME_RETRY_DELAYS_MS = [5, 10, 20, 40, 80, 160];
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await fs.rename(from, to);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code ?? "";
-      if (!RENAME_RETRY_CODES.has(code) || attempt >= RENAME_RETRY_DELAYS_MS.length) {
-        throw err;
-      }
-      await new Promise((r) => setTimeout(r, RENAME_RETRY_DELAYS_MS[attempt]));
-    }
-  }
-}
-
 export async function atomicWriteFile(fullPath: string, content: string): Promise<void> {
   const dir = path.dirname(fullPath);
   const base = path.basename(fullPath);

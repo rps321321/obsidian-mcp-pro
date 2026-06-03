@@ -4,6 +4,7 @@ import path from "path";
 import { resolveVaultInternalPathSafe, resolveVaultPathSafe } from "./vault.js";
 import { mapConcurrent } from "./concurrency.js";
 import { log } from "./logger.js";
+import { renameWithRetry } from "./fs-ops.js";
 
 /**
  * mtime-keyed content cache (in-memory + persistent).
@@ -265,7 +266,7 @@ async function doFlush(vaultPath: string, state: VaultCacheState): Promise<void>
     await fs.mkdir(dir, { recursive: true });
     const tmp = `${file}.${process.pid}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(snapshot), "utf-8");
-    await fs.rename(tmp, file);
+    await renameWithRetry(tmp, file);
   } catch (err) {
     // Write failed - re-mark dirty so the next flush retries this data.
     state.dirty = true;
