@@ -72,6 +72,28 @@ const VAULT_PATH_FIELD_KEYS = new Set([
   "vaultpath",
 ]);
 
+const VAULT_PATH_EXTENSIONS = new Set([
+  ".avif",
+  ".base",
+  ".canvas",
+  ".gif",
+  ".heic",
+  ".heif",
+  ".jpeg",
+  ".jpg",
+  ".m4a",
+  ".md",
+  ".mov",
+  ".mp3",
+  ".mp4",
+  ".pdf",
+  ".png",
+  ".svg",
+  ".wav",
+  ".webm",
+  ".webp",
+]);
+
 export function configureLogger(opts: {
   level?: LogLevel;
   format?: LogFormat;
@@ -148,12 +170,21 @@ function isVaultPathField(key: string): boolean {
   return VAULT_PATH_FIELD_KEYS.has(key.toLowerCase());
 }
 
+function looksLikeVaultPath(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("/") || trimmed.includes("\\")) return true;
+  const dot = trimmed.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return VAULT_PATH_EXTENSIONS.has(trimmed.slice(dot).toLowerCase());
+}
+
 function sanitizeValue(key: string, v: unknown, redactVaultPath = false): unknown {
   const shouldRedactVaultPath = redactVaultPath || isVaultPathField(key);
   if (typeof v === "string") {
     const stripped = stripPaths(v);
     if (stripped !== v) return stripped;
-    return shouldRedactVaultPath ? "<vault path>" : stripped;
+    return shouldRedactVaultPath && looksLikeVaultPath(stripped) ? "<vault path>" : stripped;
   }
   if (Array.isArray(v)) {
     return v.map((inner) => sanitizeValue(key, inner, shouldRedactVaultPath));

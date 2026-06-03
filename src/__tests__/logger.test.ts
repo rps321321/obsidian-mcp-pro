@@ -123,12 +123,14 @@ describe("logger", () => {
     log.warn("search_notes: note read failed", {
       note: "private/therapy.md",
       relPath: "finance/taxes-2026.md",
+      notes: ["daily.md"],
       nested: { path: "projects/acquisition.md" },
     });
 
     const stderrOut = captured.join("");
     expect(stderrOut).toContain("private/therapy.md");
     expect(stderrOut).toContain("finance/taxes-2026.md");
+    expect(stderrOut).toContain("daily.md");
     expect(stderrOut).toContain("projects/acquisition.md");
 
     expect(sendLoggingMessage).toHaveBeenCalledTimes(1);
@@ -136,8 +138,28 @@ describe("logger", () => {
     const dataStr = JSON.stringify(params.data);
     expect(dataStr).not.toContain("therapy");
     expect(dataStr).not.toContain("taxes");
+    expect(dataStr).not.toContain("daily.md");
     expect(dataStr).not.toContain("acquisition");
     expect(dataStr).toContain("<vault path>");
+  });
+
+  it("keeps non-path diagnostics under path-like field names", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    log.info("retry scheduled", {
+      note: "retrying after transient error",
+      file: "index.ts",
+      nested: { path: "transport label" },
+    });
+
+    const [params] = sendLoggingMessage.mock.calls[0];
+    expect(params.data).toMatchObject({
+      note: "retrying after transient error",
+      file: "index.ts",
+      nested: { path: "transport label" },
+    });
   });
 
   it("strips paths recursively from nested objects (e.g. serialized errors)", () => {
