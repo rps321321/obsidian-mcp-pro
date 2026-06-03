@@ -52,6 +52,36 @@ describe("link handlers — get_backlinks", () => {
     });
     expect(textContent(withExt)).toEqual(textContent(withoutExt));
   });
+
+  it("escapes control characters in missing target paths", async () => {
+    const result = await env.client.callTool({
+      name: "get_backlinks",
+      arguments: { path: "missing\nnote" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("No note found matching path: missing\\nnote");
+    expect(text).not.toContain("missing\nnote");
+  });
+
+  it("escapes control characters in backlink context lines", async () => {
+    const created = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "tab-backlink.md",
+        content: "# Tab backlink\n\nLinks to [[note-a]]\twith tab.",
+      },
+    });
+    expect(isError(created)).toBe(false);
+
+    const result = await env.client.callTool({
+      name: "get_backlinks",
+      arguments: { path: "note-a.md" },
+    });
+    const text = textContent(result);
+    expect(text).toContain("Links to [[note-a]]\\twith tab.");
+    expect(text).not.toContain("note-a]]\twith tab");
+  });
 });
 
 describe("link handlers — get_outlinks", () => {

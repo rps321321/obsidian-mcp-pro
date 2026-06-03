@@ -278,7 +278,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
 
         if (!resolvedTarget) {
-          return errorResult(`No note found matching path: ${targetPath}`);
+          return errorResult(`No note found matching path: ${displayLinkValue(targetPath)}`);
         }
 
         const backlinkSources = graph.backlinks.get(resolvedTarget);
@@ -287,7 +287,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
             content: [
               {
                 type: "text" as const,
-                text: `No backlinks found for: ${resolvedTarget}`,
+                text: `No backlinks found for: ${displayLinkValue(resolvedTarget)}`,
               },
             ],
           };
@@ -336,12 +336,12 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         });
 
         const output = [
-          `Backlinks to: ${resolvedTarget}`,
+          `Backlinks to: ${displayLinkValue(resolvedTarget)}`,
           `Found: ${deduped.length} backlink(s)\n`,
           ...deduped.map((r) => {
             const lineStr = r.line > 0 ? `:${r.line}` : "";
-            const contextStr = r.context ? `  → ${r.context}` : "";
-            return `- ${r.source}${lineStr}${contextStr}`;
+            const contextStr = r.context ? `  → ${displayLinkValue(r.context)}` : "";
+            return `- ${displayLinkValue(r.source)}${lineStr}${contextStr}`;
           }),
         ].join("\n");
 
