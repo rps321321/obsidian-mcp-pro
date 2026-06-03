@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
@@ -17,12 +17,14 @@ import {
 } from "../lib/vault.js";
 
 let vaultDir: string;
+const itWin32 = process.platform === "win32" ? it : it.skip;
 
 beforeEach(async () => {
   vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), "vault-test-"));
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
 
@@ -296,6 +298,21 @@ describe("deleteNote", () => {
     expect(collisionCopy).toBeDefined();
     expect(await fs.readFile(path.join(trashDir, collisionCopy!), "utf-8")).toBe("second");
   });
+
+  itWin32("retries transient Windows rename failures while moving to trash", async () => {
+    await writeNote(vaultDir, "doomed.md", "bye");
+    const realRename = fs.rename.bind(fs);
+    const renameSpy = vi.spyOn(fs, "rename");
+    renameSpy
+      .mockRejectedValueOnce(Object.assign(new Error("simulated EPERM"), { code: "EPERM" }))
+      .mockImplementation(realRename);
+
+    await deleteNote(vaultDir, "doomed.md");
+
+    expect(renameSpy).toHaveBeenCalledTimes(2);
+    await expect(fs.access(path.join(vaultDir, "doomed.md"))).rejects.toThrow();
+    await expect(fs.access(path.join(vaultDir, ".trash", "doomed.md"))).resolves.toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -326,6 +343,21 @@ describe("moveNote", () => {
     await expect(moveNote(vaultDir, "a.md", "b.md")).rejects.toThrow(
       "Destination already exists: b.md",
     );
+  });
+
+  itWin32("retries transient Windows rename failures while moving notes", async () => {
+    await writeNote(vaultDir, "old.md", "moving");
+    const realRename = fs.rename.bind(fs);
+    const renameSpy = vi.spyOn(fs, "rename");
+    renameSpy
+      .mockRejectedValueOnce(Object.assign(new Error("simulated EBUSY"), { code: "EBUSY" }))
+      .mockImplementation(realRename);
+
+    await moveNote(vaultDir, "old.md", "new.md");
+
+    expect(renameSpy).toHaveBeenCalledTimes(2);
+    await expect(fs.access(path.join(vaultDir, "old.md"))).rejects.toThrow();
+    await expect(fs.access(path.join(vaultDir, "new.md"))).resolves.toBeUndefined();
   });
 });
 
