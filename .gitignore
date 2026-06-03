@@ -16,6 +16,10 @@ mcp-publisher.tar.gz
 # Local maintenance state (ledger + heartbeat) — operational, not public history
 .agent/
 
+# Generated per-machine agent context — personal, never commit
+.codex/
+.claude/scheduled_tasks.lock
+
 # Claude Code per-machine settings (permissions, allowlists). Shared
 # project config should live in `.claude/settings.json` (no `.local`),
 # which stays tracked so collaborators share the same rules.

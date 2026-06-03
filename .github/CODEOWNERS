@@ -1,0 +1,10 @@
+# Only the guardrail files require the owner's explicit review. Everything else
+# stays autonomously mergeable by the maintenance loop. This takes effect only if
+# you enable "Require review from Code Owners" in branch protection — until then
+# it documents intent and pairs with the self-merge ban in AGENTS.md.
+
+/AGENTS.md            @rps321321
+/SECURITY.md          @rps321321
+/.github/CODEOWNERS   @rps321321
+/.github/workflows/   @rps321321
+/package.json         @rps321321
