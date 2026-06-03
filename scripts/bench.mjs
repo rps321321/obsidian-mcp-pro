@@ -1,9 +1,9 @@
-// Performance baseline: generate throwaway vaults of increasing size and time a
+// Performance harness: generate throwaway vaults of increasing size and time a
 // real vault-wide operation (search_notes, which lists + reads every note) through
-// the stdio client. Prints a small table you can paste into docs/rnd or compare
-// against a previous run before shipping scan-heavy changes.
+// the stdio client. Exports runBench() so the perf gate can reuse it.
 //
-// Usage: node scripts/bench.mjs [sizes]   e.g. node scripts/bench.mjs 100,1000,10000
+// Direct use: node scripts/bench.mjs [sizes] [--json]
+//   e.g. node scripts/bench.mjs 100,1000,10000
 // Run after `npm run build`.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,20 +11,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const entry = join(root, "build", "index.js");
 
-if (!existsSync(entry)) {
-  console.error("build/index.js missing — run `npm run build` first.");
-  process.exit(1);
-}
-
-const sizes = (process.argv[2] ?? "100,1000").split(",").map((n) => parseInt(n.trim(), 10)).filter(Boolean);
-
-function makeVault(n) {
+export function makeVault(n) {
   const dir = mkdtempSync(join(tmpdir(), `ompro-bench-${n}-`));
   mkdirSync(join(dir, ".obsidian")); // valid vault so the server serves this, not an auto-detected one
   for (let i = 0; i < n; i++) {
@@ -60,18 +53,37 @@ async function timeSearch(vault) {
   }
 }
 
-const rows = [];
-for (const n of sizes) {
-  const vault = makeVault(n);
-  try {
-    const { coldMs, warmMs } = await timeSearch(vault);
-    rows.push({ n, coldMs, warmMs });
-    console.log(`${n} notes\tcold ${coldMs.toFixed(0)}ms\twarm ${warmMs.toFixed(0)}ms`);
-  } finally {
-    rmSync(vault, { recursive: true, force: true });
+export async function runBench(sizes) {
+  const rows = [];
+  for (const n of sizes) {
+    const vault = makeVault(n);
+    try {
+      const { coldMs, warmMs } = await timeSearch(vault);
+      rows.push({ n, coldMs, warmMs });
+    } finally {
+      rmSync(vault, { recursive: true, force: true });
+    }
   }
+  return rows;
 }
 
-console.log("\n| notes | cold search | warm search |");
-console.log("|------:|------------:|------------:|");
-for (const r of rows) console.log(`| ${r.n} | ${r.coldMs.toFixed(0)}ms | ${r.warmMs.toFixed(0)}ms |`);
+const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
+if (invokedDirectly) {
+  if (!existsSync(entry)) {
+    console.error("build/index.js missing — run `npm run build` first.");
+    process.exit(1);
+  }
+  const args = process.argv.slice(2);
+  const asJson = args.includes("--json");
+  const sizesArg = args.find((a) => !a.startsWith("--"));
+  const sizes = (sizesArg ?? "100,1000").split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean);
+  const rows = await runBench(sizes);
+  if (asJson) {
+    console.log(JSON.stringify(rows));
+  } else {
+    for (const r of rows) console.log(`${r.n} notes\tcold ${r.coldMs.toFixed(0)}ms\twarm ${r.warmMs.toFixed(0)}ms`);
+    console.log("\n| notes | cold search | warm search |");
+    console.log("|------:|------------:|------------:|");
+    for (const r of rows) console.log(`| ${r.n} | ${r.coldMs.toFixed(0)}ms | ${r.warmMs.toFixed(0)}ms |`);
+  }
+}
