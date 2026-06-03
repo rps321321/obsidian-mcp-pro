@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "crypto";
 import { log } from "./logger.js";
 import { isPersistenceEnabled } from "./index-cache.js";
 import { resolveVaultInternalPathSafe } from "./vault.js";
+import { renameWithRetry } from "./fs-ops.js";
 
 /**
  * Persistent embedding store.
@@ -301,7 +302,7 @@ async function doSave(vaultPath: string, state: StoreState): Promise<void> {
     await fs.mkdir(path.dirname(file), { recursive: true });
     try {
       await fs.writeFile(tmp, serialized, { encoding: "utf-8", mode: 0o600 });
-      await fs.rename(tmp, file);
+      await renameWithRetry(tmp, file);
     } catch (innerErr) {
       // Best-effort cleanup: if writeFile succeeded but rename failed, the
       // tmp file is still on disk. ENOENT (writeFile never created it) is

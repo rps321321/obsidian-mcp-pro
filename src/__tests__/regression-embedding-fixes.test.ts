@@ -27,12 +27,14 @@ import {
 //          cheaply.
 
 let vaultDir: string;
+const itWin32 = process.platform === "win32" ? it : it.skip;
 
 beforeEach(async () => {
   vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), "embed-regression-"));
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await clearStore(vaultDir, { removeSnapshot: true });
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
@@ -86,6 +88,32 @@ describe("saveStore tmp hygiene (H10)", () => {
     expect(entries.filter((e) => e.endsWith(".tmp"))).toEqual([]);
   });
 
+  itWin32("retries transient Windows rename failures while saving", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(
+      vaultDir,
+      "a.md",
+      "h",
+      [{ notePath: "a.md", chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [1, 2, 3] }],
+      "test",
+      "m",
+    );
+
+    const realRename = fs.rename.bind(fs);
+    const renameSpy = vi.spyOn(fs, "rename");
+    renameSpy
+      .mockRejectedValueOnce(Object.assign(new Error("simulated EPERM"), { code: "EPERM" }))
+      .mockImplementation(realRename);
+
+    await saveStore(vaultDir);
+
+    expect(renameSpy).toHaveBeenCalledTimes(2);
+    const cacheDir = path.join(vaultDir, ".obsidian", "cache");
+    const entries = await fs.readdir(cacheDir);
+    expect(entries.filter((e) => e.endsWith(".tmp"))).toEqual([]);
+    expect(entries).toContain("mcp-pro-embeddings.json");
+  });
+
   it("cleans up the tmp file when rename fails", async () => {
     await loadStore(vaultDir);
     setNoteChunks(
@@ -97,12 +125,12 @@ describe("saveStore tmp hygiene (H10)", () => {
       "m",
     );
 
-    // Make rename fail. The saveStore catch should unlink the tmp so we
-    // don't accumulate orphan files on a flaky disk / EXDEV / antivirus
-    // lock scenario.
+    // Make rename fail with a non-retriable code. The saveStore catch should
+    // unlink the tmp so we don't accumulate orphan files on a flaky disk or
+    // cross-device rename scenario.
     const renameSpy = vi
       .spyOn(fs, "rename")
-      .mockRejectedValueOnce(Object.assign(new Error("simulated EPERM"), { code: "EPERM" }));
+      .mockRejectedValueOnce(Object.assign(new Error("simulated EXDEV"), { code: "EXDEV" }));
 
     await saveStore(vaultDir);
 
