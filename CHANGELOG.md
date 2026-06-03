@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP resources now register through the current SDK `registerResource` API, with regression coverage for resource listing and reads.
 - `search_by_tag` now escapes control characters in displayed tag labels, note paths, and content previews before returning them to MCP clients.
 - `search_notes` now escapes control characters in displayed query labels, result paths, and matched line snippets before returning them to MCP clients.
+- `search_by_frontmatter` now escapes control characters in displayed property labels, value labels, result paths, and frontmatter rows before returning them to MCP clients.
 
 ## [2.2.0] - 2026-06-03
 

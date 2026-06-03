@@ -438,7 +438,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             content: [
               {
                 type: "text" as const,
-                text: `No notes found with frontmatter "${property}" matching "${value}"`,
+                text: `No notes found with frontmatter "${displayReadValue(property)}" matching "${displayReadValue(value)}"`,
               },
             ],
           };
@@ -449,14 +449,14 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const matches = truncated ? allMatches.slice(0, maxResults) : allMatches;
 
         const lines: string[] = [
-          `Found ${totalMatches} note(s) where "${property}" matches "${value}"${truncated ? ` (showing first ${maxResults})` : ""}:`,
+          `Found ${totalMatches} note(s) where "${displayReadValue(property)}" matches "${displayReadValue(value)}"${truncated ? ` (showing first ${maxResults})` : ""}:`,
           "",
         ];
 
         for (const match of matches) {
-          lines.push(`## ${match.path}`);
+          lines.push(`## ${displayReadValue(match.path)}`);
           for (const [key, val] of Object.entries(match.frontmatter)) {
-            lines.push(`  ${key}: ${JSON.stringify(val)}`);
+            lines.push(`  ${displayReadValue(key)}: ${displayReadValue(JSON.stringify(val) ?? "")}`);
           }
           lines.push("");
         }
