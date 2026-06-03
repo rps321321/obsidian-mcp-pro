@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "fs/promises";
+import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
 
 let env: TestEnv;
@@ -64,6 +66,30 @@ describe("read handlers — search_notes", () => {
     });
     expect(isError(result)).toBe(false);
     expect(textContent(result)).toMatch(/No results found/);
+  });
+
+  it("escapes control characters in the zero-result query label", async () => {
+    const result = await env.client.callTool({
+      name: "search_notes",
+      arguments: { query: "missing\nphrase" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain('No results found for "missing\\nphrase"');
+    expect(text).not.toContain("missing\nphrase");
+  });
+
+  it("escapes control characters in matched line snippets", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "dirty.md"), "needle\tvalue\n", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "search_notes",
+      arguments: { query: "needle" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("Line 1: needle\\tvalue");
+    expect(text).not.toContain("needle\tvalue");
   });
 
   it("rejects empty query via zod validation (tool-level isError)", async () => {
