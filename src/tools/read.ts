@@ -326,13 +326,13 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         try {
           content = await readNote(vaultPath, notePath);
         } catch {
-          return errorResult(`Daily note not found for ${targetDate} (expected at "${notePath}")`);
+          return errorResult(`Daily note not found for ${displayReadValue(targetDate)} (expected at "${displayReadValue(notePath)}")`);
         }
 
         const { data: dailyFrontmatter, content: dailyBody } = parseFrontmatter(content);
         const header: string[] = [
-          `Daily Note: ${targetDate}`,
-          `Path: ${notePath}`,
+          `Daily Note: ${displayReadValue(targetDate)}`,
+          `Path: ${displayReadValue(notePath)}`,
           "",
         ];
 
