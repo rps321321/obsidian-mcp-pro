@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Runs on the hosted Mend Renovate app, independent of this repo's GitHub Actions.",
+    "Opens dependency PRs only; nothing auto-merges. Major bumps stay separate so they",
+    "get reviewed before landing, matching the maintainer rules in AGENTS.md."
+  ],
+  "extends": [
+    "config:recommended",
+    "dependencyDashboard",
+    ":separateMultipleMajorReleases"
+  ],
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "automerge": false,
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "description": "Group devDependency updates into one PR",
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "dev dependencies"
+    },
+    {
+      "description": "Major bumps are never grouped or automerged",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  }
+}

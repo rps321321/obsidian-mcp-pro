@@ -13,9 +13,16 @@
     "start": "node build/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "prepublishOnly": "npm run build"
+    "pack:check": "npm pack --dry-run --json",
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "dogfood": "node scripts/dogfood.mjs",
+    "bench": "node scripts/bench.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm audit --audit-level=moderate && npm run pack:check",
+    "verify:full": "npm run verify && npm run check:licenses && npm run dogfood",
+    "prepublishOnly": "npm run verify"
   },
   "keywords": [
     "mcp",
@@ -45,21 +52,21 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.18.0"
+    "node": ">=24.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "gray-matter": "^4.0.3",
-    "js-yaml": "^4.1.1",
-    "zod": "^3.24.0"
+    "js-yaml": "^4.2.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.0.0",
-    "eslint": "^9.39.4",
-    "typescript": "^5.7.0",
-    "typescript-eslint": "^8.59.2",
-    "vitest": "^3.0.0"
+    "@types/node": "^24.12.4",
+    "eslint": "^10.4.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1",
+    "vitest": "^4.1.8"
   }
 }
