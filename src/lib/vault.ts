@@ -730,7 +730,7 @@ export async function deleteNote(
         // `.trash` (or any intermediate dir) that resolves outside the vault.
         await assertRealPathWithinVault(trashFullPath, vaultPath);
         const finalTrashPath = await chooseTrashPath(trashFullPath);
-        await fs.rename(fullPath, finalTrashPath);
+        await renameWithRetry(fullPath, finalTrashPath);
       } else {
         await fs.unlink(fullPath);
       }
@@ -816,7 +816,7 @@ export async function moveNote(
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
     await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
-    await fs.rename(fullOldPath, fullNewPath);
+    await renameWithRetry(fullOldPath, fullNewPath);
   };
 
   const performMove = async (): Promise<MoveNoteResult> => {
