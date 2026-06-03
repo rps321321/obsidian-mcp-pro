@@ -82,6 +82,36 @@ describe("link handlers — get_outlinks", () => {
     });
     expect(textContent(result)).toMatch(/No outgoing links/i);
   });
+
+  it("escapes control characters in missing source paths", async () => {
+    const result = await env.client.callTool({
+      name: "get_outlinks",
+      arguments: { path: "missing\nnote" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("No note found matching path: missing\\nnote");
+    expect(text).not.toContain("missing\nnote");
+  });
+
+  it("escapes control characters in displayed broken link targets", async () => {
+    const created = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "tab-outlink.md",
+        content: "# Tab outlink\n\nThis points at [[bad\ttarget]].",
+      },
+    });
+    expect(isError(created)).toBe(false);
+
+    const result = await env.client.callTool({
+      name: "get_outlinks",
+      arguments: { path: "tab-outlink.md" },
+    });
+    const text = textContent(result);
+    expect(text).toContain("[[bad\\ttarget]]");
+    expect(text).not.toContain("bad\ttarget");
+  });
 });
 
 describe("link handlers — find_orphans", () => {

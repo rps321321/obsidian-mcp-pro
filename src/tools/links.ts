@@ -3,7 +3,7 @@ import { z } from "zod";
 import { listNotes, getNoteStats } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { extractWikilinks, resolveWikilink, extractAliases } from "../lib/markdown.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import type { LinkInfo, BrokenLink, OrphanNote, GraphNeighbor } from "../types.js";
 
@@ -33,6 +33,10 @@ interface CachedGraph {
 }
 const GRAPH_CACHE_TTL_MS = 30_000;
 const GRAPH_CACHE_MAX_ENTRIES = 32;
+
+function displayLinkValue(value: string): string {
+  return escapeControlChars(value);
+}
 const graphCache = new Map<string, CachedGraph>();
 
 // Map iteration order = insertion order; delete+set to refresh recency.
@@ -399,7 +403,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           }
         }
         if (!resolvedSource) {
-          return errorResult(`No note found matching path: ${notePath}`);
+          return errorResult(`No note found matching path: ${displayLinkValue(notePath)}`);
         }
 
         const links = graph.rawLinks.get(resolvedSource) ?? [];
@@ -425,7 +429,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
             content: [
               {
                 type: "text" as const,
-                text: `No outgoing links found in: ${resolvedSource}`,
+                text: `No outgoing links found in: ${displayLinkValue(resolvedSource)}`,
               },
             ],
           };
@@ -435,7 +439,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         const broken = results.filter((r) => !r.isValid);
 
         const lines: string[] = [
-          `Outgoing links from: ${resolvedSource}`,
+          `Outgoing links from: ${displayLinkValue(resolvedSource)}`,
           `Total: ${results.length} (${valid.length} valid, ${broken.length} broken)\n`,
         ];
 
@@ -443,7 +447,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           lines.push("Valid links:");
           for (const r of valid) {
             const embedPrefix = r.isEmbed ? "📎 " : "";
-            lines.push(`  ${embedPrefix}[[${r.target}]] → ${r.resolvedPath}`);
+            lines.push(`  ${embedPrefix}[[${displayLinkValue(r.target)}]] → ${displayLinkValue(r.resolvedPath ?? "")}`);
           }
         }
 
@@ -451,7 +455,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           lines.push("\nBroken links:");
           for (const r of broken) {
             const embedPrefix = r.isEmbed ? "📎 " : "";
-            lines.push(`  ${embedPrefix}[[${r.target}]] → (not found)`);
+            lines.push(`  ${embedPrefix}[[${displayLinkValue(r.target)}]] → (not found)`);
           }
         }
 
