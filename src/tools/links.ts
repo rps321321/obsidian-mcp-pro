@@ -124,7 +124,7 @@ async function buildLinkGraph(
       if (!key) continue;
       const prior = aliasMap.get(key);
       if (prior && prior !== notePath) {
-        log.warn("Duplicate alias", { alias, a: prior, b: notePath });
+        log.warn("Duplicate alias", { alias, notes: [prior, notePath] });
       }
       aliasMap.set(key, notePath);
     }

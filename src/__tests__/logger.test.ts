@@ -162,6 +162,30 @@ describe("logger", () => {
     });
   });
 
+  it("redacts path-like values under compound path field names", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    log.warn("rewrite plan failed", {
+      sourcePath: "private/source.md",
+      target_path: "archive/target.canvas",
+      profile: "daily.md",
+      origin: "https://example.test/path",
+    });
+
+    expect(sendLoggingMessage).toHaveBeenCalledTimes(1);
+    const [params] = sendLoggingMessage.mock.calls[0];
+    const dataStr = JSON.stringify(params.data);
+    expect(dataStr).not.toContain("private/source.md");
+    expect(dataStr).not.toContain("archive/target.canvas");
+    expect(dataStr).toContain("<vault path>");
+    expect(params.data).toMatchObject({
+      profile: "daily.md",
+      origin: "https://example.test/path",
+    });
+  });
+
   it("strips paths recursively from nested objects (e.g. serialized errors)", () => {
     const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
     const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
