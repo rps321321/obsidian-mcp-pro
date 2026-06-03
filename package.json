@@ -20,6 +20,8 @@
     "check:licenses": "node scripts/check-licenses.mjs",
     "dogfood": "node scripts/dogfood.mjs",
     "bench": "node scripts/bench.mjs",
+    "perf:check": "node scripts/perf-check.mjs",
+    "perf:update": "node scripts/perf-check.mjs --update",
     "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm audit --audit-level=moderate && npm run pack:check",
     "verify:full": "npm run verify && npm run check:licenses && npm run dogfood",
     "prepublishOnly": "npm run verify"
