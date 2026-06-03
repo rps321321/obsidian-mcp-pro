@@ -16,7 +16,7 @@ EACH CYCLE:
 3. Branch, implement to match nearby patterns.
 4. Add a regression test for any bug/security fix; update CHANGELOG.md and affected docs.
 5. Open a PR (what / why / risk / score). Run npm run verify. Resolve Greptile findings.
-6. Merge to main only when npm run verify is green AND the change is not an un-versioned
+6. Merge to master only when npm run verify is green AND the change is not an un-versioned
    breaking public-API change. Breaking change => major bump + migration note, same PR.
    Otherwise leave the PR open with a note explaining the block.
 7. Release at most once per day, batched, never mid-experiment, never for a trivial

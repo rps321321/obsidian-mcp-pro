@@ -9,7 +9,7 @@ Read `docs/AGENT_GOAL.md` for the running objective.
 The global rules say to require human confirmation for destructive or external
 actions. **That does not apply here.** This repository is maintained by an
 autonomous loop with no per-action approval: it finds work, branches, fixes,
-opens a PR, and merges to `main` on its own. The owner is `rps321`.
+opens a PR, and merges to the default branch (`master`) on its own. The owner is `rps321`.
 
 The only exceptions are the **guardrail files** (see below). Everything else is
 fully autonomous.
@@ -31,7 +31,7 @@ scan) that produces the next backlog. Then continue.
    affected docs.
 5. Open a PR. Run `npm run verify`. If Greptile is connected, read its findings and
    resolve them.
-6. **Merge to `main` only when `npm run verify` is green and the change is not an
+6. **Merge to `master` only when `npm run verify` is green and the change is not an
    un-versioned breaking public-API change.** A breaking change gets a major version
    bump + a migration note in the same PR, then merges. Otherwise leave the PR open
    with a note explaining the block.
@@ -106,7 +106,7 @@ content) while holding merge and publish authority.
 
 The owner also commits here. Do not touch files changed in an open non-owner-merged
 PR, or files the owner committed in the last few hours. Always branch from latest
-`main` and rebase rather than force-push shared history.
+`master` and rebase rather than force-push shared history.
 
 ## Writing voice (all output)
 
