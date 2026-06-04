@@ -587,19 +587,23 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         if (notes.length === 0) {
           return { content: [{ type: "text" as const, text: folder ? `No notes in "${displayReadValue(folder)}"` : "Vault is empty." }] };
         }
-        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+        const { contents, stats } = await readAllCached(vaultPath, notes, (note, err) => {
           log.warn("get_vault_stats: note read failed", { note, err });
         });
 
-        // Two-phase approach: (1) synchronous pass over already-cached
-        // contents for bytes/words/tags (no I/O needed), then (2) bounded-
-        // concurrency stat calls only for mtime. This avoids wrapping pure
-        // CPU work in the async concurrency harness.
+        // Aggregate over already-cached content and stats. `readAllCached`
+        // already resolves and stats each note safely, so most-recent can use
+        // that metadata without a second filesystem pass.
         let totalBytes = 0;
         let totalWords = 0;
         let untagged = 0;
         const tagSet = new Set<string>();
+        let mostRecent: { path: string; mtimeMs: number } | null = null;
         for (const notePath of notes) {
+          const stat = stats.get(notePath);
+          if (stat && (!mostRecent || stat.mtime > mostRecent.mtimeMs)) {
+            mostRecent = { path: notePath, mtimeMs: stat.mtime };
+          }
           const content = contents.get(notePath);
           if (content === undefined) continue;
           totalBytes += Buffer.byteLength(content, "utf-8");
@@ -609,30 +613,6 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           const tags = extractTags(content);
           if (tags.length === 0) untagged++;
           for (const t of tags) tagSet.add(t.toLowerCase());
-        }
-
-        // Stat calls need I/O - use bounded concurrency.
-        type MtimeRow = { path: string; mtimeMs: number };
-        const mtimeRows = await mapConcurrent<string, MtimeRow | undefined>(
-          notes,
-          MAX_CONCURRENT_OPS,
-          async (notePath) => {
-            try {
-              const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
-              const st = await fs.stat(fullPath);
-              return { path: notePath, mtimeMs: st.mtimeMs };
-            } catch {
-              return undefined;
-            }
-          },
-        );
-
-        let mostRecent: { path: string; mtimeMs: number } | null = null;
-        for (const row of mtimeRows) {
-          if (!row) continue;
-          if (!mostRecent || row.mtimeMs > mostRecent.mtimeMs) {
-            mostRecent = { path: row.path, mtimeMs: row.mtimeMs };
-          }
         }
 
         const avgBytes = Math.round(totalBytes / notes.length);

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Active R&D experiment for `get_vault_stats` warm-path performance, with a synthetic benchmark harness in `scripts/bench-vault-stats.mjs` and ship/kill metric in `docs/rnd/vault-stats-warm-path.md`.
+- R&D experiment for `get_vault_stats` warm-path performance, with a synthetic benchmark harness in `scripts/bench-vault-stats.mjs` and ship/kill metric in `docs/rnd/vault-stats-warm-path.md`.
 - R&D experiment for `get_recent_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-recent-notes.mjs` and ship/kill metric in `docs/rnd/recent-notes-warm-path.md`.
 - R&D experiment for attachment inventory warm-path performance, with a synthetic benchmark harness in `scripts/bench-attachments.mjs` and ship/kill metric in `docs/rnd/attachment-inventory-warm-path.md`.
 - R&D experiment for `read_canvas` warm-read performance, with a synthetic benchmark harness in `scripts/bench-canvas.mjs` and ship/kill metric in `docs/rnd/canvas-read-warm-path.md`.
@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `get_vault_stats` now reuses stat metadata returned by the content cache, cutting the 1,000-note warm bench below the R&D ship bar while preserving mtime freshness and aggregate output.
 - `get_recent_notes` now reuses the safe resolved vault root across its per-note stat pass, cutting the 1,000-note warm bench below the R&D ship bar while preserving mtime freshness and result ordering.
 - `find_unused_attachments` now reuses a warm in-memory attachment inventory keyed by attachment paths and note mtimes, cutting the 1,000 attachment/note warm unused-scan bench below the R&D ship bar while preserving reference matching and byte reporting.
 - `read_canvas` now reuses a warm in-memory rendered summary keyed by canvas file metadata, cutting the 1,000-node warm canvas-read bench below the R&D ship bar while preserving path validation and displayed output.
