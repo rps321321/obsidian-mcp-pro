@@ -1,7 +1,7 @@
 # Search Snippet Quality
 
-_Status: active_
-_Started: 2026-06-04 - Decided: pending_
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -33,10 +33,10 @@ visible snippet line.
 
 | metric | before | after |
 |---|---:|---:|
-| Duplicate snippet rows | 6 | |
-| Unique line coverage | 0.667 | |
-| Total snippet rows | 18 | |
-| Unique snippet lines | 12 | |
+| Duplicate snippet rows | 6 | 0 |
+| Unique line coverage | 0.667 | 1.000 |
+| Total snippet rows | 18 | 12 |
+| Unique snippet lines | 12 | 12 |
 
 Baseline command samples:
 
@@ -44,6 +44,13 @@ Baseline command samples:
   6, unique line coverage 0.667, total snippet rows 18, unique snippet lines 12.
 - `node scripts/bench-search-snippet-quality.mjs --json`: duplicate snippet rows
   6, unique line coverage 0.667, total snippet rows 18, unique snippet lines 12.
+
+After command samples:
+
+- `node scripts/bench-search-snippet-quality.mjs --json`: duplicate snippet rows
+  0, unique line coverage 1.000, total snippet rows 12, unique snippet lines 12.
+- `node scripts/bench-search-snippet-quality.mjs --json`: duplicate snippet rows
+  0, unique line coverage 1.000, total snippet rows 12, unique snippet lines 12.
 
 Current rows:
 
@@ -53,7 +60,7 @@ Current rows:
 | `migration-plan.md` | 4 | 4 | 0 |
 | `release-notes.md` | 1 | 1 | 0 |
 | `zz-glossary.md` | 1 | 1 | 0 |
-| `meeting-transcript.md` | 8 | 2 | 6 |
+| `meeting-transcript.md` | 2 | 2 | 0 |
 
 ## Safety review
 
@@ -71,6 +78,7 @@ public parameter or result format.
 
 ## Decision
 
-Active. The next step is a narrow rendering or matcher prototype that collapses
-duplicate same-line snippets while keeping at least one snippet per matching
-line and preserving the current ranking behavior.
+Shipped. `search_notes` now keeps raw literal hit counts for ranking, then
+collapses returned matches to one snippet per source line. The fixture clears
+the ship bar without changing tool names, parameters, result format, ranking
+order, case sensitivity, folder filtering, or max-result handling.

@@ -918,7 +918,7 @@ export function searchInContents(
     if (content === undefined) continue;
 
     const lines = content.split("\n");
-    const matches: SearchMatch[] = [];
+    const rawMatches: SearchMatch[] = [];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
       const compareLine = caseSensitive ? line : line.toLowerCase();
@@ -926,16 +926,16 @@ export function searchInContents(
       while (true) {
         const col = compareLine.indexOf(searchQuery, startIndex);
         if (col === -1) break;
-        matches.push({ line: i + 1, content: line.trim(), column: col });
+        rawMatches.push({ line: i + 1, content: line.trim(), column: col });
         startIndex = col + searchQuery.length;
       }
     }
-    if (matches.length === 0) continue;
+    if (rawMatches.length === 0) continue;
     results.push({
       path: notePath,
       relativePath: notePath,
-      matches,
-      score: scoreLexicalMatches(notePath, lines, matches, searchQuery, caseSensitive),
+      matches: collapseSearchLineMatches(rawMatches),
+      score: scoreLexicalMatches(notePath, lines, rawMatches, searchQuery, caseSensitive),
     });
   }
   // Primary: lexical focus score (desc). Secondary: relative path (asc) — otherwise
@@ -943,6 +943,15 @@ export function searchInContents(
   // equal-score queries non-deterministic between runs.
   results.sort((a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath));
   return results.slice(0, maxResults);
+}
+
+function collapseSearchLineMatches(matches: readonly SearchMatch[]): SearchMatch[] {
+  const seenLines = new Set<number>();
+  return matches.filter((match) => {
+    if (seenLines.has(match.line)) return false;
+    seenLines.add(match.line);
+    return true;
+  });
 }
 
 function scoreLexicalMatches(
