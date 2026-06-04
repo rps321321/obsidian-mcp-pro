@@ -1,7 +1,7 @@
 # Broken Link Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -43,8 +43,8 @@ for aliases, line numbers, folder-scoped clean reports, or max-result summaries.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm broken-link scan | 222.7ms | |
-| 1,000-note cold broken-link guardrail | 264.3ms | |
+| 1,000-note warm broken-link scan | 222.7ms | 29.1ms |
+| 1,000-note cold broken-link guardrail | 264.3ms | 231.2ms |
 
 ## Safety review
 
@@ -70,4 +70,25 @@ implementation changes alias-resolved broken-link output.
 
 ## Decision
 
-Open.
+Ship. `find_broken_links` now uses the same link graph data path as the other
+graph-backed link tools. The graph builder already resolves every raw wikilink,
+so it now records unresolved links and their line numbers while building the
+graph. `find_broken_links` renders that preclassified list, preserving grouped
+output, folder scoping, alias resolution, max-result truncation, and displayed
+line numbers.
+
+The prototype also reuses the mtimes already gathered by `readAllCached` for the
+cold graph fingerprint, avoiding a second stat pass after the graph has just read
+the vault.
+
+Measured after the prototype with:
+
+```powershell
+npm run build
+node scripts\bench-broken-links.mjs 100,1000 --json
+node scripts\bench-broken-links.mjs 100,1000 --json
+```
+
+The two repeated 1,000-note warm runs were 29.1ms and 39.2ms, both below the
+178ms ship bar. The repeated cold runs were 231.2ms and 238.2ms, both below the
+291ms guardrail.

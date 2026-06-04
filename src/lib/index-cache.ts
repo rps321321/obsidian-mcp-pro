@@ -279,6 +279,8 @@ export interface ReadAllResult {
    *  omitted; callers that need to know about failures should pass an
    *  `onError` callback. */
   contents: Map<string, string>;
+  /** vault-relative path -> stat mtime in whole milliseconds. */
+  mtimes: Map<string, number>;
   /** Number of files whose content was reused from cache. */
   cacheHits: number;
   /** Number of files newly read (or re-read after mtime change). */
@@ -300,6 +302,7 @@ export async function readAllCached(
   const cache = state.entries;
   const seen = new Set<string>();
   const contents = new Map<string, string>();
+  const mtimes = new Map<string, number>();
   let cacheHits = 0;
   let cacheMisses = 0;
   const realVaultRoot = await getVaultRootRealPath(vaultPath);
@@ -317,6 +320,7 @@ export async function readAllCached(
     try {
       const stat = await fs.stat(fullPath);
       mtimeMs = stat.mtimeMs;
+      mtimes.set(relPath, stat.mtime.getTime());
     } catch (err) {
       // ENOENT during stat means the file disappeared between listing and
       // reading — drop the cache entry and skip.
@@ -365,7 +369,7 @@ export async function readAllCached(
 
   if (state.dirty) scheduleFlush(vaultPath, state);
 
-  return { contents, cacheHits, cacheMisses };
+  return { contents, mtimes, cacheHits, cacheMisses };
 }
 
 /** Synchronously flush all known caches to disk. Wired into the process

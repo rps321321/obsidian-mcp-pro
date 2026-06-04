@@ -44,6 +44,8 @@ describe("readAllCached", () => {
     const result = await readAllCached(vaultDir, ["a.md", "b.md"]);
     expect(result.contents.get("a.md")).toBe("alpha");
     expect(result.contents.get("b.md")).toBe("beta");
+    expect(result.mtimes.get("a.md")).toEqual(expect.any(Number));
+    expect(result.mtimes.get("b.md")).toEqual(expect.any(Number));
     expect(result.cacheMisses).toBe(2);
     expect(result.cacheHits).toBe(0);
   });
