@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Empty `get_vault_stats` folder output and missing daily-resource errors now escape control characters in displayed configured paths.
 - Workflow prompts now escape control characters in displayed folder, path, and tag arguments before returning prompt text to MCP clients.
 
 ## [3.0.0] - 2026-06-04
