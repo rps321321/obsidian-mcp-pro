@@ -495,6 +495,25 @@ describe("read handlers — get_vault_stats", () => {
     expect(text).toMatch(/Most recent:\s+\S+\.md/);
   });
 
+  it("reflects note mtime changes between repeated stats calls", async () => {
+    await env.client.callTool({
+      name: "get_vault_stats",
+      arguments: {},
+    });
+
+    const notePath = path.join(env.vaultDir, "stats-refresh.md");
+    await fs.writeFile(notePath, "fresh stats note\n#stats\n", "utf-8");
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(notePath, future, future);
+
+    const result = await env.client.callTool({
+      name: "get_vault_stats",
+      arguments: {},
+    });
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toMatch(/Most recent:\s+stats-refresh\.md/);
+  });
+
   it("scopes to a folder", async () => {
     const result = await env.client.callTool({
       name: "get_vault_stats",
