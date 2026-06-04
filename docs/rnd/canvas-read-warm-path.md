@@ -43,7 +43,7 @@ node previews, edge labels, counts, or escaped values.
 | | before | after |
 |---|---:|---:|
 | 1,000-node warm read_canvas | 6.9ms | |
-| 1,000-node cold read_canvas guardrail | 9.3ms | |
+| 1,000-node cold read_canvas guardrail | 11ms | |
 
 ## Safety review
 
