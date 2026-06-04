@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Active R&D experiment for `get_outlinks` warm-path performance, with a synthetic benchmark harness in `scripts/bench-outlinks.mjs` and ship/kill metric in `docs/rnd/outlinks-warm-path.md`.
+- R&D experiment for `get_outlinks` warm-path performance, with a synthetic benchmark harness in `scripts/bench-outlinks.mjs` and ship/kill metric in `docs/rnd/outlinks-warm-path.md`.
 - R&D experiment for `find_orphans` warm-path performance, with a synthetic benchmark harness in `scripts/bench-orphans.mjs` and ship/kill metric in `docs/rnd/orphan-discovery-warm-path.md`.
 - R&D experiment for `search_by_frontmatter` warm-path performance, with a synthetic benchmark harness in `scripts/bench-frontmatter-search.mjs` and ship/kill metric in `docs/rnd/frontmatter-search-warm-path.md`.
 - R&D experiment for `resolve_alias` warm-path performance, with a synthetic benchmark harness in `scripts/bench-resolve-alias.mjs` and ship/kill metric in `docs/rnd/resolve-alias-warm-path.md`.
@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `get_outlinks` now renders from resolved link rows captured by the shared graph cache, cutting the 1,000-note warm outlinks bench below the R&D ship bar while preserving alias resolution and valid/broken/embed grouping.
 - The `find_orphans` warm-path R&D experiment is stopped after simple stat-concurrency and derived-category prototypes missed the ship bar.
 - `search_by_frontmatter` now reads through the shared content cache, cutting the 1,000-note warm metadata lookup bench below the R&D ship bar while preserving scalar and array frontmatter matching.
 - `resolve_alias` now reads through the shared content cache, cutting the 1,000-note warm alias lookup bench below the R&D ship bar while preserving alias matching and basename fallback output.
