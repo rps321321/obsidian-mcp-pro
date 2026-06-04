@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-06-04
+
 ### Fixed
 
 - MCP-forwarded log payloads now redact vault-relative path-like fields such as `note`, `relPath`, and nested `path`, preventing read-scan failures from exposing private note names to connected clients.
@@ -32,8 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Write tools now escape control characters in displayed note paths before returning create, update, move, delete, and daily-note messages to MCP clients.
 - `list_tags` and `rename_tag` now escape control characters in displayed tag labels before returning them to MCP clients.
 - Read tools now escape control characters in generated frontmatter/tag headers, note-list rows, and vault-stat path labels before returning them to MCP clients.
-
-## [2.2.0] - 2026-06-03
 
 ### Breaking Changes
 
