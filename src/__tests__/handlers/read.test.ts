@@ -185,6 +185,57 @@ describe("read handlers — get_note", () => {
     expect(text).toContain('Block not found: "^bad\\nblock" in note-a.md');
     expect(text).not.toContain("bad\nblock");
   });
+
+  it("returns line fragments without frontmatter or tag headers", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "line-fragment.md"),
+      ["---", "status: hidden", "---", "one", "two", "three", "four"].join("\n"),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "line-fragment.md", lines: "5-6" },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toBe("two\nthree");
+    expect(text).not.toContain("Frontmatter");
+    expect(text).not.toContain("Tags:");
+  });
+
+  it("reports line fragments past EOF with the total line count", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "short-lines.md"), "one\ntwo\nthree", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "short-lines.md", lines: "9" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toContain("Line 9 is past end of file (3 lines)");
+  });
+
+  it("reads fresh line fragments after the note changes", async () => {
+    const fullPath = path.join(env.vaultDir, "fresh-lines.md");
+    await fs.writeFile(fullPath, "first\nold\nthird", "utf-8");
+
+    const before = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "fresh-lines.md", lines: "2" },
+    });
+    expect(textContent(before)).toBe("old");
+
+    await fs.writeFile(fullPath, "first\nnew\nthird", "utf-8");
+    const after = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "fresh-lines.md", lines: "2" },
+    });
+
+    expect(isError(after)).toBe(false);
+    expect(textContent(after)).toBe("new");
+  });
 });
 
 describe("read handlers — list_notes", () => {
