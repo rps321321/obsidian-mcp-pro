@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
-import { resolveVaultInternalPathSafe, resolveVaultPathSafe } from "./vault.js";
+import { getVaultRootRealPath, resolveVaultInternalPathSafe, resolveVaultPathSafe } from "./vault.js";
 import { mapConcurrent } from "./concurrency.js";
 import { log } from "./logger.js";
 import { renameWithRetry } from "./fs-ops.js";
@@ -302,12 +302,13 @@ export async function readAllCached(
   const contents = new Map<string, string>();
   let cacheHits = 0;
   let cacheMisses = 0;
+  const realVaultRoot = await getVaultRootRealPath(vaultPath);
 
   await mapConcurrent(relPaths, READ_CONCURRENCY, async (relPath) => {
     seen.add(relPath);
     let fullPath: string;
     try {
-      fullPath = await resolveVaultPathSafe(vaultPath, relPath);
+      fullPath = await resolveVaultPathSafe(vaultPath, relPath, "read", { realVaultRoot });
     } catch (err) {
       onError?.(relPath, err as Error);
       return undefined;

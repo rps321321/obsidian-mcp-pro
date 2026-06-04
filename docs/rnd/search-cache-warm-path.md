@@ -1,7 +1,7 @@
 # Search Cache Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: TBD_
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -40,8 +40,8 @@ Ship bar: warm time at or below 73ms (20% faster than the 91.5ms baseline) with
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm search | 91.5ms | TBD |
-| 1,000-note cold search guardrail | 113.0ms | TBD |
+| 1,000-note warm search | 91.5ms | 23.2ms |
+| 1,000-note cold search guardrail | 113.0ms | 59.2ms |
 
 ## Safety review
 
@@ -66,5 +66,28 @@ persistent index that is not justified by the measured gain.
 
 ## Decision
 
-Active. Next step: prototype a narrow warm-path optimization and compare against
-the baseline above.
+Ship. The prototype kept the existing content cache and search result shape, but
+removed duplicated filesystem work from the warm path:
+
+- `readAllCached` now resolves the real vault root once per batch and passes it
+  into each per-note vault-boundary check, preserving the per-file symlink
+  realpath validation while avoiding repeated root `realpath` calls.
+- Broad vault walks now use `Dirent.isSymbolicLink()` from `readdir(...,
+  { withFileTypes: true })` to skip symlink entries directly, avoiding one
+  `lstat` per ordinary note while direct note reads still use
+  `resolveVaultPathSafe`.
+- `searchInContents` now returns immediately for an empty query, which is
+  already rejected by the MCP tool but keeps the exported pure helper bounded.
+
+Measured after the prototype with:
+
+```powershell
+npm run build
+node scripts\bench.mjs 100,1000 --json
+node scripts\bench.mjs 100,1000 --json
+```
+
+The two repeated 1,000-note warm runs were 23.2ms and 22.7ms, both below the
+73ms ship bar. The slower repeated cold run was 59.2ms, below the 125ms
+guardrail. `npm run perf:update` refreshed `tests/perf/baseline.json` on the
+same machine.
