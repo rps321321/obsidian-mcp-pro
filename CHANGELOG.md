@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_backlinks`, `find_orphans`, `find_broken_links`, and `get_graph_neighbors` now escape control characters in displayed note paths, wikilink targets, and context lines before returning them to MCP clients.
 - Attachment tools now escape control characters in displayed extension filters, attachment paths, filenames, and blocked/rejected paths before returning them to MCP clients.
 - Base tools now escape control characters in displayed Base paths, property labels, view labels, warnings, result paths, and frontmatter keys before returning them to MCP clients.
+- Section tools now escape control characters in displayed note paths, headings, block ids, and invalid regex flags before returning them to MCP clients.
 
 ## [2.2.0] - 2026-06-03
 
