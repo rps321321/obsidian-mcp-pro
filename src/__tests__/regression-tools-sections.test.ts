@@ -192,6 +192,89 @@ describe("regression: insert_at_section UTF-8 byte count (H11)", () => {
   });
 });
 
+describe("regression: section tool output escaping", () => {
+  it("escapes control characters in listed heading text", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "dirty-heading.md"),
+      "# Clean\n\n## Dirty\tHeading\n\nBody\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "list_sections",
+      arguments: { path: "dirty-heading.md" },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("## Dirty\\tHeading");
+    expect(text).not.toContain("Dirty\tHeading");
+  });
+
+  it("escapes control characters in update_section success output", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "update-dirty-heading.md"),
+      "# Dirty\tHeading\n\nold body\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "update_section",
+      arguments: {
+        path: "update-dirty-heading.md",
+        section: "Dirty\tHeading",
+        newBody: "new body",
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain('Updated section "Dirty\\tHeading" in update-dirty-heading.md');
+    expect(text).not.toContain("Dirty\tHeading");
+  });
+
+  it("escapes control characters in insert_at_section success output", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "insert-dirty-heading.md"),
+      "# Dirty\tHeading\n\nold body\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "insert_at_section",
+      arguments: {
+        path: "insert-dirty-heading.md",
+        section: "Dirty\tHeading",
+        content: "inserted",
+        position: "append",
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain('bytes into "Dirty\\tHeading" (append) in insert-dirty-heading.md');
+    expect(text).not.toContain("Dirty\tHeading");
+  });
+
+  it("escapes control characters in invalid regex flag errors", async () => {
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "note-c.md",
+        find: "Standalone",
+        replace: "REPLACED",
+        regex: true,
+        flags: "g\n",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("invalid regex flag '\\n'");
+    expect(text).not.toContain("invalid regex flag '\n'");
+  });
+});
+
 describe("regression: edit_block normalizes leading ^ (O8)", () => {
   it("accepts `^myid` and treats it identically to `myid`", async () => {
     const note = "# Note\n\nFirst paragraph. ^myid\n\nOther stuff.\n";
