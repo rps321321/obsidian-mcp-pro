@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Active R&D experiment for `query_base` warm-query performance, with a synthetic benchmark harness in `scripts/bench-bases.mjs` and ship/kill metric in `docs/rnd/bases-query-warm-path.md`.
 - Active R&D experiment for `find_broken_links` warm-scan performance, with a synthetic benchmark harness in `scripts/bench-broken-links.mjs` and ship/kill metric in `docs/rnd/broken-link-warm-path.md`.
 - Active R&D experiment for link graph warm-cache performance, with a synthetic benchmark harness in `scripts/bench-links.mjs` and ship/kill metric in `docs/rnd/link-graph-warm-path.md`.
 - Active R&D experiment for `search_notes` warm-cache performance, with a baseline fixture and ship/kill metric in `docs/rnd/search-cache-warm-path.md`.
