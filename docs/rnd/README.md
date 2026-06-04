@@ -19,7 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
-| [Search Ranking Quality](search-ranking-quality.md) | retrieval quality | active | Baseline NDCG@3 is 0.690 because repeated incidental mentions can outrank focused lexical matches; next step is a focused-match ranking prototype. |
+| [Search Ranking Quality](search-ranking-quality.md) | retrieval quality | shipped | NDCG@3 rose from 0.690 to 1.000, precision@3 rose from 0.667 to 1.000, and repeated incidental mentions no longer rank ahead of focused lexical matches. |
 | [Similar Notes Quality](similar-notes-quality.md) | retrieval quality | shipped | NDCG@3 rose from 0.418 to 1.000, precision@3 rose from 0.667 to 1.000, and unrelated source appendices no longer push an off-topic kitchen note into first place. |
 | [Semantic Ranking Quality](semantic-ranking-quality.md) | retrieval quality | shipped | NDCG@3 rose from 0.690 to 1.000, precision@3 rose from 0.667 to 1.000, and grade-1 incidental matches no longer rank ahead of focused grade-3 notes. |
 | [Chunker Boundary Quality](chunker-boundary-quality.md) | retrieval quality | shipped | Score rose from 88.0 to 100.0, fenced-code fractures fell from two to zero, chunk count stayed at 21, and mean token load fell to 1.15x. |
