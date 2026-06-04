@@ -355,6 +355,38 @@ describe("read handlers — search_by_frontmatter", () => {
     expect(textContent(result)).toMatch(/No notes found/i);
   });
 
+  it("reflects frontmatter edits between repeated lookups", async () => {
+    const first = await env.client.callTool({
+      name: "search_by_frontmatter",
+      arguments: { property: "status", value: "warm-ready" },
+    });
+    expect(textContent(first)).toMatch(/No notes found/i);
+
+    const notePath = path.join(env.vaultDir, "frontmatter-refresh.md");
+    await fs.writeFile(
+      notePath,
+      [
+        "---",
+        "status: warm-ready",
+        "type: project",
+        "---",
+        "",
+        "# Frontmatter Refresh",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(notePath, future, future);
+
+    const second = await env.client.callTool({
+      name: "search_by_frontmatter",
+      arguments: { property: "status", value: "warm-ready" },
+    });
+    expect(isError(second)).toBe(false);
+    expect(textContent(second)).toMatch(/frontmatter-refresh\.md/);
+  });
+
   it("escapes control characters in no-match property and value labels", async () => {
     const result = await env.client.callTool({
       name: "search_by_frontmatter",
