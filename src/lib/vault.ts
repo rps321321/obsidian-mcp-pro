@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
+import { StringDecoder } from "string_decoder";
 import { mapConcurrent } from "./concurrency.js";
 import { assertAllowed, type AccessKind } from "./permissions.js";
 import { renameWithRetry } from "./fs-ops.js";
@@ -429,6 +430,80 @@ export async function readNote(
       throw new Error(`Note not found: ${relativePath}`, { cause: err });
     }
     throw err;
+  }
+}
+
+export interface NoteLineRangeRead {
+  text: string;
+  pastEndLine?: {
+    requested: number;
+    total: number;
+  };
+}
+
+export async function readNoteLineRange(
+  vaultPath: string,
+  relativePath: string,
+  startLine: number,
+  endLine: number,
+): Promise<NoteLineRangeRead> {
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  let handle: fs.FileHandle | undefined;
+  try {
+    handle = await fs.open(fullPath, "r");
+    const decoder = new StringDecoder("utf8");
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    const collected: string[] = [];
+    let pending = "";
+    let currentLine = 1;
+
+    const processLine = (line: string): boolean => {
+      if (currentLine >= startLine && currentLine <= endLine) {
+        collected.push(line);
+      }
+      const reachedRequestedEnd = currentLine >= endLine;
+      currentLine += 1;
+      return reachedRequestedEnd;
+    };
+
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+
+      let chunk = decoder.write(buffer.subarray(0, bytesRead));
+      while (true) {
+        const newline = chunk.indexOf("\n");
+        if (newline === -1) {
+          pending += chunk;
+          break;
+        }
+        const line = pending + chunk.slice(0, newline);
+        pending = "";
+        if (processLine(line)) {
+          return { text: collected.join("\n") };
+        }
+        chunk = chunk.slice(newline + 1);
+      }
+    }
+
+    const tail = decoder.end();
+    if (tail.length > 0) pending += tail;
+    if (processLine(pending)) {
+      return { text: collected.join("\n") };
+    }
+
+    const totalLines = currentLine - 1;
+    if (startLine > totalLines) {
+      return { text: "", pastEndLine: { requested: startLine, total: totalLines } };
+    }
+    return { text: collected.join("\n") };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Note not found: ${relativePath}`, { cause: err });
+    }
+    throw err;
+  } finally {
+    await handle?.close();
   }
 }
 
