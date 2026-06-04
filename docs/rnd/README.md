@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Link Graph Warm Path](link-graph-warm-path.md) | performance / graph analysis | active | Baseline measures cold graph traversal plus warm shared-cache backlink and neighbor lookups on synthetic 100-note and 1,000-note vaults. |
 | [Search Cache Warm Path](search-cache-warm-path.md) | performance / retrieval quality | shipped | Warm 1,000-note search fell from 91.5ms to 23.2ms while cold stayed under the guardrail. |
 
 Tracks to pull from: retrieval quality, agent workflows, Obsidian format coverage,
