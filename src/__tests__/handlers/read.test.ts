@@ -103,6 +103,23 @@ describe("read handlers — search_notes", () => {
     ]);
   });
 
+  it("renders long matching lines as query-centered snippets", async () => {
+    const before = Array.from({ length: 80 }, (_, index) => `before-${index + 1}`).join(" ");
+    const after = Array.from({ length: 80 }, (_, index) => `after-${index + 1}`).join(" ");
+    await fs.writeFile(path.join(env.vaultDir, "long.md"), `${before} alpha ${after}\n`, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "search_notes",
+      arguments: { query: "alpha", maxResults: 1 },
+    });
+
+    const lineRow = textContent(result).split("\n").find((line) => line.includes("Line 1:"));
+    expect(lineRow).toBeDefined();
+    expect(lineRow!.length).toBeLessThanOrEqual("  Line 1: ".length + 240);
+    expect(lineRow).toContain("alpha");
+    expect(lineRow).toContain("...");
+  });
+
   it("restricts scan to a folder when folder= is set", async () => {
     const result = await env.client.callTool({
       name: "search_notes",

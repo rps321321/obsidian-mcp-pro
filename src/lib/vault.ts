@@ -15,6 +15,8 @@ const SEARCH_PATH_MATCH_BOOST = 4;
 const SEARCH_HEADING_MATCH_BOOST = 4;
 const SEARCH_MATCH_COUNT_WEIGHT = 0.25;
 const SEARCH_REPEATED_SAME_LINE_PENALTY = 0.5;
+const SEARCH_SNIPPET_MAX_CHARS = 240;
+const SEARCH_SNIPPET_OMISSION = "...";
 
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
@@ -926,7 +928,11 @@ export function searchInContents(
       while (true) {
         const col = compareLine.indexOf(searchQuery, startIndex);
         if (col === -1) break;
-        rawMatches.push({ line: i + 1, content: line.trim(), column: col });
+        rawMatches.push({
+          line: i + 1,
+          content: formatSearchSnippet(line, col, searchQuery.length),
+          column: col,
+        });
         startIndex = col + searchQuery.length;
       }
     }
@@ -952,6 +958,29 @@ function collapseSearchLineMatches(matches: readonly SearchMatch[]): SearchMatch
     seenLines.add(match.line);
     return true;
   });
+}
+
+function formatSearchSnippet(line: string, column: number, queryLength: number): string {
+  const trimmedStart = line.trimStart();
+  const leadingTrimmedChars = line.length - trimmedStart.length;
+  const trimmedLine = trimmedStart.trimEnd();
+  const maxSnippetChars = Math.max(
+    SEARCH_SNIPPET_MAX_CHARS,
+    queryLength + SEARCH_SNIPPET_OMISSION.length * 2,
+  );
+
+  if (trimmedLine.length <= maxSnippetChars) return trimmedLine;
+
+  const snippetColumn = Math.max(0, column - leadingTrimmedChars);
+  const queryStart = Math.min(snippetColumn, trimmedLine.length);
+  const bodyMaxChars = maxSnippetChars - SEARCH_SNIPPET_OMISSION.length * 2;
+  let start = Math.max(0, queryStart - Math.floor((bodyMaxChars - queryLength) / 2));
+  const end = Math.min(trimmedLine.length, start + bodyMaxChars);
+  if (end === trimmedLine.length) start = Math.max(0, end - bodyMaxChars);
+
+  const prefix = start > 0 ? SEARCH_SNIPPET_OMISSION : "";
+  const suffix = end < trimmedLine.length ? SEARCH_SNIPPET_OMISSION : "";
+  return `${prefix}${trimmedLine.slice(start, end)}${suffix}`;
 }
 
 function scoreLexicalMatches(
