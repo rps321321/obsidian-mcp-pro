@@ -19,6 +19,8 @@ interface LinkGraphData {
    *  (get_backlinks, get_outlinks) so resolveWikilink can find alias-only
    *  targets the build pass already indexed. */
   aliasMap: Map<string, string>;
+  /** Unresolved wikilinks per note, keyed by source path. */
+  brokenLinks: Map<string, BrokenLink[]>;
 }
 
 // Per-vault+folder cache. Invalidated when any note's mtime changes,
@@ -50,15 +52,32 @@ function setGraphCache(key: string, entry: CachedGraph): void {
   }
 }
 
-async function fingerprintVault(
-  vaultPath: string,
+function fingerprintFromMtimes(
   notes: string[],
-): Promise<string> {
+  mtimes: ReadonlyMap<string, number>,
+): string {
   // Accumulate a 32-bit FNV-1a hash over "<sortedPath>|<mtimeMs>;" per note.
   // Catches add+delete churn and mtime-restoring edits that count+max-mtime
   // alone would miss.
   const sorted = [...notes].sort();
   let hash = 0x811c9dc5;
+  for (const note of sorted) {
+    const mtime = mtimes.get(note) ?? 0;
+    const entry = `${note}|${mtime};`;
+    for (let k = 0; k < entry.length; k++) {
+      hash ^= entry.charCodeAt(k);
+      hash = Math.imul(hash, 0x01000193);
+    }
+  }
+  return `${sorted.length}:${(hash >>> 0).toString(16)}`;
+}
+
+async function fingerprintVault(
+  vaultPath: string,
+  notes: string[],
+): Promise<string> {
+  const mtimes = new Map<string, number>();
+  const sorted = [...notes].sort();
   const CONCURRENCY = 16;
   const realVaultRoot = await getVaultRootRealPath(vaultPath);
   for (let i = 0; i < sorted.length; i += CONCURRENCY) {
@@ -68,14 +87,10 @@ async function fingerprintVault(
     );
     for (let j = 0; j < slice.length; j++) {
       const mtime = stats[j]?.modified?.getTime() ?? 0;
-      const entry = `${slice[j]}|${mtime};`;
-      for (let k = 0; k < entry.length; k++) {
-        hash ^= entry.charCodeAt(k);
-        hash = Math.imul(hash, 0x01000193);
-      }
+      mtimes.set(slice[j]!, mtime);
     }
   }
-  return `${sorted.length}:${(hash >>> 0).toString(16)}`;
+  return fingerprintFromMtimes(sorted, mtimes);
 }
 
 async function buildLinkGraph(
@@ -99,6 +114,7 @@ async function buildLinkGraph(
   const backlinks = new Map<string, Set<string>>();
   const rawLinks = new Map<string, LinkInfo[]>();
   const noteLines = new Map<string, string[]>();
+  const brokenLinks = new Map<string, BrokenLink[]>();
 
   // Initialize sets for all notes
   for (const notePath of allNotes) {
@@ -108,7 +124,7 @@ async function buildLinkGraph(
 
   // Read notes via the shared mtime cache so repeated graph builds (and
   // overlapping search_notes / get_tags scans) skip re-reads.
-  const { contents: noteContents } = await readAllCached(
+  const { contents: noteContents, mtimes } = await readAllCached(
     vaultPath,
     allNotes,
     (note, err) => {
@@ -139,7 +155,8 @@ async function buildLinkGraph(
     const content = noteContents.get(notePath);
     if (content === undefined) continue;
 
-    noteLines.set(notePath, content.split("\n"));
+    const lines = content.split("\n");
+    noteLines.set(notePath, lines);
     const links = extractWikilinks(content);
 
     // Fill in source for each link
@@ -164,6 +181,17 @@ async function buildLinkGraph(
           backlinks.set(resolved, new Set());
         }
         backlinks.get(resolved)!.add(notePath);
+      } else {
+        const lineInfo = findLineWithLink(lines, link.target);
+        const broken: BrokenLink = {
+          sourcePath: notePath,
+          targetLink: link.target,
+          line: lineInfo.line,
+        };
+        if (!brokenLinks.has(notePath)) {
+          brokenLinks.set(notePath, []);
+        }
+        brokenLinks.get(notePath)!.push(broken);
       }
     }
 
@@ -177,8 +205,9 @@ async function buildLinkGraph(
     rawLinks,
     noteLines,
     aliasMap,
+    brokenLinks,
   };
-  const fingerprint = await fingerprintVault(vaultPath, allNotes);
+  const fingerprint = fingerprintFromMtimes(allNotes, mtimes);
   setGraphCache(cacheKey, { data, fingerprint, cachedAt: Date.now() });
   return data;
 }
@@ -597,64 +626,18 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
     },
     async ({ folder, maxResults }) => {
       try {
-        // Get all notes in vault for resolution, but only scan the folder.
-        // Reads go through the shared mtime cache (`readAllCached`) so the
-        // scan parallelizes within the cache's concurrency cap and re-runs
-        // hit the cache instead of stat+read every file again - matching
-        // the pattern search_notes uses for similar full-vault sweeps.
-        const allNotes = await listNotes(vaultPath);
-        const scanNotes = folder ? await listNotes(vaultPath, folder) : allNotes;
-
-        // Build the alias map from the full vault so cross-folder alias
-        // resolution still works when scoping to a single folder.
-        const { contents: allContents } = await readAllCached(
-          vaultPath,
-          allNotes,
-          (note, err) => {
-            log.warn("find_broken_links: note read failed", { note, err });
-          },
-        );
-        const aliasMap = new Map<string, string>();
-        for (const notePath of allNotes) {
-          const content = allContents.get(notePath);
-          if (content === undefined) continue;
-          for (const alias of extractAliases(content)) {
-            const key = alias.toLowerCase();
-            if (!key) continue;
-            aliasMap.set(key, notePath);
-          }
-        }
+        // Validate and capture folder scope before the whole-vault graph work
+        // so a missing folder fails fast. Resolution still uses the full graph.
+        const scanNotes = folder ? await listNotes(vaultPath, folder) : null;
+        const graph = await buildLinkGraph(vaultPath);
+        const notesToScan = scanNotes ?? graph.allNotes;
 
         const brokenBySource = new Map<string, BrokenLink[]>();
 
-        for (const notePath of scanNotes) {
-          const content = allContents.get(notePath);
-          if (content === undefined) continue;
-
-          const lines = content.split("\n");
-          const links = extractWikilinks(content);
-
-          for (const link of links) {
-            const targetBase = link.target.split("#")[0]!.trim();
-            if (!targetBase) continue;
-
-            const resolved = resolveWikilink(targetBase, notePath, allNotes, {
-              aliasMap,
-            });
-            if (!resolved) {
-              const lineInfo = findLineWithLink(lines, link.target);
-              const broken: BrokenLink = {
-                sourcePath: notePath,
-                targetLink: link.target,
-                line: lineInfo.line,
-              };
-
-              if (!brokenBySource.has(notePath)) {
-                brokenBySource.set(notePath, []);
-              }
-              brokenBySource.get(notePath)!.push(broken);
-            }
-          }
+        for (const notePath of notesToScan) {
+          const brokenLinks = graph.brokenLinks.get(notePath);
+          if (!brokenLinks || brokenLinks.length === 0) continue;
+          brokenBySource.set(notePath, brokenLinks);
         }
 
         if (brokenBySource.size === 0) {
