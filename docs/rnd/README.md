@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Section List Warm Path](section-list-warm-path.md) | performance / agent workflows | active | Baseline measures cold/warm `list_sections` calls on synthetic 100 and 1,000-heading notes. |
 | [Note Fragment Warm Path](note-fragment-warm-path.md) | performance / agent workflows | shipped | Warm 10,000-line `get_note` line fragments fell from 2.4ms to 1.2ms while cold line, section, and block fragments stayed under their guardrails. |
 | [List Notes Warm Path](list-notes-warm-path.md) | performance / agent workflows | stopped | A safe rendered-response cache missed the 8.7ms warm-call ship bar, so no runtime change shipped. |
 | [Graph Neighbors Warm Path](graph-neighbors-warm-path.md) | performance / vault navigation | stopped | Traversal-only cleanup missed the 23.5ms warm-call ship bar, and higher fingerprint stat concurrency exceeded guardrails. |
