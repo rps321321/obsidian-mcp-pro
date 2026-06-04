@@ -105,6 +105,36 @@ describe("setNoteChunks / searchEmbeddings", () => {
     expect(hits[0].chunkIndex).toBe(1);
   });
 
+  it("ranks focused multi-chunk notes ahead of incidental single-chunk matches", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(vaultDir, "kitchen-with-cat.md", hashText("kitchen"), [
+      { notePath: "kitchen-with-cat.md", chunkIndex: 1, headingPath: ["Kitchen"], text: "one cat anecdote", hash: "h1", vector: [1, 0, 0] },
+      { notePath: "kitchen-with-cat.md", chunkIndex: 2, headingPath: ["Recipes"], text: "recipes", hash: "h2", vector: [0, 1, 0] },
+      { notePath: "kitchen-with-cat.md", chunkIndex: 3, headingPath: ["Oven"], text: "oven", hash: "h3", vector: [0, 1, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "cats-care.md", hashText("cats"), [
+      { notePath: "cats-care.md", chunkIndex: 1, headingPath: ["Cats", "Care"], text: "cat care", hash: "h4", vector: [0.98, 0.05, 0] },
+      { notePath: "cats-care.md", chunkIndex: 2, headingPath: ["Cats", "Behavior"], text: "cat behavior", hash: "h5", vector: [0.96, 0.08, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "cat-health.md", hashText("health"), [
+      { notePath: "cat-health.md", chunkIndex: 1, headingPath: ["Cats", "Health"], text: "cat health", hash: "h6", vector: [0.97, 0.06, 0] },
+      { notePath: "cat-health.md", chunkIndex: 2, headingPath: ["Cats", "Symptoms"], text: "cat symptoms", hash: "h7", vector: [0.93, 0.1, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "pet-overview.md", hashText("pets"), [
+      { notePath: "pet-overview.md", chunkIndex: 1, headingPath: ["Pets"], text: "mixed pets", hash: "h8", vector: [0.85, 0.2, 0] },
+      { notePath: "pet-overview.md", chunkIndex: 2, headingPath: ["Budget"], text: "pet budget", hash: "h9", vector: [0.75, 0.25, 0] },
+    ], "test", "m");
+
+    const hits = searchEmbeddings(vaultDir, [1, 0, 0], { limit: 4 });
+    expect(hits.map((hit) => hit.notePath)).toEqual([
+      "cats-care.md",
+      "cat-health.md",
+      "pet-overview.md",
+      "kitchen-with-cat.md",
+    ]);
+    expect(hits[0].chunkIndex).toBe(1);
+  });
+
   it("filters by folder prefix", async () => {
     await loadStore(vaultDir);
     setNoteChunks(vaultDir, "projects/alpha.md", hashText("a"), [

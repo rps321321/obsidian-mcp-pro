@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Active R&D experiment for semantic ranking quality, with a synthetic embedding-store fixture in `scripts/bench-semantic-ranking-quality.mjs` and ship/kill metric in `docs/rnd/semantic-ranking-quality.md`.
+- R&D experiment for semantic ranking quality, with a synthetic embedding-store fixture in `scripts/bench-semantic-ranking-quality.mjs` and ship/kill metric in `docs/rnd/semantic-ranking-quality.md`.
 - R&D experiment for chunker boundary quality, with a synthetic fixture in `scripts/bench-chunker-quality.mjs` and ship/kill metric in `docs/rnd/chunker-boundary-quality.md`.
 - Active R&D experiment for `get_daily_note` warm-path performance, with a synthetic benchmark harness in `scripts/bench-daily-notes.mjs` and ship/kill metric in `docs/rnd/daily-note-warm-path.md`.
 - Active R&D experiment for `get_note` section-read performance, with a synthetic benchmark harness in `scripts/bench-section-reads.mjs` and ship/kill metric in `docs/rnd/section-read-warm-path.md`.
@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Semantic search now ranks note-level results with a small focus signal from each note's top chunks, so one incidental high-scoring chunk is less likely to outrank notes that are consistently about the query.
 - Semantic chunking now keeps oversized fenced code blocks fence-balanced when splitting them for embeddings, preserving title and heading prefixes while leaving non-code chunking behavior unchanged.
 - `list_sections` now reuses a small mtime-validated rendered heading cache, cutting the 1,000-heading warm bench below the R&D ship bar while preserving heading escaping and write freshness.
 - The `get_daily_note` warm-path R&D experiment is stopped after config and rendered-response cache prototypes missed the warm ship bar or exceeded guardrails.

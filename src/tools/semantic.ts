@@ -266,7 +266,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
     {
       title: "Semantic Search",
       description:
-        "Search notes by meaning rather than keywords. Embeds the query with the configured provider, scores every chunk in the persisted index by cosine similarity, and returns the best-matching note per cluster (deduplicated to one hit per note). Run `index_vault` first to populate the index — this tool does not auto-index because the user should know they're paying the embedding cost. Pair with `get_note` to retrieve full bodies after picking a hit.",
+        "Search notes by meaning rather than keywords. Embeds the query with the configured provider, scores every chunk in the persisted index by cosine similarity, ranks one result per note using the best chunk plus a small top-chunk focus signal, and returns the best chunk as the snippet source. Run `index_vault` first to populate the index — this tool does not auto-index because the user should know they're paying the embedding cost. Pair with `get_note` to retrieve full bodies after picking a hit.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
