@@ -184,7 +184,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         if (lines) {
           const allLines = content.split("\n");
           const m = /^(\d+)(?:-(\d+))?$/.exec(lines);
-          if (!m) return errorResult(`Invalid lines format: "${lines}"`);
+          if (!m) return errorResult(`Invalid lines format: "${displayReadValue(lines)}"`);
           const a = Math.max(1, Number(m[1]));
           const b = m[2] ? Math.max(a, Number(m[2])) : a;
           if (a > allLines.length) {
@@ -202,7 +202,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         if (Object.keys(frontmatterData).length > 0) {
           header.push("--- Frontmatter ---");
           for (const [key, value] of Object.entries(frontmatterData)) {
-            header.push(`${key}: ${JSON.stringify(value)}`);
+            header.push(`${displayReadValue(key)}: ${displayReadValue(JSON.stringify(value) ?? "")}`);
           }
           header.push("--- End Frontmatter ---");
           header.push("");
@@ -210,7 +210,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
 
         const tags = extractTags(content);
         if (tags.length > 0) {
-          header.push(`Tags: ${tags.join(", ")}`);
+          header.push(`Tags: ${tags.map(displayReadValue).join(", ")}`);
           header.push("");
         }
 
@@ -265,9 +265,9 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const totalCount = notes.length;
 
         const lines: string[] = [
-          `Found ${totalCount} note(s)${folder ? ` in "${folder}"` : ""}${totalCount > limit ? ` (showing first ${limit})` : ""}:`,
+          `Found ${totalCount} note(s)${folder ? ` in "${displayReadValue(folder)}"` : ""}${totalCount > limit ? ` (showing first ${limit})` : ""}:`,
           "",
-          ...limited,
+          ...limited.map(displayReadValue),
         ];
 
         return {
@@ -305,11 +305,11 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const targetDate = date ?? formatLocalDateOnly();
 
         if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-          return errorResult(`Invalid date format: "${targetDate}". Use YYYY-MM-DD.`);
+          return errorResult(`Invalid date format: "${displayReadValue(targetDate)}". Use YYYY-MM-DD.`);
         }
         const parsed = parseLocalDateOnly(targetDate);
         if (!parsed) {
-          return errorResult(`Invalid date: "${targetDate}".`);
+          return errorResult(`Invalid date: "${displayReadValue(targetDate)}".`);
         }
 
         // Build the filename using moment-style tokens (YYYY, MMM, ddd, etc).
@@ -339,7 +339,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         if (Object.keys(dailyFrontmatter).length > 0) {
           header.push("--- Frontmatter ---");
           for (const [key, value] of Object.entries(dailyFrontmatter)) {
-            header.push(`${key}: ${JSON.stringify(value)}`);
+            header.push(`${displayReadValue(key)}: ${displayReadValue(JSON.stringify(value) ?? "")}`);
           }
           header.push("--- End Frontmatter ---");
           header.push("");
@@ -638,7 +638,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const avgWords = Math.round(totalWords / notes.length);
         const untaggedPct = ((untagged / notes.length) * 100).toFixed(1);
         const lines = [
-          `Vault stats${folder ? ` (folder: ${folder})` : ""}`,
+          `Vault stats${folder ? ` (folder: ${displayReadValue(folder)})` : ""}`,
           "",
           `  Notes:           ${notes.length}`,
           `  Total bytes:     ${totalBytes.toLocaleString()}`,
@@ -648,7 +648,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           `  Unique tags:     ${tagSet.size}`,
           `  Untagged notes:  ${untagged} (${untaggedPct}%)`,
           mostRecent
-            ? `  Most recent:     ${mostRecent.path} (${new Date(mostRecent.mtimeMs).toISOString()})`
+            ? `  Most recent:     ${displayReadValue(mostRecent.path)} (${new Date(mostRecent.mtimeMs).toISOString()})`
             : `  Most recent:     (none)`,
         ];
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
