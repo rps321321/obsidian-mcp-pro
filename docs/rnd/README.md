@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Broken Link Warm Path](broken-link-warm-path.md) | performance / graph analysis | active | Baseline measures cold and warm `find_broken_links` scans on synthetic 100-note and 1,000-note vaults. |
 | [Link Graph Warm Path](link-graph-warm-path.md) | performance / graph analysis | shipped | Warm 1,000-note backlinks fell from 80.4ms to 42.5ms while cold graph traversal stayed under the guardrail. |
 | [Search Cache Warm Path](search-cache-warm-path.md) | performance / retrieval quality | shipped | Warm 1,000-note search fell from 91.5ms to 23.2ms while cold stayed under the guardrail. |
 
