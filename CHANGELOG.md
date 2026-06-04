@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Active R&D experiment for `list_sections` warm-path performance, with a synthetic benchmark harness in `scripts/bench-sections.mjs` and ship/kill metric in `docs/rnd/section-list-warm-path.md`.
 - R&D experiment for `get_note` fragment-read performance, with a synthetic benchmark harness in `scripts/bench-note-fragments.mjs` and ship/kill metric in `docs/rnd/note-fragment-warm-path.md`.
 - R&D experiment for `get_outlinks` warm-path performance, with a synthetic benchmark harness in `scripts/bench-outlinks.mjs` and ship/kill metric in `docs/rnd/outlinks-warm-path.md`.
 - R&D experiment for `list_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-list-notes.mjs` and ship/kill metric in `docs/rnd/list-notes-warm-path.md`.
