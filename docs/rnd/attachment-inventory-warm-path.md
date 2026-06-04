@@ -1,7 +1,7 @@
 # Attachment Inventory Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -47,9 +47,9 @@ totals, progress labels, and displayed paths must stay unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000 attachment/note warm find_unused_attachments | 58.9ms | |
-| 1,000 attachment/note cold find_unused_attachments guardrail | 92ms | |
-| 1,000 attachment/note warm list_attachments guardrail | 11ms | |
+| 1,000 attachment/note warm find_unused_attachments | 58.9ms | 39.3ms / 31.6ms |
+| 1,000 attachment/note cold find_unused_attachments guardrail | 92ms | 72.3ms / 60.4ms |
+| 1,000 attachment/note warm list_attachments guardrail | 11ms | 7.7ms / 7.1ms |
 
 ## Safety review
 
@@ -57,11 +57,10 @@ Data accessed: synthetic temporary markdown notes and attachment files generated
 by `scripts/bench-attachments.mjs`. No real vault content, secrets, network
 calls, or embedding providers are involved.
 
-Writes performed: temporary fixture vault creation and deletion only. A future
-prototype may add in-memory attachment inventory metadata; it must preserve
+Writes performed: temporary fixture vault creation and deletion only. The
+prototype adds in-memory attachment inventory metadata; it preserves
 vault-boundary checks, permission filtering, excluded-folder handling, mtime
-invalidation, MIME/security checks in `get_attachment`, and raw attachment
-bytes.
+invalidation, MIME/security checks in `get_attachment`, and raw attachment bytes.
 
 Logs emitted: normal stdio server startup logs with temporary vault paths. No
 note body or attachment bytes are logged.
@@ -77,4 +76,12 @@ referenced attachments are marked stale after note or attachment edits.
 
 ## Decision
 
-Open.
+Ship. `find_unused_attachments` now keeps a small in-memory attachment inventory
+cache keyed by the current attachment list and note mtimes. Repeat scans reuse
+the derived basename/reference sets after a stat-only note fingerprint check, so
+the warm path skips note content reads while still invalidating on note or
+attachment changes. Exact attachment matching also uses a lowercase path index
+instead of scanning every attachment for every reference. Repeated 1,000
+attachment/note warm unused scans landed at 39.3ms and 31.6ms against the 47ms
+ship bar, cold scans stayed at 72.3ms and 60.4ms against the 92ms guardrail, and
+warm `list_attachments` stayed at 7.7ms and 7.1ms against the 11ms guardrail.

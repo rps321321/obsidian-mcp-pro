@@ -6,10 +6,13 @@ import {
   listAttachments,
   listNotes,
   getAttachmentStats,
+  getNoteStats,
+  getVaultRootRealPath,
   resolveVaultPathSafe,
 } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { makeProgressReporter } from "../lib/progress.js";
+import { mapConcurrent } from "../lib/concurrency.js";
 import {
   extractWikilinkSpans,
   extractMarkdownLinkSpans,
@@ -29,6 +32,15 @@ import { log } from "../lib/logger.js";
  *  with `maxBytes`. */
 const DEFAULT_GET_ATTACHMENT_LIMIT = 5 * 1024 * 1024; // 5 MB
 const ABSOLUTE_GET_ATTACHMENT_LIMIT = 50 * 1024 * 1024; // 50 MB hard cap
+const ATTACHMENT_INVENTORY_CACHE_LIMIT = 8;
+
+interface AttachmentInventoryCacheEntry {
+  attachmentsFingerprint: string;
+  noteFingerprint: string;
+  referenced: Set<string>;
+}
+
+const attachmentInventoryCache = new Map<string, AttachmentInventoryCacheEntry>();
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -52,6 +64,44 @@ function summarizeByExtension(paths: readonly string[]): Map<string, number> {
   return out;
 }
 
+function attachmentListFingerprint(attachments: readonly string[]): string {
+  return attachments.join("\0");
+}
+
+function noteMtimeFingerprint(
+  notes: readonly string[],
+  contents: ReadonlyMap<string, string>,
+  mtimes: ReadonlyMap<string, number>,
+): string {
+  return notes
+    .map((notePath) => {
+      const mtime = mtimes.get(notePath);
+      return `${notePath}\0${contents.has(notePath) && mtime !== undefined ? mtime : "missing"}`;
+    })
+    .join("\0");
+}
+
+async function noteStatsFingerprint(
+  vaultPath: string,
+  notes: readonly string[],
+): Promise<string | undefined> {
+  const realVaultRoot = await getVaultRootRealPath(vaultPath);
+  const parts = await mapConcurrent(
+    notes,
+    16,
+    async (notePath): Promise<string | undefined> => {
+      try {
+        const stats = await getNoteStats(vaultPath, notePath, { realVaultRoot });
+        return `${notePath}\0${stats.modified?.getTime() ?? 0}`;
+      } catch {
+        return undefined;
+      }
+    },
+  );
+  if (parts.some((part) => part === undefined)) return undefined;
+  return parts.join("\0");
+}
+
 /**
  * Resolve the set of attachment paths referenced by a single note. Considers:
  *   - `![[file.png]]` and `![[file.png|alt]]` wikilink embeds
@@ -63,7 +113,7 @@ function summarizeByExtension(paths: readonly string[]): Map<string, number> {
  */
 function collectReferencedAttachments(
   noteContent: string,
-  attachmentSet: ReadonlySet<string>,
+  lowerPathIndex: ReadonlyMap<string, string>,
   basenameIndex: ReadonlyMap<string, string[]>,
 ): { resolved: Set<string>; unresolved: string[] } {
   const resolved = new Set<string>();
@@ -76,11 +126,10 @@ function collectReferencedAttachments(
     // 1) Exact relative-path match (case-insensitive on case-insensitive FS,
     //    but we lowercase consistently to keep cross-platform behavior stable).
     const lower = t.toLowerCase();
-    for (const att of attachmentSet) {
-      if (att.toLowerCase() === lower) {
-        resolved.add(att);
-        return;
-      }
+    const exact = lowerPathIndex.get(lower);
+    if (exact) {
+      resolved.add(exact);
+      return;
     }
 
     // 2) Basename match. Obsidian also allows missing extensions on
@@ -106,6 +155,75 @@ function collectReferencedAttachments(
     consider(span.urlPath);
   }
   return { resolved, unresolved };
+}
+
+async function getCachedAttachmentInventory(
+  vaultPath: string,
+  attachments: readonly string[],
+  notes: readonly string[],
+  contents: ReadonlyMap<string, string>,
+  mtimes: ReadonlyMap<string, number>,
+  reportProgress: (progress: number, total: number, message?: string) => Promise<void>,
+): Promise<AttachmentInventoryCacheEntry> {
+  const attachmentsFingerprint = attachmentListFingerprint(attachments);
+  const noteFingerprint = noteMtimeFingerprint(notes, contents, mtimes);
+  const cacheKey = path.resolve(vaultPath);
+
+  const lowerPathIndex = new Map<string, string>();
+  const basenameIndex = new Map<string, string[]>();
+  for (const p of attachments) {
+    if (!lowerPathIndex.has(p.toLowerCase())) lowerPathIndex.set(p.toLowerCase(), p);
+    const base = path.basename(p).toLowerCase();
+    const list = basenameIndex.get(base);
+    if (list) list.push(p);
+    else basenameIndex.set(base, [p]);
+  }
+
+  const referenced = new Set<string>();
+  let scanned = 0;
+  for (const notePath of notes) {
+    const content = contents.get(notePath);
+    if (content !== undefined) {
+      const { resolved } = collectReferencedAttachments(content, lowerPathIndex, basenameIndex);
+      for (const r of resolved) referenced.add(r);
+    }
+    scanned++;
+    await reportProgress(scanned, notes.length, `Scanned ${scanned}/${notes.length} notes`);
+  }
+
+  const fresh = { attachmentsFingerprint, noteFingerprint, referenced };
+  attachmentInventoryCache.set(cacheKey, fresh);
+  while (attachmentInventoryCache.size > ATTACHMENT_INVENTORY_CACHE_LIMIT) {
+    const oldestKey = attachmentInventoryCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    attachmentInventoryCache.delete(oldestKey);
+  }
+  return fresh;
+}
+
+async function getReusableAttachmentInventory(
+  vaultPath: string,
+  attachments: readonly string[],
+  notes: readonly string[],
+  reportProgress: (progress: number, total: number, message?: string) => Promise<void>,
+): Promise<AttachmentInventoryCacheEntry | undefined> {
+  const cacheKey = path.resolve(vaultPath);
+  const cached = attachmentInventoryCache.get(cacheKey);
+  if (!cached || cached.attachmentsFingerprint !== attachmentListFingerprint(attachments)) {
+    return undefined;
+  }
+  const currentNoteFingerprint = await noteStatsFingerprint(vaultPath, notes);
+  if (currentNoteFingerprint === undefined || currentNoteFingerprint !== cached.noteFingerprint) {
+    return undefined;
+  }
+  attachmentInventoryCache.delete(cacheKey);
+  attachmentInventoryCache.set(cacheKey, cached);
+  let scanned = 0;
+  for (const _notePath of notes) {
+    scanned++;
+    await reportProgress(scanned, notes.length, `Scanned ${scanned}/${notes.length} notes`);
+  }
+  return cached;
 }
 
 export function registerAttachmentTools(server: McpServer, vaultPath: string): void {
@@ -207,34 +325,25 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         if (attachments.length === 0) {
           return textResult("No attachments in this vault — nothing to check.");
         }
-        const attachmentSet = new Set(attachments);
-        const basenameIndex = new Map<string, string[]>();
-        for (const p of attachments) {
-          const base = path.basename(p).toLowerCase();
-          const list = basenameIndex.get(base);
-          if (list) list.push(p);
-          else basenameIndex.set(base, [p]);
-        }
-
         const notes = await listNotes(vaultPath);
         await reportProgress(0, notes.length, "Reading notes…");
-        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
-          log.warn("find_unused_attachments: note read failed", { note, err });
-        });
+        let inventory = await getReusableAttachmentInventory(vaultPath, attachments, notes, reportProgress);
+        if (!inventory) {
+          const { contents, mtimes } = await readAllCached(vaultPath, notes, (note, err) => {
+            log.warn("find_unused_attachments: note read failed", { note, err });
+          });
 
-        const referenced = new Set<string>();
-        let scanned = 0;
-        for (const notePath of notes) {
-          const content = contents.get(notePath);
-          if (content !== undefined) {
-            const { resolved } = collectReferencedAttachments(content, attachmentSet, basenameIndex);
-            for (const r of resolved) referenced.add(r);
-          }
-          scanned++;
-          await reportProgress(scanned, notes.length, `Scanned ${scanned}/${notes.length} notes`);
+          inventory = await getCachedAttachmentInventory(
+            vaultPath,
+            attachments,
+            notes,
+            contents,
+            mtimes,
+            reportProgress,
+          );
         }
 
-        const unused = attachments.filter((p) => !referenced.has(p));
+        const unused = attachments.filter((p) => !inventory.referenced.has(p));
         if (unused.length === 0) {
           return textResult(
             `All ${attachments.length} attachment(s) are referenced — nothing to clean up.`,

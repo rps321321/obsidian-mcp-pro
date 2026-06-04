@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "fs/promises";
+import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
 
 let env: TestEnv;
@@ -81,6 +83,42 @@ describe("attachments handlers — find_unused_attachments", () => {
     expect(text).not.toMatch(/notes\.pdf/);
     // orphan-image.png and screenshot.jpg have no references at all.
     expect(text).toMatch(/orphan-image\.png/);
+    expect(text).toMatch(/screenshot\.jpg/);
+  });
+
+  it("serves repeated unused scans without changing output", async () => {
+    const first = await env.client.callTool({
+      name: "find_unused_attachments",
+      arguments: {},
+    });
+    const second = await env.client.callTool({
+      name: "find_unused_attachments",
+      arguments: {},
+    });
+
+    expect(isError(first)).toBe(false);
+    expect(isError(second)).toBe(false);
+    expect(textContent(second)).toBe(textContent(first));
+  });
+
+  it("refreshes cached unused scans after a note references an attachment", async () => {
+    const first = await env.client.callTool({
+      name: "find_unused_attachments",
+      arguments: {},
+    });
+    expect(textContent(first)).toMatch(/orphan-image\.png/);
+
+    const notePath = path.join(env.vaultDir, "embed-host.md");
+    await fs.appendFile(notePath, "\nNow referenced: ![[orphan-image.png]]\n", "utf-8");
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(notePath, future, future);
+
+    const second = await env.client.callTool({
+      name: "find_unused_attachments",
+      arguments: {},
+    });
+    const text = textContent(second);
+    expect(text).not.toMatch(/orphan-image\.png/);
     expect(text).toMatch(/screenshot\.jpg/);
   });
 
