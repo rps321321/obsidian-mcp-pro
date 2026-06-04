@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Active R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs` and ship/kill metric in `docs/rnd/search-ranking-quality.md`.
+- R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs` and ship/kill metric in `docs/rnd/search-ranking-quality.md`.
 - R&D experiment for similar-note quality, with a synthetic embedding-store fixture in `scripts/bench-similar-notes-quality.mjs` and ship/kill metric in `docs/rnd/similar-notes-quality.md`.
 - R&D experiment for semantic ranking quality, with a synthetic embedding-store fixture in `scripts/bench-semantic-ranking-quality.mjs` and ship/kill metric in `docs/rnd/semantic-ranking-quality.md`.
 - R&D experiment for chunker boundary quality, with a synthetic fixture in `scripts/bench-chunker-quality.mjs` and ship/kill metric in `docs/rnd/chunker-boundary-quality.md`.
@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `search_notes` now ranks literal matches with title/path focus and repeated-line dampening, so noisy repeated mentions are less likely to outrank focused notes.
 - `find_similar_notes` now builds its source query vector from chunks aligned with the source note's opening topic, so unrelated appendices are less likely to dominate similar-note ranking.
 - Semantic search now ranks note-level results with a small focus signal from each note's top chunks, so one incidental high-scoring chunk is less likely to outrank notes that are consistently about the query.
 - Semantic chunking now keeps oversized fenced code blocks fence-balanced when splitting them for embeddings, preserving title and heading prefixes while leaving non-code chunking behavior unchanged.

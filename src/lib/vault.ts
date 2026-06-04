@@ -11,6 +11,10 @@ import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 // on spinning disks; lower values leave SSD throughput on the table. 8 is the
 // sweet spot on a typical developer workstation.
 const SCAN_CONCURRENCY = 8;
+const SEARCH_PATH_MATCH_BOOST = 4;
+const SEARCH_HEADING_MATCH_BOOST = 4;
+const SEARCH_MATCH_COUNT_WEIGHT = 0.25;
+const SEARCH_REPEATED_SAME_LINE_PENALTY = 0.5;
 
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
@@ -931,14 +935,34 @@ export function searchInContents(
       path: notePath,
       relativePath: notePath,
       matches,
-      score: matches.length,
+      score: scoreLexicalMatches(notePath, lines, matches, searchQuery, caseSensitive),
     });
   }
-  // Primary: match count (desc). Secondary: relative path (asc) — otherwise
+  // Primary: lexical focus score (desc). Secondary: relative path (asc) — otherwise
   // tie-breaking order depends on iteration timing, which makes results for
   // equal-score queries non-deterministic between runs.
   results.sort((a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath));
   return results.slice(0, maxResults);
+}
+
+function scoreLexicalMatches(
+  notePath: string,
+  lines: readonly string[],
+  matches: readonly SearchMatch[],
+  searchQuery: string,
+  caseSensitive: boolean,
+): number {
+  const matchingLines = new Set(matches.map((match) => match.line)).size;
+  const repeatedSameLineMatches = matches.length - matchingLines;
+  const pathText = caseSensitive ? notePath : notePath.toLowerCase();
+  const firstHeading = lines.find((line) => line.trimStart().startsWith("#")) ?? "";
+  const headingText = caseSensitive ? firstHeading : firstHeading.toLowerCase();
+
+  let score = matchingLines + Math.log1p(matches.length) * SEARCH_MATCH_COUNT_WEIGHT;
+  if (pathText.includes(searchQuery)) score += SEARCH_PATH_MATCH_BOOST;
+  if (headingText.includes(searchQuery)) score += SEARCH_HEADING_MATCH_BOOST;
+  score -= repeatedSameLineMatches * SEARCH_REPEATED_SAME_LINE_PENALTY;
+  return Math.max(0, score);
 }
 
 export async function searchNotes(

@@ -417,6 +417,51 @@ describe("searchInContents", () => {
       { line: 3, content: "Alpha beta", column: 0 },
     ]);
   });
+
+  it("ranks focused title matches ahead of repeated incidental mentions", () => {
+    const contents = new Map([
+      [
+        "meeting-transcript.md",
+        [
+          "# Meeting Transcript",
+          "Migration came up during staffing notes.",
+          "Migration migration migration migration migration migration migration.",
+        ].join("\n"),
+      ],
+      [
+        "migration-plan.md",
+        "# Migration Plan\nMigration scope and rollback owner decisions.",
+      ],
+      [
+        "migration-checklist.md",
+        "# Migration Checklist\nMigration prerequisites and verification.",
+      ],
+      [
+        "release-notes.md",
+        "# Release Notes\nThe migration is one part of the release.",
+      ],
+    ]);
+
+    const results = searchInContents(
+      [
+        "meeting-transcript.md",
+        "migration-plan.md",
+        "migration-checklist.md",
+        "release-notes.md",
+      ],
+      contents,
+      "migration",
+      { maxResults: 4 },
+    );
+
+    expect(results.map((result) => result.relativePath)).toEqual([
+      "migration-checklist.md",
+      "migration-plan.md",
+      "release-notes.md",
+      "meeting-transcript.md",
+    ]);
+    expect(results.at(-1)?.matches).toHaveLength(8);
+  });
 });
 
 // ---------------------------------------------------------------------------

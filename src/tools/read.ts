@@ -36,7 +36,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     {
       title: "Search Notes",
       description:
-        "Full-text search across all notes in the vault. Returns matching note paths grouped with the line numbers and snippet content of each hit. Use to locate notes containing a phrase, keyword, or code fragment; pair with get_note to retrieve full bodies.",
+        "Full-text search across all notes in the vault. Ranks literal matches with title/path focus and repeated-line dampening, then returns matching note paths grouped with the line numbers and snippet content of each hit. Use to locate notes containing a phrase, keyword, or code fragment; pair with get_note to retrieve full bodies.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
