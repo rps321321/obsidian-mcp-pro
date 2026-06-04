@@ -418,6 +418,19 @@ describe("searchInContents", () => {
     ]);
   });
 
+  it("collapses repeated same-line matches into one visible snippet", () => {
+    const contents = new Map([
+      ["alpha.md", "alpha alpha alpha\nbeta alpha"],
+    ]);
+
+    const results = searchInContents(["alpha.md"], contents, "alpha");
+
+    expect(results[0].matches).toEqual([
+      { line: 1, content: "alpha alpha alpha", column: 0 },
+      { line: 2, content: "beta alpha", column: 5 },
+    ]);
+  });
+
   it("ranks focused title matches ahead of repeated incidental mentions", () => {
     const contents = new Map([
       [
@@ -460,7 +473,7 @@ describe("searchInContents", () => {
       "release-notes.md",
       "meeting-transcript.md",
     ]);
-    expect(results.at(-1)?.matches).toHaveLength(8);
+    expect(results.at(-1)?.matches).toHaveLength(2);
   });
 });
 
@@ -522,12 +535,14 @@ describe("searchNotes", () => {
     expect(match.column).toBe(6); // "Hello world" -> index 6
   });
 
-  it("should find multiple matches on the same line", async () => {
+  it("should collapse multiple matches on the same line", async () => {
     await writeNote(vaultDir, "repeat.md", "foo bar foo baz foo");
     const results = await searchNotes(vaultDir, "foo");
     const repeatResult = results.find((r) => r.relativePath === "repeat.md");
     expect(repeatResult).toBeDefined();
-    expect(repeatResult!.matches.length).toBe(3);
+    expect(repeatResult!.matches).toEqual([
+      { line: 1, content: "foo bar foo baz foo", column: 0 },
+    ]);
   });
 
   it("should return empty array when nothing matches", async () => {
