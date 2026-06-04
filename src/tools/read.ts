@@ -2,7 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
-import { searchInContents, readNote, listNotes, resolveVaultPathSafe, getVaultRootRealPath } from "../lib/vault.js";
+import {
+  searchInContents,
+  readNote,
+  readNoteLineRange,
+  listNotes,
+  resolveVaultPathSafe,
+  getVaultRootRealPath,
+} from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
@@ -145,6 +152,21 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     },
     async ({ path: notePath, section, block, lines }) => {
       try {
+        if (!section && !block && lines) {
+          const m = /^(\d+)(?:-(\d+))?$/.exec(lines);
+          if (m) {
+            const a = Math.max(1, Number(m[1]));
+            const b = m[2] ? Math.max(a, Number(m[2])) : a;
+            const range = await readNoteLineRange(vaultPath, notePath, a, b);
+            if (range.pastEndLine) {
+              return errorResult(`Line ${range.pastEndLine.requested} is past end of file (${range.pastEndLine.total} lines)`);
+            }
+            return {
+              content: [{ type: "text" as const, text: range.text }],
+            };
+          }
+        }
+
         const content = await readNote(vaultPath, notePath);
 
         // Fragment modes are mutually exclusive — picking one skips the

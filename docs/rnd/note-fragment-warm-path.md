@@ -1,7 +1,7 @@
 # Note Fragment Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -48,10 +48,10 @@ displayed errors must stay unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 10,000-line warm get_note lines | 2.4ms | |
-| 10,000-line cold get_note lines guardrail | 5.2ms | |
-| 10,000-line warm get_note section guardrail | 4.7ms | |
-| 10,000-line warm get_note block guardrail | 5.5ms | |
+| 10,000-line warm get_note lines | 2.4ms | 0.9ms / 1.2ms |
+| 10,000-line cold get_note lines guardrail | 5.2ms | 3.7ms / 3.8ms |
+| 10,000-line warm get_note section guardrail | 4.7ms | 3.7ms / 3.7ms |
+| 10,000-line warm get_note block guardrail | 5.5ms | 3.9ms / 4.0ms |
 
 ## Safety review
 
@@ -75,4 +75,25 @@ implementation needs a persistent index or filesystem watcher to stay correct.
 
 ## Decision
 
-Open.
+Ship. `get_note` now routes line-only fragment reads through a bounded line
+range reader that resolves the note with the same vault-boundary checks, reads
+until the requested range is complete, and preserves the old EOF line-count
+error. Section, block, invalid line strings, and full-note reads keep the
+existing full-file path.
+
+A regression test covers line fragments without metadata headers, EOF line
+counts, and fresh reads after a note changes.
+
+Measured after the prototype with:
+
+```powershell
+npm run build
+node scripts\bench-note-fragments.mjs 1000,10000 --json
+node scripts\bench-note-fragments.mjs 1000,10000 --json
+```
+
+The repeated 10,000-line warm line-fragment calls were 0.9ms and 1.2ms, both
+below the 1.9ms ship bar. Cold line-fragment calls were 3.7ms and 3.8ms, below
+the 5.8ms guardrail. Warm section calls were 3.7ms and 3.7ms, below the 5.2ms
+guardrail, and warm block calls were 3.9ms and 4.0ms, below the 6.1ms
+guardrail.
