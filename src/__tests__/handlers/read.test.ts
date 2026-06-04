@@ -506,6 +506,21 @@ describe("read handlers — get_vault_stats", () => {
     expect(text).not.toContain(dirtyFolder);
     expect(text).not.toContain(dirtyPath);
   });
+
+  it("escapes folder labels in empty-folder output", async () => {
+    const dirtyFolder = "empty\x7fstats";
+    await fs.mkdir(path.join(env.vaultDir, dirtyFolder), { recursive: true });
+
+    const result = await env.client.callTool({
+      name: "get_vault_stats",
+      arguments: { folder: dirtyFolder },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain('No notes in "empty\\x7fstats"');
+    expect(text).not.toContain(dirtyFolder);
+  });
 });
 
 describe("read handlers — resolve_alias", () => {
