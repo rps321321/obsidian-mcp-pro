@@ -50,7 +50,7 @@ Give AI assistants deep, structured access to your Obsidian knowledge base. Read
 ## Features
 
 ### Read & Search
-- Full-text search across all vault notes (cached: re-runs only re-read changed files)
+- Focus-ranked full-text search across all vault notes (cached: re-runs only re-read changed files)
 - Read individual notes whole, or as a fragment by heading path, block id, or line range
 - List and filter notes by folder, date, or pattern
 - Search by frontmatter fields and values
@@ -369,7 +369,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `search_notes` | Full-text search across all notes (cached) | `query`, `caseSensitive`, `maxResults`, `folder` |
+| `search_notes` | Focus-ranked full-text search across all notes (cached) | `query`, `caseSensitive`, `maxResults`, `folder` |
 | `get_note` | Read a note whole, or by `section` / `block` / `lines` | `path`, `section`, `block`, `lines` |
 | `list_notes` | List notes in the vault or a folder | `folder`, `limit` |
 | `get_daily_note` | Get today's (or a specific date's) daily note | `date` |

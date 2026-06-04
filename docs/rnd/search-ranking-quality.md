@@ -1,15 +1,15 @@
 # Search Ranking Quality
 
-_Status: active_
-_Started: 2026-06-04 - Decided: pending_
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
-`search_notes` ranks lexical matches by raw match count. A long or noisy note with
-many incidental mentions can outrank shorter notes whose title and body are more
-focused on the user's query. A measured fixture can test whether a lightweight
-focus signal improves lexical search ranking without changing the tool schema or
-adding provider calls.
+`search_notes` used to rank lexical matches by raw match count. A long or noisy
+note with many incidental mentions could outrank shorter notes whose title and
+body are more focused on the user's query. A lightweight focus signal should
+improve lexical search ranking without changing the tool schema or adding
+provider calls.
 
 ## Fixture
 
@@ -42,10 +42,10 @@ and no incidental-before-focused ordering.
 
 | metric | before | after |
 |---|---:|---:|
-| NDCG@3 | 0.690 | |
-| Precision@3 | 0.667 | |
-| Top relevance grade | 1 | |
-| Incidental before focused | true | |
+| NDCG@3 | 0.690 | 1.000 |
+| Precision@3 | 0.667 | 1.000 |
+| Top relevance grade | 1 | 3 |
+| Incidental before focused | true | false |
 
 Baseline command samples:
 
@@ -54,15 +54,22 @@ Baseline command samples:
 - `node scripts/bench-search-ranking-quality.mjs --json`: NDCG@3 0.690,
   precision@3 0.667, top relevance 1, incidental before focused true.
 
+After command samples:
+
+- `node scripts/bench-search-ranking-quality.mjs --json`: NDCG@3 1.000,
+  precision@3 1.000, top relevance 3, incidental before focused false.
+- `node scripts/bench-search-ranking-quality.mjs --json`: NDCG@3 1.000,
+  precision@3 1.000, top relevance 3, incidental before focused false.
+
 Current top five:
 
 | rank | note | rel | matches | score |
 |---:|---|---:|---:|---:|
-| 1 | `meeting-transcript.md` | 1 | 8 | 8 |
-| 2 | `migration-plan.md` | 3 | 4 | 4 |
-| 3 | `migration-checklist.md` | 3 | 3 | 3 |
-| 4 | `release-notes.md` | 2 | 1 | 1 |
-| 5 | `zz-glossary.md` | 0 | 1 | 1 |
+| 1 | `migration-checklist.md` | 3 | 3 | 9.847 |
+| 2 | `migration-plan.md` | 3 | 4 | 9.402 |
+| 3 | `release-notes.md` | 2 | 1 | 1.173 |
+| 4 | `zz-glossary.md` | 0 | 1 | 1.173 |
+| 5 | `meeting-transcript.md` | 1 | 8 | 0.000 |
 
 ## Safety review
 
@@ -80,5 +87,7 @@ line snippets that explain each lexical hit.
 
 ## Decision
 
-Active. The next step is a ranking prototype that rewards focused title/body
-matches without making long repeated notes disappear from the result set.
+Shipped. `search_notes` now scores literal matches with a small focus signal from
+note paths and headings, plus dampening for repeated matches on the same line.
+The fixture clears the ship bar while preserving tool names, parameters, result
+shape, literal matching, and the matched line snippets shown for each hit.

@@ -141,7 +141,7 @@ if (invokedDirectly) {
     console.log("\n| rank | note | rel | matches | score |");
     console.log("|---:|---|---:|---:|---:|");
     for (const row of result.rows) {
-      console.log(`| ${row.rank} | ${row.notePath} | ${row.relevance} | ${row.matchCount} | ${row.score} |`);
+      console.log(`| ${row.rank} | ${row.notePath} | ${row.relevance} | ${row.matchCount} | ${row.score.toFixed(3)} |`);
     }
   }
 }

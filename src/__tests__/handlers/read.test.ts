@@ -50,6 +50,40 @@ describe("read handlers — search_notes", () => {
     expect(Number(headerMatch![1])).toBeLessThanOrEqual(2);
   });
 
+  it("orders focused title matches before repeated incidental mentions", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "meeting-transcript.md"),
+      [
+        "# Meeting Transcript",
+        "Migration came up during staffing notes.",
+        "Migration migration migration migration migration migration migration.",
+      ].join("\n"),
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(env.vaultDir, "migration-plan.md"),
+      "# Migration Plan\nMigration scope and rollback owner decisions.",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(env.vaultDir, "release-notes.md"),
+      "# Release Notes\nThe migration is one part of the release.",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "search_notes",
+      arguments: { query: "migration", maxResults: 3 },
+    });
+
+    const headings = textContent(result).split("\n").filter((line) => line.startsWith("## "));
+    expect(headings).toEqual([
+      "## migration-plan.md",
+      "## release-notes.md",
+      "## meeting-transcript.md",
+    ]);
+  });
+
   it("restricts scan to a folder when folder= is set", async () => {
     const result = await env.client.callTool({
       name: "search_notes",
