@@ -12,12 +12,97 @@ import { log } from "../lib/logger.js";
 
 import type { TagInfo } from "../types.js";
 
+const TAG_INDEX_CACHE_LIMIT = 8;
+
+interface TagIndexEntry {
+  path: string;
+  tags: string[];
+}
+
+interface TagIndexCacheEntry {
+  fingerprint: string;
+  noteOrder: Map<string, number>;
+  tagInfos: TagInfo[];
+  tagToFiles: Map<string, string[]>;
+}
+
+const tagIndexCache = new Map<string, TagIndexCacheEntry>();
+
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
 
 function displayTagValue(value: string): string {
   return escapeControlChars(value);
+}
+
+function tagIndexFingerprint(
+  notes: readonly string[],
+  contents: ReadonlyMap<string, string>,
+  mtimes: ReadonlyMap<string, number>,
+): string {
+  return notes
+    .map((notePath) => {
+      const mtime = mtimes.get(notePath);
+      return `${notePath}\0${contents.has(notePath) && mtime !== undefined ? mtime : "missing"}`;
+    })
+    .join("\0");
+}
+
+function getCachedTagIndex(
+  vaultPath: string,
+  notes: readonly string[],
+  contents: ReadonlyMap<string, string>,
+  mtimes: ReadonlyMap<string, number>,
+): TagIndexCacheEntry {
+  const fingerprint = tagIndexFingerprint(notes, contents, mtimes);
+  const cached = tagIndexCache.get(vaultPath);
+  if (cached?.fingerprint === fingerprint) {
+    tagIndexCache.delete(vaultPath);
+    tagIndexCache.set(vaultPath, cached);
+    return cached;
+  }
+
+  const entries: TagIndexEntry[] = [];
+  const noteOrder = new Map<string, number>();
+  const tagMap = new Map<string, { tag: string; files: Set<string> }>();
+  for (const notePath of notes) {
+    const content = contents.get(notePath);
+    if (content === undefined) continue;
+    const tags = extractTags(content);
+    noteOrder.set(notePath, entries.length);
+    entries.push({ path: notePath, tags });
+    for (const tag of tags) {
+      const normalizedTag = tag.toLowerCase();
+      const existing = tagMap.get(normalizedTag);
+      if (existing) {
+        existing.files.add(notePath);
+      } else {
+        tagMap.set(normalizedTag, {
+          tag: normalizedTag,
+          files: new Set([notePath]),
+        });
+      }
+    }
+  }
+
+  const tagInfos: TagInfo[] = Array.from(tagMap.values()).map(({ tag, files }) => ({
+    tag,
+    count: files.size,
+    files: [...files],
+  }));
+  const tagToFiles = new Map<string, string[]>();
+  for (const info of tagInfos) tagToFiles.set(info.tag, info.files);
+
+  const fresh = { fingerprint, noteOrder, tagInfos, tagToFiles };
+  tagIndexCache.set(vaultPath, fresh);
+  while (tagIndexCache.size > TAG_INDEX_CACHE_LIMIT) {
+    const oldestKey = tagIndexCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    tagIndexCache.delete(oldestKey);
+  }
+
+  return fresh;
 }
 
 export function registerTagTools(server: McpServer, vaultPath: string): void {
@@ -43,37 +128,19 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
     async ({ sortBy }) => {
       try {
         const notes = await listNotes(vaultPath);
-        const tagMap = new Map<string, { tag: string; files: Set<string> }>();
 
         // Cached batch read: re-uses content for files whose mtime hasn't
         // moved since the last vault-wide scan. Per-file failures are
         // logged and dropped so one unreadable note can't abort the index.
-        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+        const { contents, mtimes } = await readAllCached(vaultPath, notes, (note, err) => {
           log.warn("list_tags: note read failed", { note, err });
         });
 
-        for (const notePath of notes) {
-          const content = contents.get(notePath);
-          if (content === undefined) continue;
-          const tags = extractTags(content);
-          for (const tag of tags) {
-            const normalizedTag = tag.toLowerCase();
-            const existing = tagMap.get(normalizedTag);
-            if (existing) {
-              existing.files.add(notePath);
-            } else {
-              tagMap.set(normalizedTag, {
-                tag: normalizedTag,
-                files: new Set([notePath]),
-              });
-            }
-          }
-        }
-
-        const tagInfos: TagInfo[] = Array.from(tagMap.values()).map(({ tag, files }) => ({
-          tag,
-          count: files.size,
-          files: [...files],
+        const tagIndex = getCachedTagIndex(vaultPath, notes, contents, mtimes);
+        const tagInfos: TagInfo[] = tagIndex.tagInfos.map((info) => ({
+          tag: info.tag,
+          count: info.count,
+          files: [...info.files],
         }));
 
         if (sortBy === "name") {
@@ -137,29 +204,29 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         const searchTag = tag.replace(/^#/, "").toLowerCase();
         const notes = await listNotes(vaultPath);
 
-        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+        const { contents, mtimes } = await readAllCached(vaultPath, notes, (note, err) => {
           log.warn("search_by_tag: note read failed", { note, err });
         });
 
-        const matchingNotes: { path: string; preview?: string }[] = [];
-        for (const notePath of notes) {
-          if (matchingNotes.length >= maxResults) break;
-          const content = contents.get(notePath);
-          if (content === undefined) continue;
-          const tags = extractTags(content);
-          const hasMatch = tags.some((t) => {
-            const normalized = t.toLowerCase();
-            return normalized === searchTag || normalized.startsWith(`${searchTag}/`);
-          });
-          if (hasMatch) {
-            const entry: { path: string; preview?: string } = { path: notePath };
-            if (includeContent) {
-              const stripped = content.replace(/^---\n[\s\S]*?\n---\n/, "");
-              entry.preview = stripped.slice(0, 200).trim();
-            }
-            matchingNotes.push(entry);
+        const tagIndex = getCachedTagIndex(vaultPath, notes, contents, mtimes);
+        const matchingPathSet = new Set<string>();
+        for (const [normalizedTag, files] of tagIndex.tagToFiles) {
+          if (normalizedTag === searchTag || normalizedTag.startsWith(`${searchTag}/`)) {
+            for (const file of files) matchingPathSet.add(file);
           }
         }
+        const matchingPaths = [...matchingPathSet]
+          .sort((a, b) => (tagIndex.noteOrder.get(a) ?? 0) - (tagIndex.noteOrder.get(b) ?? 0))
+          .slice(0, maxResults);
+        const matchingNotes: { path: string; preview?: string }[] = matchingPaths.map((notePath) => {
+          const entry: { path: string; preview?: string } = { path: notePath };
+          if (includeContent) {
+            const content = contents.get(notePath)!;
+            const stripped = content.replace(/^---\n[\s\S]*?\n---\n/, "");
+            entry.preview = stripped.slice(0, 200).trim();
+          }
+          return entry;
+        });
 
         if (matchingNotes.length === 0) {
           return {
