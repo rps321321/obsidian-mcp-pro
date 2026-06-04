@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Daily Note Warm Path](daily-note-warm-path.md) | performance / agent workflows | active | Baseline measures cold/warm configured `get_daily_note` calls plus warm other-date calls on synthetic 100 and 1,000-line daily notes. |
 | [Section Read Warm Path](section-read-warm-path.md) | performance / agent workflows | stopped | Cache and streaming-parser prototypes missed the cold or warm ship bar, so no runtime change shipped. |
 | [Section List Warm Path](section-list-warm-path.md) | performance / agent workflows | shipped | Warm 1,000-heading `list_sections` fell from 3.2ms to 1.2ms while cold stayed under the guardrail. |
 | [Note Fragment Warm Path](note-fragment-warm-path.md) | performance / agent workflows | shipped | Warm 10,000-line `get_note` line fragments fell from 2.4ms to 1.2ms while cold line, section, and block fragments stayed under their guardrails. |
