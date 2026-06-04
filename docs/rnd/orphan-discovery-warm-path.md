@@ -1,7 +1,7 @@
 # Orphan Discovery Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: stopped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -47,9 +47,9 @@ category ordering, truncation, and line-safe path display must stay unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm find_orphans | 29.9ms | |
-| 1,000-note cold find_orphans guardrail | 420.6ms | |
-| 1,000-note warm find_orphans backlink-only guardrail | 31.7ms | |
+| 1,000-note warm find_orphans | 29.9ms | 28.6ms / 27.9ms (not shipped) |
+| 1,000-note cold find_orphans guardrail | 420.6ms | 440.1ms / 408.8ms (not shipped) |
+| 1,000-note warm find_orphans backlink-only guardrail | 31.7ms | 25.8ms / 25.9ms (not shipped) |
 
 ## Safety review
 
@@ -77,4 +77,16 @@ needs a persistent index or filesystem watcher to stay correct.
 
 ## Decision
 
-Open.
+Stop. Two low-risk prototypes missed the 24ms ship bar:
+
+- Raising warm graph fingerprint stat concurrency from 16 to 64 produced
+  repeated 1,000-note warm `find_orphans` calls of 29.2ms and 28.6ms.
+- Raising it to 128 produced 29.7ms and 27.9ms.
+- Precomputing derived orphan categories in the graph cache plus 64-way
+  fingerprint stats produced 27.8ms and 30.7ms.
+
+The results improved the backlink-only guardrail but did not reduce the primary
+warm full orphan lookup by 20%, and precomputing categories adds state without
+clearing the metric. No runtime change shipped. Future work should only reopen
+this with a different freshness strategy, such as a carefully bounded watcher or
+another way to avoid full warm stat validation without serving stale graph data.
