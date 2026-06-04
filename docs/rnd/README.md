@@ -19,7 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
-| _none yet_ | | | |
+| [Search Cache Warm Path](search-cache-warm-path.md) | performance / retrieval quality | active | TBD |
 
 Tracks to pull from: retrieval quality, agent workflows, Obsidian format coverage,
 client compatibility, observability, local-first intelligence.
