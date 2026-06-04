@@ -11,7 +11,7 @@ import {
 } from "../lib/vault.js";
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { formatFailedPath } from "../lib/tool-output.js";
 import { formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
 import { log } from "../lib/logger.js";
@@ -23,6 +23,8 @@ function textResult(text: string) {
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
+
+const displayWriteValue = escapeControlChars;
 
 function ensureMdExtension(filePath: string): string {
   return /\.md$/i.test(filePath) ? filePath : `${filePath}.md`;
@@ -74,6 +76,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     async ({ path: notePath, content, frontmatter }) => {
       try {
         const resolvedPath = ensureMdExtension(notePath);
+        const displayedPath = displayWriteValue(resolvedPath);
 
         let finalContent: string;
 
@@ -98,11 +101,11 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           await writeNote(vaultPath, resolvedPath, finalContent, { exclusive: true });
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-            return errorResult(`Error: Note already exists at '${resolvedPath}'. Use append or update tools instead.`);
+            return errorResult(`Error: Note already exists at '${displayedPath}'. Use append or update tools instead.`);
           }
           throw err;
         }
-        return textResult(`Created note at '${resolvedPath}'.`);
+        return textResult(`Created note at '${displayedPath}'.`);
       } catch (err) {
         log.error("create_note failed", { tool: "create_note", err: err as Error });
         return errorResult(`Error creating note: ${sanitizeError(err)}`);
@@ -139,7 +142,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
       try {
         const resolvedPath = ensureMdExtension(notePath);
         await appendToNote(vaultPath, resolvedPath, content);
-        return textResult(`Appended content to '${resolvedPath}'.`);
+        return textResult(`Appended content to '${displayWriteValue(resolvedPath)}'.`);
       } catch (err) {
         log.error("append_to_note failed", { tool: "append_to_note", err: err as Error });
         return errorResult(`Error appending to note: ${sanitizeError(err)}`);
@@ -176,7 +179,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
       try {
         const resolvedPath = ensureMdExtension(notePath);
         await prependToNote(vaultPath, resolvedPath, content);
-        return textResult(`Prepended content to '${resolvedPath}'.`);
+        return textResult(`Prepended content to '${displayWriteValue(resolvedPath)}'.`);
       } catch (err) {
         log.error("prepend_to_note failed", { tool: "prepend_to_note", err: err as Error });
         return errorResult(`Error prepending to note: ${sanitizeError(err)}`);
@@ -230,7 +233,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           updateFrontmatter(existing, props),
         );
 
-        return textResult(`Updated frontmatter of '${resolvedPath}' with ${Object.keys(props).length} properties.`);
+        return textResult(`Updated frontmatter of '${displayWriteValue(resolvedPath)}' with ${Object.keys(props).length} properties.`);
       } catch (err) {
         log.error("update_frontmatter failed", { tool: "update_frontmatter", err: err as Error });
         return errorResult(`Error updating frontmatter: ${sanitizeError(err)}`);
@@ -321,11 +324,11 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           await writeNote(vaultPath, notePath, finalContent, { exclusive: true });
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-            return errorResult(`Error: Daily note already exists at '${notePath}'.`);
+            return errorResult(`Error: Daily note already exists at '${displayWriteValue(notePath)}'.`);
           }
           throw err;
         }
-        return textResult(`Created daily note at '${notePath}'.`);
+        return textResult(`Created daily note at '${displayWriteValue(notePath)}'.`);
       } catch (err) {
         log.error("create_daily_note failed", { tool: "create_daily_note", err: err as Error });
         return errorResult(`Error creating daily note: ${sanitizeError(err)}`);
@@ -369,7 +372,9 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const resolvedOld = ensureMdExtension(oldPath);
         const resolvedNew = ensureMdExtension(newPath);
         const result = await moveNote(vaultPath, resolvedOld, resolvedNew, { updateLinks });
-        const lines: string[] = [`Moved note from '${resolvedOld}' to '${resolvedNew}'.`];
+        const lines: string[] = [
+          `Moved note from '${displayWriteValue(resolvedOld)}' to '${displayWriteValue(resolvedNew)}'.`,
+        ];
         if (updateLinks !== false) {
           const updated = result.updatedReferrers.length;
           lines.push(
@@ -448,7 +453,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         // recoverable, so no confirmation is needed for those.
         if (permanent && !confirm) {
           return errorResult(
-            `Permanent deletion of "${resolvedPath}" requires confirm=true. ` +
+            `Permanent deletion of "${displayWriteValue(resolvedPath)}" requires confirm=true. ` +
             "This is a destructive, irreversible operation. Set confirm to true to proceed, " +
             "or omit permanent (or set it to false) to move the note to the vault's .trash folder instead.",
           );
@@ -477,7 +482,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           try {
             const elicit = await server.server.elicitInput({
               message:
-                `Permanently delete "${resolvedPath}" from the vault?` +
+                `Permanently delete "${displayWriteValue(resolvedPath)}" from the vault?` +
                 (removeReferences ? " References across the vault will also be stripped." : "") +
                 ` This cannot be undone. Type the note's path to confirm.`,
               requestedSchema: {
@@ -492,7 +497,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
               },
             });
             if (elicit.action !== "accept") {
-              return textResult(`Deletion of "${resolvedPath}" cancelled.`);
+              return textResult(`Deletion of "${displayWriteValue(resolvedPath)}" cancelled.`);
             }
             // An accept with no content (or a missing field) is treated as
             // a cancel rather than an error: the user dismissed the form
@@ -501,11 +506,11 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             const content = elicit.content as { confirmPath?: unknown } | undefined;
             const confirmed = content?.confirmPath;
             if (confirmed === undefined || confirmed === null || confirmed === "") {
-              return textResult(`Deletion of "${resolvedPath}" cancelled (no confirmation provided).`);
+              return textResult(`Deletion of "${displayWriteValue(resolvedPath)}" cancelled (no confirmation provided).`);
             }
             if (typeof confirmed !== "string" || confirmed.trim() !== resolvedPath) {
               return errorResult(
-                `Confirmation path did not match "${resolvedPath}"; deletion aborted.`,
+                `Confirmation path did not match "${displayWriteValue(resolvedPath)}"; deletion aborted.`,
               );
             }
           } catch (err) {
@@ -515,7 +520,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
 
         const result = await deleteNote(vaultPath, resolvedPath, { permanent, removeReferences });
         const method = permanent ? "permanently deleted" : "moved to trash";
-        const lines: string[] = [`Note '${resolvedPath}' ${method}.`];
+        const lines: string[] = [`Note '${displayWriteValue(resolvedPath)}' ${method}.`];
         if (removeReferences && permanent) {
           const updated = result.updatedReferrers.length;
           lines.push(

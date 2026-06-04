@@ -93,6 +93,27 @@ describe("write handlers — create_note", () => {
     expect(textContent(result)).toMatch(/no-extension\.md/);
     await expect(fs.access(path.join(env.vaultDir, "no-extension.md"))).resolves.toBeUndefined();
   });
+
+  it("escapes normalized paths in success and already-exists messages", async () => {
+    const dirtyPath = "dirty\x7fnote.md";
+    const created = await env.client.callTool({
+      name: "create_note",
+      arguments: { path: dirtyPath, content: "Control-char path." },
+    });
+
+    expect(isError(created)).toBe(false);
+    expect(textContent(created)).toContain("dirty\\x7fnote.md");
+    expect(textContent(created)).not.toContain(dirtyPath);
+    await expect(fs.access(path.join(env.vaultDir, dirtyPath))).resolves.toBeUndefined();
+
+    const duplicate = await env.client.callTool({
+      name: "create_note",
+      arguments: { path: dirtyPath, content: "Duplicate." },
+    });
+    expect(isError(duplicate)).toBe(true);
+    expect(textContent(duplicate)).toContain("dirty\\x7fnote.md");
+    expect(textContent(duplicate)).not.toContain(dirtyPath);
+  });
 });
 
 describe("write handlers — append_to_note / prepend_to_note", () => {
@@ -136,6 +157,35 @@ describe("write handlers — append_to_note / prepend_to_note", () => {
     expect(isError(result)).toBe(false);
     const onDisk = await fs.readFile(path.join(env.vaultDir, "note-c.md"), "utf-8");
     expect(onDisk).toMatch(/^HEADER\n/);
+  });
+
+  it("escapes target paths in append, prepend, and frontmatter success messages", async () => {
+    const dirtyPath = "mutate\x7fnote.md";
+    await fs.writeFile(path.join(env.vaultDir, dirtyPath), "Body", "utf-8");
+
+    const appended = await env.client.callTool({
+      name: "append_to_note",
+      arguments: { path: dirtyPath, content: "APPENDED" },
+    });
+    expect(isError(appended)).toBe(false);
+    expect(textContent(appended)).toContain("mutate\\x7fnote.md");
+    expect(textContent(appended)).not.toContain(dirtyPath);
+
+    const prepended = await env.client.callTool({
+      name: "prepend_to_note",
+      arguments: { path: dirtyPath, content: "PREPENDED" },
+    });
+    expect(isError(prepended)).toBe(false);
+    expect(textContent(prepended)).toContain("mutate\\x7fnote.md");
+    expect(textContent(prepended)).not.toContain(dirtyPath);
+
+    const updated = await env.client.callTool({
+      name: "update_frontmatter",
+      arguments: { path: dirtyPath, properties: JSON.stringify({ status: "dirty" }) },
+    });
+    expect(isError(updated)).toBe(false);
+    expect(textContent(updated)).toContain("mutate\\x7fnote.md");
+    expect(textContent(updated)).not.toContain(dirtyPath);
   });
 });
 
@@ -229,6 +279,27 @@ describe("write handlers — create_daily_note", () => {
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/Invalid date/);
   });
+
+  it("escapes configured daily-note paths in create output", async () => {
+    const dirtyFolder = "daily\x7fnotes";
+    await fs.writeFile(
+      path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: dirtyFolder, format: "YYYY-MM-DD" }),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "create_daily_note",
+      arguments: { date: "2026-05-07", content: "May 7 entry." },
+    });
+
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toContain("daily\\x7fnotes/2026-05-07.md");
+    expect(textContent(result)).not.toContain(`${dirtyFolder}/2026-05-07.md`);
+    await expect(
+      fs.access(path.join(env.vaultDir, dirtyFolder, "2026-05-07.md")),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("write handlers — move_note", () => {
@@ -292,6 +363,25 @@ describe("write handlers — move_note", () => {
     const fileNode = canvas.nodes.find((n: { type: string }) => n.type === "file");
     expect(fileNode.file).toBe("note-a.md");
   });
+
+  it("escapes source and destination paths in move output", async () => {
+    const oldPath = "move\x7fold.md";
+    const newPath = "archive/move\x7fnew.md";
+    await fs.writeFile(path.join(env.vaultDir, oldPath), "Move me.", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "move_note",
+      arguments: { oldPath, newPath, updateLinks: false },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("move\\x7fold.md");
+    expect(text).toContain("archive/move\\x7fnew.md");
+    expect(text).not.toContain(oldPath);
+    expect(text).not.toContain(newPath);
+    await expect(fs.access(path.join(env.vaultDir, newPath))).resolves.toBeUndefined();
+  });
 });
 
 describe("write handlers — delete_note", () => {
@@ -317,5 +407,33 @@ describe("write handlers — delete_note", () => {
 
     await expect(fs.access(path.join(env.vaultDir, "note-c.md"))).rejects.toThrow();
     await expect(fs.access(path.join(env.vaultDir, ".trash/note-c.md"))).rejects.toThrow();
+  });
+
+  it("escapes note paths in trash-delete output", async () => {
+    const dirtyPath = "delete\x7fnote.md";
+    await fs.writeFile(path.join(env.vaultDir, dirtyPath), "Delete me.", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "delete_note",
+      arguments: { path: dirtyPath },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("delete\\x7fnote.md");
+    expect(text).not.toContain(dirtyPath);
+    await expect(fs.access(path.join(env.vaultDir, ".trash", dirtyPath))).resolves.toBeUndefined();
+  });
+
+  it("escapes note paths before permanent-delete confirmation", async () => {
+    const result = await env.client.callTool({
+      name: "delete_note",
+      arguments: { path: "line\nbreak", permanent: true },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(true);
+    expect(text).toContain('Permanent deletion of "line\\nbreak.md" requires confirm=true');
+    expect(text).not.toContain("line\nbreak.md");
   });
 });
