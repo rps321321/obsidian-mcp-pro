@@ -418,6 +418,26 @@ describe("read handlers — get_recent_notes", () => {
     expect(noteLines).toHaveLength(2);
   });
 
+  it("reflects note mtime changes between repeated calls", async () => {
+    await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { limit: 5 },
+    });
+
+    const notePath = path.join(env.vaultDir, "recent-refresh.md");
+    await fs.writeFile(notePath, "freshly touched\n", "utf-8");
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(notePath, future, future);
+
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { limit: 1 },
+    });
+    expect(isError(result)).toBe(false);
+    const noteLines = textContent(result).split("\n").filter((l) => l.startsWith("- "));
+    expect(noteLines[0]).toContain("recent-refresh.md");
+  });
+
   it("filters with relative since spans", async () => {
     const result = await env.client.callTool({
       name: "get_recent_notes",

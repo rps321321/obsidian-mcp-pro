@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
-import { searchInContents, readNote, listNotes, resolveVaultPathSafe } from "../lib/vault.js";
+import { searchInContents, readNote, listNotes, resolveVaultPathSafe, getVaultRootRealPath } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
@@ -518,12 +518,13 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         // Stat each note for mtime. fs.stat is one syscall and bypasses the
         // content cache deliberately — we don't need bodies, only timestamps.
         type Row = { path: string; mtimeMs: number };
+        const realVaultRoot = await getVaultRootRealPath(vaultPath);
         const stats = await mapConcurrent<string, Row | undefined>(
           notes,
           MAX_CONCURRENT_OPS,
           async (notePath) => {
             try {
-              const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
+              const fullPath = await resolveVaultPathSafe(vaultPath, notePath, "read", { realVaultRoot });
               const st = await fs.stat(fullPath);
               return { path: notePath, mtimeMs: st.mtimeMs };
             } catch {
