@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Outlinks Warm Path](outlinks-warm-path.md) | performance / vault navigation | active | Baseline measures cold/warm `get_outlinks` and mixed valid/broken/embed output on synthetic 100 and 1,000-note vaults. |
 | [Orphan Discovery Warm Path](orphan-discovery-warm-path.md) | performance / vault hygiene | stopped | Simple stat-concurrency and derived-category prototypes missed the 24ms warm-call ship bar, so no runtime change shipped. |
 | [Frontmatter Search Warm Path](frontmatter-search-warm-path.md) | performance / metadata workflows | shipped | Warm 1,000-note `search_by_frontmatter` fell from 93.1ms to 30.8ms while cold and folder-scoped calls stayed under their guardrails. |
 | [Resolve Alias Warm Path](resolve-alias-warm-path.md) | performance / agent workflows | shipped | Warm 1,000-note `resolve_alias` fell from 86.6ms to 40.5ms while cold lookups and basename fallback stayed under their guardrails. |
