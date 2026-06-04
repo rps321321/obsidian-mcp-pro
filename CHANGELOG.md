@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Active R&D experiment for `search_notes` warm-cache performance, with a baseline fixture and ship/kill metric in `docs/rnd/search-cache-warm-path.md`.
+
 ### Fixed
 
 - `obsidian://tags` now escapes control characters in generated tag keys and note-path values before returning its JSON index.
