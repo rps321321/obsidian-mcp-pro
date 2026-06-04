@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Active R&D experiment for `list_sections` warm-path performance, with a synthetic benchmark harness in `scripts/bench-sections.mjs` and ship/kill metric in `docs/rnd/section-list-warm-path.md`.
+- R&D experiment for `list_sections` warm-path performance, with a synthetic benchmark harness in `scripts/bench-sections.mjs` and ship/kill metric in `docs/rnd/section-list-warm-path.md`.
 - R&D experiment for `get_note` fragment-read performance, with a synthetic benchmark harness in `scripts/bench-note-fragments.mjs` and ship/kill metric in `docs/rnd/note-fragment-warm-path.md`.
 - R&D experiment for `get_outlinks` warm-path performance, with a synthetic benchmark harness in `scripts/bench-outlinks.mjs` and ship/kill metric in `docs/rnd/outlinks-warm-path.md`.
 - R&D experiment for `list_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-list-notes.mjs` and ship/kill metric in `docs/rnd/list-notes-warm-path.md`.
@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `list_sections` now reuses a small mtime-validated rendered heading cache, cutting the 1,000-heading warm bench below the R&D ship bar while preserving heading escaping and write freshness.
 - `get_note` line fragments now read only through the requested line range, cutting the 10,000-line warm fragment bench below the R&D ship bar while preserving section, block, full-note, and EOF behavior.
 - `get_outlinks` now renders from resolved link rows captured by the shared graph cache, cutting the 1,000-note warm outlinks bench below the R&D ship bar while preserving alias resolution and valid/broken/embed grouping.
 - The `list_notes` warm-path R&D experiment is stopped after a safe rendered-response cache missed the ship bar.

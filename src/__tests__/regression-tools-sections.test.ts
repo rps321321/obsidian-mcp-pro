@@ -211,6 +211,38 @@ describe("regression: section tool output escaping", () => {
     expect(text).not.toContain("Dirty\tHeading");
   });
 
+  it("re-renders list_sections after a same-size heading edit", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "cached-heading.md"), "# Old\n\nBody\n", "utf-8");
+
+    const before = await env.client.callTool({
+      name: "list_sections",
+      arguments: { path: "cached-heading.md" },
+    });
+    expect(isError(before)).toBe(false);
+    expect(textContent(before)).toContain("# Old");
+
+    const edit = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "cached-heading.md",
+        find: "Old",
+        replace: "New",
+        expectedCount: 1,
+      },
+    });
+    expect(isError(edit)).toBe(false);
+
+    const after = await env.client.callTool({
+      name: "list_sections",
+      arguments: { path: "cached-heading.md" },
+    });
+
+    const text = textContent(after);
+    expect(isError(after)).toBe(false);
+    expect(text).toContain("# New");
+    expect(text).not.toContain("# Old");
+  });
+
   it("escapes control characters in update_section success output", async () => {
     await fs.writeFile(
       path.join(env.vaultDir, "update-dirty-heading.md"),

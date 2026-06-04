@@ -1,7 +1,7 @@
 # Section List Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -44,8 +44,8 @@ heading text, and missing-note/no-heading behavior must stay unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-heading warm list_sections | 3.2ms | |
-| 1,000-heading cold list_sections guardrail | 5.9ms | |
+| 1,000-heading warm list_sections | 3.2ms | 1.4ms / 1.2ms |
+| 1,000-heading cold list_sections guardrail | 5.9ms | 5.6ms / 5.6ms |
 
 ## Safety review
 
@@ -69,4 +69,23 @@ persistent index or filesystem watcher to stay correct.
 
 ## Decision
 
-Open.
+Ship. `list_sections` now renders through a small cache keyed by vault path and
+note path, and reuses the rendered heading list only when the current resolved
+path, size, and mtime match. Cache misses read the already-validated full path
+directly, preserving the vault-boundary check while avoiding duplicate path
+resolution. Section write tools invalidate the cached heading list after
+successful same-process edits.
+
+A regression test warms `list_sections`, edits a same-size heading through
+`replace_in_note`, and verifies the next heading list reflects the new heading.
+
+Measured after the prototype with:
+
+```powershell
+npm run build
+node scripts\bench-sections.mjs 100,1000 --json
+node scripts\bench-sections.mjs 100,1000 --json
+```
+
+The repeated 1,000-heading warm calls were 1.4ms and 1.2ms, both below the
+2.6ms ship bar. Cold calls were 5.6ms and 5.6ms, below the 6.5ms guardrail.
