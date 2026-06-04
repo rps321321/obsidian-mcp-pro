@@ -42,6 +42,79 @@ describe("canvas handlers — read_canvas", () => {
     expect(text).toContain("n1 -> n2 [refs]");
   });
 
+  it("serves repeated reads without changing the rendered summary", async () => {
+    const first = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "boards/test.canvas" },
+    });
+    const second = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "boards/test.canvas" },
+    });
+
+    expect(isError(first)).toBe(false);
+    expect(isError(second)).toBe(false);
+    expect(textContent(second)).toBe(textContent(first));
+  });
+
+  it("refreshes cached summaries after an external canvas edit", async () => {
+    const first = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "boards/test.canvas" },
+    });
+    expect(textContent(first)).toMatch(/Nodes: 2 \| Edges: 1/);
+
+    const canvasPath = path.join(env.vaultDir, "boards/test.canvas");
+    await fs.writeFile(
+      canvasPath,
+      JSON.stringify({
+        nodes: [
+          { id: "n1", type: "text", x: 0, y: 0, width: 200, height: 100, text: "Hello canvas" },
+          { id: "n2", type: "file", x: 300, y: 0, width: 200, height: 100, file: "note-a.md" },
+          { id: "n3", type: "text", x: 500, y: 0, width: 200, height: 100, text: "Fresh edit" },
+        ],
+        edges: [{ id: "e1", fromNode: "n1", toNode: "n2", label: "refs" }],
+      }),
+      "utf-8",
+    );
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(canvasPath, future, future);
+
+    const second = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "boards/test.canvas" },
+    });
+    const text = textContent(second);
+    expect(text).toMatch(/Nodes: 3 \| Edges: 1/);
+    expect(text).toContain("Fresh edit");
+  });
+
+  it("refreshes cached summaries after canvas tool writes", async () => {
+    const first = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "boards/test.canvas" },
+    });
+    expect(textContent(first)).toMatch(/Nodes: 2 \| Edges: 1/);
+
+    const add = await env.client.callTool({
+      name: "add_canvas_node",
+      arguments: {
+        canvasPath: "boards/test.canvas",
+        type: "text",
+        content: "Cached write",
+      },
+    });
+    expect(isError(add)).toBe(false);
+
+    const second = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "boards/test.canvas" },
+    });
+    const text = textContent(second);
+    expect(text).toMatch(/Nodes: 3 \| Edges: 1/);
+    expect(text).toContain("Cached write");
+  });
+
   it("returns isError for a malformed canvas JSON", async () => {
     await fs.writeFile(
       path.join(env.vaultDir, "bad.canvas"),
