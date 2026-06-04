@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Active R&D experiment for `find_orphans` warm-path performance, with a synthetic benchmark harness in `scripts/bench-orphans.mjs` and ship/kill metric in `docs/rnd/orphan-discovery-warm-path.md`.
 - R&D experiment for `search_by_frontmatter` warm-path performance, with a synthetic benchmark harness in `scripts/bench-frontmatter-search.mjs` and ship/kill metric in `docs/rnd/frontmatter-search-warm-path.md`.
 - R&D experiment for `resolve_alias` warm-path performance, with a synthetic benchmark harness in `scripts/bench-resolve-alias.mjs` and ship/kill metric in `docs/rnd/resolve-alias-warm-path.md`.
 - R&D experiment for `get_vault_stats` warm-path performance, with a synthetic benchmark harness in `scripts/bench-vault-stats.mjs` and ship/kill metric in `docs/rnd/vault-stats-warm-path.md`.
@@ -37,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HTTP server tests now retry OS-assigned ports that Node's `fetch` rejects, avoiding a flaky `bad port` failure during the verify gate.
 - `obsidian://tags` now escapes control characters in generated tag keys and note-path values before returning its JSON index.
 - Empty `get_vault_stats` folder output and missing daily-resource errors now escape control characters in displayed configured paths.
 - Workflow prompts now escape control characters in displayed folder, path, and tag arguments before returning prompt text to MCP clients.
