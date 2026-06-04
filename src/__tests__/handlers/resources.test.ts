@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "fs/promises";
+import path from "path";
 import { createTestEnv, type TestEnv } from "./harness.js";
 
 let env: TestEnv;
@@ -61,5 +63,23 @@ describe("MCP resources", () => {
     const tags = JSON.parse(firstText(result.contents)) as Record<string, string[]>;
     expect(tags["#review"]).toEqual(expect.arrayContaining(["note-a.md", "note-b.md"]));
     expect(tags["#nested/archive"]).toEqual(["nested/note-d.md"]);
+  });
+
+  it("escapes configured daily-note paths in missing daily resource errors", async () => {
+    const dirtyFolder = "daily\nnotes";
+    await fs.writeFile(
+      path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: dirtyFolder, format: "YYYY-MM-DD" }),
+    );
+
+    let message = "";
+    try {
+      await env.client.readResource({ uri: "obsidian://daily" });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(message).toContain("daily\\nnotes/");
+    expect(message).not.toContain(dirtyFolder);
   });
 });

@@ -584,7 +584,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
       try {
         const notes = await listNotes(vaultPath, folder);
         if (notes.length === 0) {
-          return { content: [{ type: "text" as const, text: folder ? `No notes in "${folder}"` : "Vault is empty." }] };
+          return { content: [{ type: "text" as const, text: folder ? `No notes in "${displayReadValue(folder)}"` : "Vault is empty." }] };
         }
         const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
           log.warn("get_vault_stats: note read failed", { note, err });

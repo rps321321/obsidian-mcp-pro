@@ -13,7 +13,7 @@ import { describePermissions } from "./lib/permissions.js";
 import { flushAllCachesAsync, readAllCached } from "./lib/index-cache.js";
 import { extractTags } from "./lib/markdown.js";
 import { log, configureLogger } from "./lib/logger.js";
-import { sanitizeError } from "./lib/errors.js";
+import { escapeControlChars, sanitizeError } from "./lib/errors.js";
 import { formatMomentDate } from "./lib/dates.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
@@ -27,6 +27,8 @@ import { registerSemanticTools } from "./tools/semantic.js";
 import { registerPrompts } from "./tools/prompts.js";
 import { startHttpServer } from "./http-server.js";
 import { runInstall, type InstallClient } from "./install.js";
+
+const displayResourceValue = escapeControlChars;
 
 interface CliOptions {
   command: "serve" | "install" | "help" | "version";
@@ -304,7 +306,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       // response with body "No daily note found..." is indistinguishable to
       // MCP clients from a real note whose first line happens to say the
       // same thing — clients need a proper error so they can branch on it.
-      throw new Error(`No daily note found for today (expected at ${notePath})`);
+      throw new Error(`No daily note found for today (expected at ${displayResourceValue(notePath)})`);
     }
   });
 
