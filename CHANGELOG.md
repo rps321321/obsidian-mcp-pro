@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - R&D experiment for `get_outlinks` warm-path performance, with a synthetic benchmark harness in `scripts/bench-outlinks.mjs` and ship/kill metric in `docs/rnd/outlinks-warm-path.md`.
+- Active R&D experiment for `list_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-list-notes.mjs` and ship/kill metric in `docs/rnd/list-notes-warm-path.md`.
 - R&D experiment for `get_graph_neighbors` warm-path performance, with a synthetic benchmark harness in `scripts/bench-graph-neighbors.mjs` and ship/kill metric in `docs/rnd/graph-neighbors-warm-path.md`.
 - R&D experiment for `find_orphans` warm-path performance, with a synthetic benchmark harness in `scripts/bench-orphans.mjs` and ship/kill metric in `docs/rnd/orphan-discovery-warm-path.md`.
 - R&D experiment for `search_by_frontmatter` warm-path performance, with a synthetic benchmark harness in `scripts/bench-frontmatter-search.mjs` and ship/kill metric in `docs/rnd/frontmatter-search-warm-path.md`.
