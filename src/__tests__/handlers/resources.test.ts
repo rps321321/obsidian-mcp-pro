@@ -65,6 +65,27 @@ describe("MCP resources", () => {
     expect(tags["#nested/archive"]).toEqual(["nested/note-d.md"]);
   });
 
+  it("escapes control characters in tag resource JSON labels", async () => {
+    const dirtyTag = "resource\x7ftag";
+    const dirtyPath = "resource\x7fnote.md";
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: dirtyPath,
+        frontmatter: JSON.stringify({ tags: [dirtyTag] }),
+        content: "# Tagged resource note",
+      },
+    });
+
+    const result = await env.client.readResource({ uri: "obsidian://tags" });
+    const text = firstText(result.contents);
+    const tags = JSON.parse(text) as Record<string, string[]>;
+
+    expect(tags["#resource\\x7ftag"]).toEqual(["resource\\x7fnote.md"]);
+    expect(text).not.toContain(dirtyTag);
+    expect(text).not.toContain(dirtyPath);
+  });
+
   it("escapes configured daily-note paths in missing daily resource errors", async () => {
     const dirtyFolder = "daily\nnotes";
     await fs.writeFile(

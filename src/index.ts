@@ -262,8 +262,8 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       const content = contents.get(notePath);
       if (content === undefined) continue;
       for (const tag of extractTags(content)) {
-        const normalizedTag = `#${tag}`;
-        (tagIndex[normalizedTag] ??= []).push(notePath);
+        const normalizedTag = `#${displayResourceValue(tag)}`;
+        (tagIndex[normalizedTag] ??= []).push(displayResourceValue(notePath));
       }
     }
 
