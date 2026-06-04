@@ -11,6 +11,8 @@ import {
   pruneMissingNotes,
   searchEmbeddings,
   cosineSimilarity,
+  getNoteEmbeddings,
+  buildSimilarNotesQueryVector,
   clearStore,
   snapshotForTests,
   invalidateIfIncompatible,
@@ -158,6 +160,45 @@ describe("setNoteChunks / searchEmbeddings", () => {
     ], "test", "m");
     const hits = searchEmbeddings(vaultDir, [1, 0], { excludeNotes: new Set(["self.md"]) });
     expect(hits.map((h) => h.notePath)).toEqual(["other.md"]);
+  });
+
+  it("anchors similar-note queries to the source note's opening topic", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(vaultDir, "source-cat-care.md", hashText("source"), [
+      { notePath: "source-cat-care.md", chunkIndex: 1, headingPath: ["Cats", "Care"], text: "cat care", hash: "h1", vector: [1, 0, 0] },
+      { notePath: "source-cat-care.md", chunkIndex: 2, headingPath: ["Appendix"], text: "recipe appendix", hash: "h2", vector: [0.1, 1, 0] },
+      { notePath: "source-cat-care.md", chunkIndex: 3, headingPath: ["Appendix"], text: "kitchen appendix", hash: "h3", vector: [0.1, 1, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "cats-care.md", hashText("cats"), [
+      { notePath: "cats-care.md", chunkIndex: 1, headingPath: ["Cats", "Care"], text: "focused cat care", hash: "h4", vector: [0.98, 0.05, 0] },
+      { notePath: "cats-care.md", chunkIndex: 2, headingPath: ["Cats", "Behavior"], text: "cat behavior", hash: "h5", vector: [0.96, 0.08, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "cat-health.md", hashText("health"), [
+      { notePath: "cat-health.md", chunkIndex: 1, headingPath: ["Cats", "Health"], text: "cat health", hash: "h6", vector: [0.97, 0.04, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "pet-overview.md", hashText("pets"), [
+      { notePath: "pet-overview.md", chunkIndex: 1, headingPath: ["Pets"], text: "mixed pets", hash: "h7", vector: [0.75, 0.25, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "kitchen-recipes.md", hashText("kitchen"), [
+      { notePath: "kitchen-recipes.md", chunkIndex: 1, headingPath: ["Kitchen"], text: "recipes", hash: "h8", vector: [0, 1, 0] },
+    ], "test", "m");
+
+    const queryVector = buildSimilarNotesQueryVector(
+      getNoteEmbeddings(vaultDir, "source-cat-care.md"),
+    );
+    const hits = searchEmbeddings(vaultDir, queryVector, {
+      limit: 4,
+      excludeNotes: new Set(["source-cat-care.md"]),
+    });
+
+    expect(queryVector[0]).toBeGreaterThan(queryVector[1]!);
+    expect(hits.map((hit) => hit.notePath)).toEqual([
+      "cats-care.md",
+      "cat-health.md",
+      "pet-overview.md",
+      "kitchen-recipes.md",
+    ]);
+    expect(hits[0].headingPath[0]).toBe("Cats");
   });
 });
 

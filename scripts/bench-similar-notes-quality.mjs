@@ -1,5 +1,5 @@
 // Similar-note quality benchmark: populate the embedding store with synthetic
-// vectors, run the same source-centroid search used by find_similar_notes, and
+// vectors, run the same source-anchored search used by find_similar_notes, and
 // score the returned note order.
 //
 // Direct use: node scripts/bench-similar-notes-quality.mjs [--json]
@@ -85,27 +85,13 @@ function ndcgAt(results, k) {
   return idealDcg === 0 ? 0 : dcg(actual) / idealDcg;
 }
 
-function centroid(chunks) {
-  const first = chunks[0];
-  const out = first.vector.slice();
-  for (let i = 1; i < chunks.length; i++) {
-    const vector = chunks[i].vector;
-    for (let d = 0; d < out.length; d++) {
-      out[d] += vector[d];
-    }
-  }
-  for (let d = 0; d < out.length; d++) {
-    out[d] /= chunks.length;
-  }
-  return out;
-}
-
 export async function runSimilarNotesQualityBench() {
   const {
     loadStore,
     setNoteChunks,
     searchEmbeddings,
     getNoteEmbeddings,
+    buildSimilarNotesQueryVector,
     hashText,
     clearStore,
   } = await import(pathToFileURL(storeEntry).href);
@@ -132,7 +118,7 @@ export async function runSimilarNotesQualityBench() {
     }
 
     const ownChunks = getNoteEmbeddings(vault, SOURCE_NOTE);
-    const queryVector = centroid(ownChunks);
+    const queryVector = buildSimilarNotesQueryVector(ownChunks);
     const hits = searchEmbeddings(vault, queryVector, {
       limit: LIMIT,
       excludeNotes: new Set([SOURCE_NOTE]),

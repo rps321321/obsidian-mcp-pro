@@ -1,15 +1,15 @@
 # Similar Notes Quality
 
-_Status: active_
-_Started: 2026-06-04 - Decided: pending_
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
-`find_similar_notes` computes one centroid from every source-note chunk. If a source
-note has unrelated appendices or copied material, that centroid can drift away from
-the note's main topic and return off-topic notes first. A measured fixture can test
-whether source-note anchoring or top-chunk selection improves similar-note quality
-without adding provider calls during search.
+`find_similar_notes` used to compute one centroid from every source-note chunk. If
+a source note had unrelated appendices or copied material, that centroid could drift
+away from the note's main topic and return off-topic notes first. Source-note
+anchoring should improve similar-note quality without adding provider calls during
+search.
 
 ## Fixture
 
@@ -41,10 +41,10 @@ and no off-topic top result.
 
 | metric | before | after |
 |---|---:|---:|
-| NDCG@3 | 0.418 | |
-| Precision@3 | 0.667 | |
-| Top relevance grade | 0 | |
-| Off-topic top result | true | |
+| NDCG@3 | 0.418 | 1.000 |
+| Precision@3 | 0.667 | 1.000 |
+| Top relevance grade | 0 | 3 |
+| Off-topic top result | true | false |
 
 Baseline command samples:
 
@@ -53,23 +53,30 @@ Baseline command samples:
 - `node scripts/bench-similar-notes-quality.mjs --json`: NDCG@3 0.418,
   precision@3 0.667, top relevance 0, off-topic top result true.
 
+After command samples:
+
+- `node scripts/bench-similar-notes-quality.mjs --json`: NDCG@3 1.000,
+  precision@3 1.000, top relevance 3, off-topic top result false.
+- `node scripts/bench-similar-notes-quality.mjs --json`: NDCG@3 1.000,
+  precision@3 1.000, top relevance 3, off-topic top result false.
+
 Current top five:
 
 | rank | note | rel | score | chunk |
 |---:|---|---:|---:|---:|
-| 1 | `kitchen-recipes.md` | 0 | 0.857 | 1 |
-| 2 | `pet-overview.md` | 2 | 0.759 | 1 |
-| 3 | `cats-care.md` | 3 | 0.581 | 2 |
-| 4 | `cat-health.md` | 3 | 0.549 | 1 |
+| 1 | `cats-care.md` | 3 | 1.000 | 2 |
+| 2 | `cat-health.md` | 3 | 0.998 | 1 |
+| 3 | `pet-overview.md` | 2 | 0.975 | 1 |
+| 4 | `kitchen-recipes.md` | 0 | 0.099 | 1 |
 | 5 | `dogs.md` | 0 | 0.000 | 1 |
 
 ## Safety review
 
 The fixture creates a temporary vault path and writes no note files. It calls the
 compiled embedding store with synthetic chunks and vectors, computes the same
-source centroid used by `find_similar_notes`, then clears the store and removes
-the temp directory. It performs no provider calls, no network calls, and no real
-vault reads or writes.
+source-anchored query vector used by `find_similar_notes`, then clears the store
+and removes the temp directory. It performs no provider calls, no network calls,
+and no real vault reads or writes.
 
 ## Kill criterion
 
@@ -79,5 +86,7 @@ or hiding the current best matching candidate chunk.
 
 ## Decision
 
-Active. The next step is a prototype that anchors the source representation to
-the source note's focused chunks while preserving the existing result shape.
+Shipped. `find_similar_notes` now builds a source-anchored query vector by giving
+chunks that align with the source note's opening chunk more weight. The fixture
+clears the ship bar while preserving tool names, parameters, result shape, and the
+best matching candidate chunk shown for each note.

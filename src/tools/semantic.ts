@@ -13,6 +13,7 @@ import {
   pruneMissingNotes,
   searchEmbeddings,
   getNoteEmbeddings,
+  buildSimilarNotesQueryVector,
   snapshotForTests,
   invalidateIfIncompatible,
   type ChunkEmbedding,
@@ -350,7 +351,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
     {
       title: "Find Similar Notes",
       description:
-        "Given a note path, return the K most semantically similar notes from the index (excluding the source note). Uses the source note's existing chunk embeddings — no live API call to the embedding provider, so this is fast and free. Run `index_vault` first to populate embeddings for both the source and the candidates.",
+        "Given a note path, return the K most semantically similar notes from the index (excluding the source note). Uses the source note's existing chunk embeddings and anchors the source query to chunks aligned with the note's opening topic — no live API call to the embedding provider, so this is fast and free. Run `index_vault` first to populate embeddings for both the source and the candidates.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -388,32 +389,9 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             `No embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` first (or check the path is correct).`,
           );
         }
-        // Compute a centroid (mean) vector from all of the source note's
-        // chunk embeddings, then run a single searchEmbeddings pass over
-        // the store. This is O(totalChunks) instead of the previous
-        // O(ownChunks * totalChunks) which compared every source chunk
-        // against every stored chunk. The centroid is a standard
-        // document-level representation; searchEmbeddings already
-        // deduplicates per note (keeping the best-scoring chunk), so the
-        // ranking quality stays high.
-        const firstChunk = ownChunks[0]!;
-        const dim = firstChunk.vector.length;
-        // Build centroid: average all chunk vectors element-wise. Start
-        // from a copy of the first vector, accumulate the rest, then
-        // divide by count. This avoids strict-mode indexed-access issues
-        // with typed arrays while keeping the logic straightforward.
-        const centroid = firstChunk.vector.slice();
-        for (let ci = 1; ci < ownChunks.length; ci++) {
-          const vec = ownChunks[ci]!.vector;
-          for (let d = 0; d < dim; d++) {
-            centroid[d] = centroid[d]! + vec[d]!;
-          }
-        }
-        for (let d = 0; d < dim; d++) {
-          centroid[d] = centroid[d]! / ownChunks.length;
-        }
+        const queryVector = buildSimilarNotesQueryVector(ownChunks);
         const exclude = new Set([notePath]);
-        const hits = searchEmbeddings(vaultPath, centroid, {
+        const hits = searchEmbeddings(vaultPath, queryVector, {
           limit,
           excludeNotes: exclude,
         });
