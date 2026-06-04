@@ -1,7 +1,7 @@
 # Search Snippet Length
 
-_Status: active_
-_Started: 2026-06-04 - Decided: pending_
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -33,11 +33,11 @@ zero oversized snippet rows, and every snippet still contains the query.
 
 | metric | before | after |
 |---|---:|---:|
-| Max snippet chars | 2152 | |
-| Total snippet chars | 2285 | |
-| Oversized snippet rows | 1 | |
-| Snippets keep query | true | |
-| Clears length bars | false | |
+| Max snippet chars | 2152 | 237 |
+| Total snippet chars | 2285 | 370 |
+| Oversized snippet rows | 1 | 0 |
+| Snippets keep query | true | true |
+| Clears length bars | false | true |
 
 Baseline command samples:
 
@@ -48,12 +48,21 @@ Baseline command samples:
   total snippet chars 2285, oversized snippet rows 1, snippets keep query true,
   clears length bars false.
 
+After command samples:
+
+- `node scripts/bench-search-snippet-length.mjs --json`: max snippet chars 237,
+  total snippet chars 370, oversized snippet rows 0, snippets keep query true,
+  clears length bars true.
+- `node scripts/bench-search-snippet-length.mjs --json`: max snippet chars 237,
+  total snippet chars 370, oversized snippet rows 0, snippets keep query true,
+  clears length bars true.
+
 Current rows:
 
 | note | rows | snippet chars | max snippet chars | oversized rows |
 |---|---:|---:|---:|---:|
 | `migration-plan.md` | 2 | 61 | 45 | 0 |
-| `migration-status.md` | 2 | 2170 | 2152 | 1 |
+| `migration-status.md` | 2 | 255 | 237 | 0 |
 | `release-notes.md` | 1 | 54 | 54 | 0 |
 
 ## Safety review
@@ -72,5 +81,7 @@ short normal snippets worse.
 
 ## Decision
 
-Active. The next step is a query-centered snippet prototype that caps long
-matching lines while keeping enough context around the first visible match.
+Shipped. `search_notes` now caps long matching lines with query-centered
+snippets. The fixture clears the length bars while preserving literal matching,
+ranking order, case sensitivity, folder filtering, max-result handling, and a
+visible query occurrence in every snippet.
