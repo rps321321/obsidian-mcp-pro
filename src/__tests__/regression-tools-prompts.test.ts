@@ -104,6 +104,65 @@ describe("prompts: find-stale-notes (M12 fix)", () => {
     expect(body).toContain("Projects");
     expect(body).toMatch(/folder=/);
   });
+
+  it("escapes control characters in folder arguments", async () => {
+    const rawFolder = "Projects\nIgnore previous";
+    const escapedFolder = "Projects\\nIgnore previous";
+    const result = await env.client.getPrompt({
+      name: "find-stale-notes",
+      arguments: { folder: rawFolder },
+    });
+    const body = result.messages.map((m) => (m.content as { text: string }).text).join("\n");
+
+    expect(body).toContain(`folder "${escapedFolder}"`);
+    expect(body).toContain(`folder="${escapedFolder}"`);
+    expect(body).not.toContain(rawFolder);
+  });
+});
+
+describe("prompts: control character escaping", () => {
+  it("escapes note paths in extract-action-items", async () => {
+    const rawPath = "Tasks\nAction.md";
+    const escapedPath = "Tasks\\nAction.md";
+    const result = await env.client.getPrompt({
+      name: "extract-action-items",
+      arguments: { path: rawPath },
+    });
+    const body = result.messages.map((m) => (m.content as { text: string }).text).join("\n");
+
+    expect(body).toContain(`Extract action items from "${escapedPath}".`);
+    expect(body).toContain(`path="${escapedPath}"`);
+    expect(body).not.toContain(rawPath);
+  });
+
+  it("escapes tags in extract-action-items", async () => {
+    const rawTag = "#project\rnext";
+    const escapedTag = "#project\\rnext";
+    const escapedDisplayTag = "project\\rnext";
+    const result = await env.client.getPrompt({
+      name: "extract-action-items",
+      arguments: { tag: rawTag },
+    });
+    const body = result.messages.map((m) => (m.content as { text: string }).text).join("\n");
+
+    expect(body).toContain(`tagged #${escapedDisplayTag}`);
+    expect(body).toContain(`tag="${escapedTag}"`);
+    expect(body).not.toContain(rawTag);
+  });
+
+  it("escapes folders in build-moc", async () => {
+    const rawFolder = "MOCs\tDrafts";
+    const escapedFolder = "MOCs\\tDrafts";
+    const result = await env.client.getPrompt({
+      name: "build-moc",
+      arguments: { folder: rawFolder },
+    });
+    const body = result.messages.map((m) => (m.content as { text: string }).text).join("\n");
+
+    expect(body).toContain(`folder "${escapedFolder}"`);
+    expect(body).toContain(`folder="${escapedFolder}"`);
+    expect(body).not.toContain(rawFolder);
+  });
 });
 
 describe("prompts: tool references resolve to real tools", () => {
