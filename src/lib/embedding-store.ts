@@ -31,6 +31,8 @@ const STORE_VERSION = 1;
 const NOTE_BEST_CHUNK_WEIGHT = 0.8;
 const NOTE_FOCUS_WEIGHT = 0.2;
 const NOTE_FOCUS_CHUNKS = 3;
+const SIMILAR_SOURCE_MIN_CHUNK_WEIGHT = 0.05;
+const SIMILAR_SOURCE_ANCHOR_POWER = 2;
 // Hard cap on the on-disk snapshot size. A 50k-note vault with 768-dim
 // vectors can produce a multi-GB JSON blob, at which point persisting it
 // each pass costs more than the cold-start re-embed it saves. When the
@@ -534,6 +536,33 @@ function noteFocusScore(scores: number[]): number {
   const best = top[0] ?? 0;
   const focus = top.reduce((sum, score) => sum + score, 0) / top.length;
   return NOTE_BEST_CHUNK_WEIGHT * best + NOTE_FOCUS_WEIGHT * focus;
+}
+
+export function buildSimilarNotesQueryVector(chunks: readonly ChunkEmbedding[]): number[] {
+  const firstChunk = chunks[0];
+  if (!firstChunk) return [];
+
+  const dim = firstChunk.vector.length;
+  const anchor = firstChunk.vector;
+  const out = new Array<number>(dim).fill(0);
+  let totalWeight = 0;
+
+  for (const chunk of chunks) {
+    const anchorSimilarity = Math.max(0, cosineSimilarity(anchor, chunk.vector));
+    const weight = chunk === firstChunk
+      ? 1
+      : Math.max(SIMILAR_SOURCE_MIN_CHUNK_WEIGHT, anchorSimilarity ** SIMILAR_SOURCE_ANCHOR_POWER);
+    for (let d = 0; d < dim; d++) {
+      out[d] = out[d]! + chunk.vector[d]! * weight;
+    }
+    totalWeight += weight;
+  }
+
+  if (totalWeight === 0) return out;
+  for (let d = 0; d < dim; d++) {
+    out[d] = out[d]! / totalWeight;
+  }
+  return out;
 }
 
 /** Get the embeddings owned by a specific note (used by find_similar). */
