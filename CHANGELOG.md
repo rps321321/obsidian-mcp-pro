@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Workflow prompts now escape control characters in displayed folder, path, and tag arguments before returning prompt text to MCP clients.
+
 ## [3.0.0] - 2026-06-04
 
 ### Fixed
