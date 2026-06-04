@@ -1,15 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import fs from "fs/promises";
-import { listBaseFiles, readBaseFile, listNotes, resolveVaultPathSafe } from "../lib/vault.js";
+import { listBaseFiles, readBaseFile, listNotes } from "../lib/vault.js";
 import { parseBaseFile, queryBase, buildRow } from "../lib/bases.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { extractWikilinks } from "../lib/markdown.js";
-import { mapConcurrent } from "../lib/concurrency.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
-
-const MAX_CONCURRENT_STATS = 16;
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -151,52 +147,18 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         // note individually. readAllCached stat()'s each path and only re-reads
         // files whose mtime has moved, which makes repeat queries near-instant.
         const readFailures: string[] = [];
-        const { contents } = await readAllCached(vaultPath, notes, (relPath, err) => {
+        const { contents, stats } = await readAllCached(vaultPath, notes, (relPath, err) => {
           readFailures.push(relPath);
           log.warn("query_base: note read failed", {
             note: relPath,
             err,
           });
         });
-        type QueryBaseStats = {
-          path: string;
-          stats: { size: number; ctime: number; mtime: number };
-        };
-        const statFailures: string[] = [];
-        const statRows = await mapConcurrent<string, QueryBaseStats | undefined>(
-          notes.filter((notePath) => contents.has(notePath)),
-          MAX_CONCURRENT_STATS,
-          async (notePath) => {
-            try {
-              const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
-              const st = await fs.stat(fullPath);
-              return {
-                path: notePath,
-                stats: {
-                  size: st.size,
-                  ctime: st.ctimeMs,
-                  mtime: st.mtimeMs,
-                },
-              };
-            } catch (err) {
-              statFailures.push(notePath);
-              log.warn("query_base: note stat failed", {
-                note: notePath,
-                err: err as Error,
-              });
-              return undefined;
-            }
-          },
-        );
-        const statsByPath = new Map<string, QueryBaseStats["stats"]>();
-        for (const row of statRows) {
-          if (row) statsByPath.set(row.path, row.stats);
-        }
         const validRows = notes
           .filter((notePath) => contents.has(notePath))
           .map((notePath) => {
             const content = contents.get(notePath)!;
-            const row = buildRow(notePath, content, statsByPath.get(notePath));
+            const row = buildRow(notePath, content, stats.get(notePath));
             // BUG-4: Populate row.links from the note's outgoing wikilinks so
             // file.linksTo() / file.hasLink() filters evaluate correctly.
             // Without this, row.links is undefined and the evaluator falls
@@ -215,11 +177,6 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         if (readFailures.length > 0) {
           allWarnings.push(
             `Could not read ${readFailures.length} note(s); they were excluded from results.`,
-          );
-        }
-        if (statFailures.length > 0) {
-          allWarnings.push(
-            `Could not stat ${statFailures.length} note(s); file.size/file.ctime/file.mtime may be unavailable for them.`,
           );
         }
         const truncated = result.rows.slice(0, limit);

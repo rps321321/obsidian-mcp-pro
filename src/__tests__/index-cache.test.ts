@@ -46,6 +46,11 @@ describe("readAllCached", () => {
     expect(result.contents.get("b.md")).toBe("beta");
     expect(result.mtimes.get("a.md")).toEqual(expect.any(Number));
     expect(result.mtimes.get("b.md")).toEqual(expect.any(Number));
+    expect(result.stats.get("a.md")).toEqual({
+      size: 5,
+      ctime: expect.any(Number),
+      mtime: expect.any(Number),
+    });
     expect(result.cacheMisses).toBe(2);
     expect(result.cacheHits).toBe(0);
   });

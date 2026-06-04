@@ -1,7 +1,7 @@
 # Bases Query Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -44,8 +44,8 @@ matching rows, warnings, or included frontmatter.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm Base query | 99.7ms | |
-| 1,000-note cold Base query guardrail | 149.0ms | |
+| 1,000-note warm Base query | 99.7ms | 54.1ms / 57.0ms |
+| 1,000-note cold Base query guardrail | 149.0ms | 84.8ms / 92.8ms |
 
 ## Safety review
 
@@ -71,4 +71,9 @@ properties become stale.
 
 ## Decision
 
-Open.
+Ship. `readAllCached` now returns the stat fields it already gathers for each
+safe, vault-boundary-checked markdown path, and `query_base` passes those fields
+into `buildRow` instead of running a second stat pass. Repeated 1,000-note warm
+queries landed at 54.1ms and 57.0ms against the 80ms ship bar, while cold runs
+stayed at 84.8ms and 92.8ms against the 164ms guardrail. Result shape, filters,
+warnings, link extraction, and stat-backed file properties remain unchanged.
