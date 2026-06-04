@@ -1,7 +1,7 @@
 # List Notes Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: stopped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -46,9 +46,9 @@ truncation, escaping, and path validation must stay unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm list_notes | 10.9ms | |
-| 1,000-note cold list_notes guardrail | 15.8ms | |
-| 1,000-note warm folder list_notes guardrail | 3.1ms | |
+| 1,000-note warm list_notes | 10.9ms | 10.4ms |
+| 1,000-note cold list_notes guardrail | 15.8ms | 13.8ms |
+| 1,000-note warm folder list_notes guardrail | 3.1ms | 3.9ms |
 
 ## Safety review
 
@@ -75,4 +75,11 @@ index or filesystem watcher to stay correct.
 
 ## Decision
 
-Open.
+Stopped. A rendered-response cache that still re-ran the safe `listNotes` walk
+for freshness measured 8.7ms on the first 1,000-note warm run but 10.4ms on the
+repeat, missing the 8.7ms ship bar. Cold and folder-scoped guardrails stayed
+under their limits, but the primary metric did not hold.
+
+No runtime change ships. The listing path is already fast enough that a safe
+warm improvement probably needs a broader freshness strategy shared with other
+vault file inventories, not a `list_notes`-only render cache.
