@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Chunker Boundary Quality](chunker-boundary-quality.md) | retrieval quality | active | Baseline score is 88.0 with two fenced-code fractures; next step is a chunker prototype that keeps code fences intact without raising token load above 1.30x. |
 | [Daily Note Warm Path](daily-note-warm-path.md) | performance / agent workflows | stopped | Config and rendered-response cache prototypes missed the warm ship bar or exceeded guardrails, so no runtime change shipped. |
 | [Section Read Warm Path](section-read-warm-path.md) | performance / agent workflows | stopped | Cache and streaming-parser prototypes missed the cold or warm ship bar, so no runtime change shipped. |
 | [Section List Warm Path](section-list-warm-path.md) | performance / agent workflows | shipped | Warm 1,000-heading `list_sections` fell from 3.2ms to 1.2ms while cold stayed under the guardrail. |
