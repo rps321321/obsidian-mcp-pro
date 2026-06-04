@@ -96,7 +96,7 @@ Give AI assistants deep, structured access to your Obsidian knowledge base. Read
 ### Semantic Search (optional, Ollama or OpenAI)
 - `index_vault` chunks each note (heading-aware), embeds via the configured provider, persists vectors to `<vault>/.obsidian/cache/`, and incrementally re-embeds only changed notes
 - `search_semantic` ranks notes by cosine similarity against an embedded query
-- `find_similar_notes` reuses an existing note's embeddings to surface neighbors without a live API call
+- `find_similar_notes` reuses an existing note's embeddings, with source-topic anchoring, to surface neighbors without a live API call
 
 ### MCP Resources
 - `obsidian://note/{path}` reads any note by its vault-relative path
@@ -449,7 +449,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 |------|-------------|----------------|
 | `index_vault` | Build / refresh the embedding index (incremental, progress events) | `force`, `folder` |
 | `search_semantic` | Cosine search the embedding index for a natural-language query | `query`, `limit`, `folder`, `includeSnippet` |
-| `find_similar_notes` | Surface notes most similar to a source note (no live API call) | `path`, `limit` |
+| `find_similar_notes` | Surface notes most similar to a source note, anchored to its opening topic (no live API call) | `path`, `limit` |
 
 ---
 
