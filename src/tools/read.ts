@@ -399,38 +399,23 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const notes = await listNotes(vaultPath, folder);
         const valueLower = value.toLowerCase();
 
-        // Fan out reads at the same concurrency used by `search_notes` and
-        // tag scans. The previous sequential loop paid one `realpath` syscall
-        // per note per query — unworkable on 10k+ note vaults. Per-note
-        // failures are logged and dropped so one unreadable file can't abort
-        // the whole scan.
         type Hit = { path: string; frontmatter: Record<string, unknown> };
-        const perNote = await mapConcurrent<string, Hit | undefined>(
-          notes,
-          MAX_CONCURRENT_OPS,
-          async (notePath) => {
-            const content = await readNote(vaultPath, notePath);
-            const { data: frontmatterData } = parseFrontmatter(content);
-            const propValue = frontmatterData[property];
-            if (propValue === undefined) return undefined;
-
-            const stringified = Array.isArray(propValue)
-              ? propValue.map(toSearchableString)
-              : [toSearchableString(propValue)];
-            const isMatch = stringified.some((v) => v.toLowerCase() === valueLower);
-            return isMatch ? { path: notePath, frontmatter: frontmatterData } : undefined;
-          },
-          (err, notePath) => {
-            log.warn("search_by_frontmatter: note read failed", {
-              note: notePath,
-              err: err as Error,
-            });
-          },
-        );
-
         const allMatches: Hit[] = [];
-        for (const entry of perNote) {
-          if (entry) allMatches.push(entry);
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("search_by_frontmatter: note read failed", { note, err });
+        });
+        for (const notePath of notes) {
+          const content = contents.get(notePath);
+          if (content === undefined) continue;
+          const { data: frontmatterData } = parseFrontmatter(content);
+          const propValue = frontmatterData[property];
+          if (propValue === undefined) continue;
+
+          const stringified = Array.isArray(propValue)
+            ? propValue.map(toSearchableString)
+            : [toSearchableString(propValue)];
+          const isMatch = stringified.some((v) => v.toLowerCase() === valueLower);
+          if (isMatch) allMatches.push({ path: notePath, frontmatter: frontmatterData });
         }
 
         if (allMatches.length === 0) {
