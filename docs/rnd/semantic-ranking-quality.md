@@ -1,7 +1,7 @@
 # Semantic Ranking Quality
 
-_Status: active_
-_Started: 2026-06-04 - Decided: pending_
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -40,10 +40,10 @@ and no incidental grade-1 note ahead of a focused grade-3 note.
 
 | metric | before | after |
 |---|---:|---:|
-| NDCG@3 | 0.690 | |
-| Precision@3 | 0.667 | |
-| Top relevance grade | 1 | |
-| Incidental before focused | true | |
+| NDCG@3 | 0.690 | 1.000 |
+| Precision@3 | 0.667 | 1.000 |
+| Top relevance grade | 1 | 3 |
+| Incidental before focused | true | false |
 
 Baseline command samples:
 
@@ -78,5 +78,24 @@ call during search.
 
 ## Decision
 
-Active. The next step is a ranking prototype that accounts for note-level focus
-while preserving the existing best-chunk snippet shown to clients.
+Ship. `searchEmbeddings` now keeps the best-scoring chunk as the returned snippet
+source, but ranks notes by a small focus signal from their top chunks:
+
+```text
+0.8 * bestChunkScore + 0.2 * averageTopThreeChunkScores
+```
+
+This preserves the existing note-level result shape and best-chunk snippet while
+preventing a note with one incidental perfect chunk from outranking focused notes.
+A regression test pins the fixture shape at the embedding-store layer.
+
+Measured after the prototype with:
+
+```powershell
+npm run build
+node scripts/bench-semantic-ranking-quality.mjs --json
+node scripts/bench-semantic-ranking-quality.mjs --json
+```
+
+Both runs reached NDCG@3 1.000, precision@3 1.000, top relevance grade 3, and no
+incidental-before-focused ordering.
