@@ -16,7 +16,7 @@ function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
 
-function displayTagSearchValue(value: string): string {
+function displayTagValue(value: string): string {
   return escapeControlChars(value);
 }
 
@@ -87,7 +87,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         lines.push("");
 
         for (const info of tagInfos) {
-          lines.push(`#${info.tag} (${info.count} ${info.count === 1 ? "note" : "notes"})`);
+          lines.push(`#${displayTagValue(info.tag)} (${info.count} ${info.count === 1 ? "note" : "notes"})`);
         }
 
         return {
@@ -164,21 +164,21 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         if (matchingNotes.length === 0) {
           return {
             content: [
-              { type: "text" as const, text: `No notes found with tag #${displayTagSearchValue(searchTag)}` },
+              { type: "text" as const, text: `No notes found with tag #${displayTagValue(searchTag)}` },
             ],
           };
         }
 
         const lines: string[] = [];
         lines.push(
-          `Found ${matchingNotes.length} ${matchingNotes.length === 1 ? "note" : "notes"} with tag #${displayTagSearchValue(searchTag)}`,
+          `Found ${matchingNotes.length} ${matchingNotes.length === 1 ? "note" : "notes"} with tag #${displayTagValue(searchTag)}`,
         );
         lines.push("");
 
         for (const note of matchingNotes) {
-          lines.push(`- ${displayTagSearchValue(note.path)}`);
+          lines.push(`- ${displayTagValue(note.path)}`);
           if (note.preview) {
-            lines.push(`  ${displayTagSearchValue(note.preview)}`);
+            lines.push(`  ${displayTagValue(note.preview)}`);
             lines.push("");
           }
         }
@@ -308,7 +308,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
 
         const verb = dryRun ? "Would rewrite" : "Rewrote";
         const lines = [
-          `${verb} #${oldName} → #${newName}${hierarchical ? " (and nested sub-tags)" : ""}`,
+          `${verb} #${displayTagValue(oldName)} → #${displayTagValue(newName)}${hierarchical ? " (and nested sub-tags)" : ""}`,
           `  Files affected: ${updatedFiles}`,
           `  Inline #tag occurrences: ${totalInline}`,
           `  Frontmatter occurrences: ${totalFrontmatter}`,
