@@ -1,7 +1,7 @@
 # Section Read Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: stopped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -46,9 +46,9 @@ vault-boundary checks must stay unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-section warm late get_note section | 2.5ms | |
-| 1,000-section cold late get_note section guardrail | 5.6ms | |
-| 1,000-section warm early get_note section guardrail | 2.0ms | |
+| 1,000-section warm late get_note section | 2.5ms | 2.2ms |
+| 1,000-section cold late get_note section guardrail | 5.6ms | 5.8ms |
+| 1,000-section warm early get_note section guardrail | 2.0ms | 1.6ms |
 
 ## Safety review
 
@@ -72,4 +72,8 @@ implementation needs a persistent index or filesystem watcher to stay correct.
 
 ## Decision
 
-Open.
+Stopped. A small rendered section cache cut warm repeated reads but added too
+much cold-read variance; one 1,000-section cold run hit 9.0ms against the
+6.2ms guardrail. A narrower streaming section finder preserved cold reads, but
+the slower two-run sample still hit 2.2ms for the 1,000-section warm late read,
+above the 2.0ms ship bar. No runtime change shipped.
