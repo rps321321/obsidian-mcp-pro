@@ -18,7 +18,7 @@ import {
   type ChunkEmbedding,
 } from "../lib/embedding-store.js";
 import { makeProgressReporter } from "../lib/progress.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { formatFailedPath } from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 import { mapConcurrent } from "../lib/concurrency.js";
@@ -35,6 +35,12 @@ function textResult(text: string) {
 
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
+const displaySemanticValue = escapeControlChars;
+
+function displayHeadingPath(path: readonly string[]): string {
+  return path.map(displaySemanticValue).join(" / ");
 }
 
 interface IndexProgress {
@@ -102,7 +108,9 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         const reportProgress = makeProgressReporter(progressMeta);
         const notes = await listNotes(vaultPath, folder);
         if (notes.length === 0) {
-          return textResult(folder ? `No notes in "${folder}" to index.` : "Vault is empty — nothing to index.");
+          return textResult(
+            folder ? `No notes in "${displaySemanticValue(folder)}" to index.` : "Vault is empty — nothing to index.",
+          );
         }
 
         const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
@@ -139,7 +147,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           if (!force && noteIsCurrent(vaultPath, notePath, contentHash)) {
             stats.notesUnchanged++;
             stats.notesScanned++;
-            await reportProgress(stats.notesScanned, notes.length, `Unchanged ${notePath}`);
+            await reportProgress(stats.notesScanned, notes.length, `Unchanged ${displaySemanticValue(notePath)}`);
             continue;
           }
           noteHashByPath.set(notePath, contentHash);
@@ -155,7 +163,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             });
           }
           stats.notesScanned++;
-          await reportProgress(stats.notesScanned, notes.length, `Chunked ${notePath}`);
+          await reportProgress(stats.notesScanned, notes.length, `Chunked ${displaySemanticValue(notePath)}`);
         }
 
         // Embed pending chunks in batches.
@@ -232,7 +240,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         await saveStore(vaultPath);
 
         const lines = [
-          `Indexed${folder ? ` "${folder}"` : ""} via ${provider.id}/${provider.model}`,
+          `Indexed${folder ? ` "${displaySemanticValue(folder)}"` : ""} via ${displaySemanticValue(provider.id)}/${displaySemanticValue(provider.model)}`,
           `  Notes scanned:   ${stats.notesScanned}`,
           `  Notes embedded:  ${stats.notesEmbedded}`,
           `  Notes unchanged: ${stats.notesUnchanged}`,
@@ -317,16 +325,16 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         }
         const hits = searchEmbeddings(vaultPath, vector, { limit, ...(folder ? { folder } : {}) });
         if (hits.length === 0) {
-          return textResult(`No matches for "${query}".`);
+          return textResult(`No matches for "${displaySemanticValue(query)}".`);
         }
 
-        const lines: string[] = [`${hits.length} match(es) for "${query}":`, ""];
+        const lines: string[] = [`${hits.length} match(es) for "${displaySemanticValue(query)}":`, ""];
         for (const hit of hits) {
-          const heading = hit.headingPath.length > 0 ? ` (${hit.headingPath.join(" / ")})` : "";
-          lines.push(`- ${hit.notePath}${heading}  [score: ${hit.score.toFixed(3)}]`);
+          const heading = hit.headingPath.length > 0 ? ` (${displayHeadingPath(hit.headingPath)})` : "";
+          lines.push(`- ${displaySemanticValue(hit.notePath)}${heading}  [score: ${hit.score.toFixed(3)}]`);
           if (includeSnippet) {
             const snippet = hit.text.replace(/\s+/g, " ").trim().slice(0, 200);
-            lines.push(`    ${snippet}${hit.text.length > 200 ? "…" : ""}`);
+            lines.push(`    ${displaySemanticValue(snippet)}${hit.text.length > 200 ? "…" : ""}`);
           }
         }
         return textResult(lines.join("\n"));
@@ -377,7 +385,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         const ownChunks = getNoteEmbeddings(vaultPath, notePath);
         if (ownChunks.length === 0) {
           return errorResult(
-            `No embeddings found for "${notePath}". Run \`index_vault\` first (or check the path is correct).`,
+            `No embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` first (or check the path is correct).`,
           );
         }
         // Compute a centroid (mean) vector from all of the source note's
@@ -418,12 +426,12 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         }));
 
         if (ranked.length === 0) {
-          return textResult(`No similar notes found for "${notePath}".`);
+          return textResult(`No similar notes found for "${displaySemanticValue(notePath)}".`);
         }
-        const lines: string[] = [`${ranked.length} note(s) similar to ${notePath}:`, ""];
+        const lines: string[] = [`${ranked.length} note(s) similar to ${displaySemanticValue(notePath)}:`, ""];
         for (const r of ranked) {
-          const heading = r.headingPath.length > 0 ? ` (${r.headingPath.join(" / ")})` : "";
-          lines.push(`- ${r.notePath}${heading}  [score: ${r.score.toFixed(3)}]`);
+          const heading = r.headingPath.length > 0 ? ` (${displayHeadingPath(r.headingPath)})` : "";
+          lines.push(`- ${displaySemanticValue(r.notePath)}${heading}  [score: ${r.score.toFixed(3)}]`);
         }
         return textResult(lines.join("\n"));
       } catch (err) {

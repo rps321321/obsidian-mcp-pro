@@ -80,6 +80,24 @@ describe("semantic handlers — index_vault", () => {
     const text = textContent(forced);
     expect(text).toMatch(/Notes embedded:\s+4/);
   });
+
+  it("escapes configured provider labels in summaries", async () => {
+    class DirtyProvider extends MockProvider {
+      readonly id = "mock\nprovider";
+      readonly model = "topic\tcounter";
+    }
+    setProviderForTests(new DirtyProvider());
+
+    const result = await env.client.callTool({
+      name: "index_vault",
+      arguments: {},
+    });
+
+    const text = textContent(result);
+    expect(text).toContain("via mock\\nprovider/topic\\tcounter");
+    expect(text).not.toContain("mock\nprovider");
+    expect(text).not.toContain("topic\tcounter");
+  });
 });
 
 describe("semantic handlers — search_semantic", () => {
@@ -114,6 +132,43 @@ describe("semantic handlers — search_semantic", () => {
     });
     expect(textContent(result)).toMatch(/No matches/);
   });
+
+  it("escapes query labels when no matches are found", async () => {
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+
+    const result = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "cats\ninjected", folder: "no-such-folder", limit: 5 },
+    });
+
+    const text = textContent(result);
+    expect(text).toContain('No matches for "cats\\ninjected".');
+    expect(text).not.toContain("cats\ninjected");
+  });
+
+  it("escapes indexed headings and snippets in search output", async () => {
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "dirty.md": "# Dirty\tHeading\n\nCats cats cats ring \x07 bells.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+    const result = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "cats", limit: 1 },
+    });
+
+    const text = textContent(result);
+    expect(text).toContain("Dirty\\tHeading");
+    expect(text).toContain("\\x07");
+    expect(text).not.toContain("Dirty\tHeading");
+    expect(text).not.toContain("\x07");
+  });
 });
 
 describe("semantic handlers — find_similar_notes", () => {
@@ -138,6 +193,41 @@ describe("semantic handlers — find_similar_notes", () => {
     });
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/index_vault/i);
+  });
+
+  it("escapes caller-supplied missing source paths", async () => {
+    const result = await env.client.callTool({
+      name: "find_similar_notes",
+      arguments: { path: "missing\nnote.md" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(true);
+    expect(text).toContain('No embeddings found for "missing\\nnote.md"');
+    expect(text).not.toContain("missing\nnote.md");
+  });
+
+  it("escapes indexed headings in similar-note output", async () => {
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "dirty.md": "# Dirty\tHeading\n\nCats cats cats ring bells.",
+        "source.md": "# Source\n\nCats.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+    const result = await env.client.callTool({
+      name: "find_similar_notes",
+      arguments: { path: "source.md", limit: 1 },
+    });
+
+    const text = textContent(result);
+    expect(text).toContain("Dirty\\tHeading");
+    expect(text).not.toContain("Dirty\tHeading");
   });
 });
 
