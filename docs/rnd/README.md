@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Semantic Ranking Quality](semantic-ranking-quality.md) | retrieval quality | active | Baseline NDCG@3 is 0.690 because a grade-1 incidental match ranks ahead of focused grade-3 cat notes; next step is a ranking prototype that accounts for note-level focus. |
 | [Chunker Boundary Quality](chunker-boundary-quality.md) | retrieval quality | shipped | Score rose from 88.0 to 100.0, fenced-code fractures fell from two to zero, chunk count stayed at 21, and mean token load fell to 1.15x. |
 | [Daily Note Warm Path](daily-note-warm-path.md) | performance / agent workflows | stopped | Config and rendered-response cache prototypes missed the warm ship bar or exceeded guardrails, so no runtime change shipped. |
 | [Section Read Warm Path](section-read-warm-path.md) | performance / agent workflows | stopped | Cache and streaming-parser prototypes missed the cold or warm ship bar, so no runtime change shipped. |
