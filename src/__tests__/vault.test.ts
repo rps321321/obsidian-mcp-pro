@@ -11,6 +11,7 @@ import {
   prependToNote,
   deleteNote,
   moveNote,
+  searchInContents,
   searchNotes,
   listCanvasFiles,
   readCanvasFile,
@@ -18,6 +19,7 @@ import {
 
 let vaultDir: string;
 const itWin32 = process.platform === "win32" ? it : it.skip;
+const SYMLINKS_SUPPORTED = process.platform !== "win32" || process.env.CI_SYMLINKS === "1";
 
 beforeEach(async () => {
   vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), "vault-test-"));
@@ -100,6 +102,14 @@ describe("listNotes", () => {
 
     const notes = await listNotes(vaultDir);
     expect(notes).toEqual(["visible.md"]);
+  });
+
+  it.skipIf(!SYMLINKS_SUPPORTED)("should skip symlinked notes in broad listings", async () => {
+    await fs.writeFile(path.join(vaultDir, "target.md"), "x");
+    await fs.symlink(path.join(vaultDir, "target.md"), path.join(vaultDir, "linked.md"));
+
+    const notes = await listNotes(vaultDir);
+    expect(notes).toEqual(["target.md"]);
   });
 
   it("should return empty array for empty vault", async () => {
@@ -358,6 +368,32 @@ describe("moveNote", () => {
     expect(renameSpy).toHaveBeenCalledTimes(2);
     await expect(fs.access(path.join(vaultDir, "old.md"))).rejects.toThrow();
     await expect(fs.access(path.join(vaultDir, "new.md"))).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// searchInContents
+// ---------------------------------------------------------------------------
+describe("searchInContents", () => {
+  it("returns no results for an empty query", () => {
+    const contents = new Map([["alpha.md", "alpha"]]);
+    expect(searchInContents(["alpha.md"], contents, "")).toEqual([]);
+  });
+
+  it("keeps literal matches within a single source line", () => {
+    const contents = new Map([
+      ["alpha.md", "alpha\nbeta alpha\r\nAlpha beta"],
+    ]);
+
+    const crossLine = searchInContents(["alpha.md"], contents, "alpha\nbeta");
+    expect(crossLine).toEqual([]);
+
+    const results = searchInContents(["alpha.md"], contents, "alpha");
+    expect(results[0].matches).toEqual([
+      { line: 1, content: "alpha", column: 0 },
+      { line: 2, content: "beta alpha", column: 5 },
+      { line: 3, content: "Alpha beta", column: 0 },
+    ]);
   });
 });
 

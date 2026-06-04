@@ -113,8 +113,7 @@ async function walkVault(
 ): Promise<string[]> {
   const results: string[] = [];
   const exts = extensions.map((e) => e.toLowerCase());
-  // Resolve the vault root once so symlink targets can be compared against it.
-  const realBase = await fs.realpath(baseDir);
+  await fs.realpath(baseDir);
 
   async function walk(dir: string, relPrefix: string): Promise<void> {
     let entries: import("fs").Dirent[];
@@ -133,29 +132,11 @@ async function walkVault(
       // null and operate on a different file.
       if (name.includes('\0')) continue;
 
-      // SEC-1: detect symlinks via lstat (readdir's Dirent.isDirectory /
-      // isFile follow symlinks transparently). If the entry is a symlink,
-      // resolve its real path and skip it when it points outside the vault.
+      // SEC-1: never traverse symlinks discovered during a vault walk. Direct
+      // path reads still use resolveVaultPathSafe; broad listings stay on
+      // concrete directory entries and avoid a per-entry lstat syscall.
       const fullEntry = path.join(dir, name);
-      let lstats: import("fs").Stats;
-      try {
-        lstats = await fs.lstat(fullEntry);
-      } catch {
-        // Entry disappeared between readdir and lstat - skip.
-        continue;
-      }
-      if (lstats.isSymbolicLink()) {
-        try {
-          const realTarget = await fs.realpath(fullEntry);
-          if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
-            // Symlink escapes the vault boundary - skip.
-            continue;
-          }
-        } catch {
-          // Dangling symlink or permission error - skip.
-          continue;
-        }
-      }
+      if (entry.isSymbolicLink()) continue;
 
       if (entry.isDirectory()) {
         // Prune excluded directory names at ANY depth. Obsidian's own
@@ -163,7 +144,7 @@ async function walkVault(
         // should never be surfaced to clients.
         if (EXCLUDED_SET.has(name.toLowerCase())) continue;
         const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
-        await walk(path.join(dir, name), nextPrefix);
+        await walk(fullEntry, nextPrefix);
       } else if (entry.isFile()) {
         const lower = name.toLowerCase();
         if (!exts.some((ext) => lower.endsWith(ext))) continue;
@@ -190,7 +171,7 @@ async function walkVaultExcluding(
 ): Promise<string[]> {
   const results: string[] = [];
   const excluded = new Set(excludedExtensions.map((e) => e.toLowerCase()));
-  const realBase = await fs.realpath(baseDir);
+  await fs.realpath(baseDir);
 
   async function walk(dir: string, relPrefix: string): Promise<void> {
     let entries: import("fs").Dirent[];
@@ -206,29 +187,13 @@ async function walkVaultExcluding(
       // SEC-11: skip null-byte filenames (see walkVault for rationale).
       if (name.includes('\0')) continue;
 
-      // SEC-1: detect symlinks pointing outside the vault via lstat + realpath.
       const fullEntry = path.join(dir, name);
-      let lstats: import("fs").Stats;
-      try {
-        lstats = await fs.lstat(fullEntry);
-      } catch {
-        continue;
-      }
-      if (lstats.isSymbolicLink()) {
-        try {
-          const realTarget = await fs.realpath(fullEntry);
-          if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
-            continue;
-          }
-        } catch {
-          continue;
-        }
-      }
+      if (entry.isSymbolicLink()) continue;
 
       if (entry.isDirectory()) {
         if (EXCLUDED_SET.has(name.toLowerCase())) continue;
         const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
-        await walk(path.join(dir, name), nextPrefix);
+        await walk(fullEntry, nextPrefix);
       } else if (entry.isFile()) {
         // Skip dotfiles entirely - `.DS_Store`, `.gitkeep`, editor swap
         // files. They're noise in an attachment listing.
@@ -321,11 +286,16 @@ async function getRealVaultRoot(vaultPath: string): Promise<string> {
   }
 }
 
+export async function getVaultRootRealPath(vaultPath: string): Promise<string> {
+  return getRealVaultRoot(vaultPath);
+}
+
 async function assertRealPathWithinVault(
   resolved: string,
   vaultPath: string,
+  realVaultRoot?: string,
 ): Promise<void> {
-  const realVault = await getRealVaultRoot(vaultPath);
+  const realVault = realVaultRoot ?? await getRealVaultRoot(vaultPath);
   const missing: string[] = [];
   let current = resolved;
   while (true) {
@@ -387,9 +357,10 @@ export async function resolveVaultPathSafe(
   vaultPath: string,
   relativePath: string,
   access: AccessKind = "read",
+  options?: { realVaultRoot?: string },
 ): Promise<string> {
   const resolved = resolveVaultPath(vaultPath, relativePath, access);
-  await assertRealPathWithinVault(resolved, vaultPath);
+  await assertRealPathWithinVault(resolved, vaultPath, options?.realVaultRoot);
   return resolved;
 }
 
@@ -860,6 +831,7 @@ export function searchInContents(
   const caseSensitive = options?.caseSensitive ?? false;
   const maxResults = options?.maxResults ?? 100;
   const searchQuery = caseSensitive ? query : query.toLowerCase();
+  if (searchQuery.length === 0) return [];
 
   const results: SearchResult[] = [];
   for (const notePath of notes) {

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Active R&D experiment for `search_notes` warm-cache performance, with a baseline fixture and ship/kill metric in `docs/rnd/search-cache-warm-path.md`.
 
+### Changed
+
+- `search_notes` warm-cache scans now reuse the vault root realpath across each cached read batch and skip per-entry `lstat` calls during broad vault walks, cutting the 1,000-note warm bench below the R&D ship bar while keeping per-note symlink checks.
+
 ### Fixed
 
 - `obsidian://tags` now escapes control characters in generated tag keys and note-path values before returning its JSON index.
