@@ -1,7 +1,7 @@
 # Graph Neighbors Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: stopped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -50,9 +50,9 @@ unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm graph_neighbors | 29.4ms | |
-| 1,000-note cold graph_neighbors guardrail | 76.4ms | |
-| 1,000-note warm outbound graph_neighbors guardrail | 26.9ms | |
+| 1,000-note warm graph_neighbors | 29.4ms | 29.6ms |
+| 1,000-note cold graph_neighbors guardrail | 76.4ms | 76.1ms |
+| 1,000-note warm outbound graph_neighbors guardrail | 26.9ms | 25.0ms |
 
 ## Safety review
 
@@ -80,4 +80,12 @@ stay correct.
 
 ## Decision
 
-Open.
+Stopped. Reusing the graph's source lookup for start-note resolution and avoiding
+the per-node neighbor array allocation did not move the primary warm metric: the
+1,000-note warm depth-2 run measured 29.6ms against the 23.5ms ship bar. Raising
+graph fingerprint stat concurrency from 64 to 128 made the fixture worse, with
+101.1ms cold, 46.5ms warm, and 39.3ms outbound runs, exceeding both guardrails.
+
+No runtime change ships. The result suggests `get_graph_neighbors` is mostly
+bound by whole-graph warm validation, and a safe next attempt needs a new
+freshness strategy rather than traversal-only cleanup.
