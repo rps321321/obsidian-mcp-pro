@@ -40,6 +40,37 @@ describe("chunkNote", () => {
     }
   });
 
+  it("keeps oversized fenced code chunks fence-balanced", () => {
+    const codeLines = ["```ts"];
+    for (let i = 1; i <= 40; i++) {
+      codeLines.push(`const value${i} = "line ${i}";`);
+    }
+    codeLines.push("```");
+    const chunks = chunkNote(`## Reference\n${codeLines.join("\n")}\n`, {
+      targetChars: 240,
+      overlapChars: 40,
+    });
+
+    expect(chunks.length).toBeGreaterThan(1);
+    const codeChunks = chunks.filter((chunk) => chunk.text.includes("const value"));
+    expect(codeChunks.length).toBeGreaterThan(1);
+    for (const chunk of codeChunks) {
+      const fenceMarkers = chunk.text.match(/^```/gm) ?? [];
+      expect(fenceMarkers).toHaveLength(2);
+    }
+
+    const longLine = `const payload = "${"a".repeat(500)}";`;
+    const longLineChunks = chunkNote(`## Minified\n\`\`\`js\n${longLine}\n\`\`\`\n`, {
+      targetChars: 180,
+      overlapChars: 40,
+    }).filter((chunk) => chunk.text.includes("payload") || chunk.text.includes("aaaa"));
+    expect(longLineChunks.length).toBeGreaterThan(1);
+    for (const chunk of longLineChunks) {
+      const fenceMarkers = chunk.text.match(/^```/gm) ?? [];
+      expect(fenceMarkers).toHaveLength(2);
+    }
+  });
+
   it("preserves the heading path on each chunk", () => {
     const note = `# Project\n## Tasks\nbody\n### Sub\nmore\n`;
     const chunks = chunkNote(note);

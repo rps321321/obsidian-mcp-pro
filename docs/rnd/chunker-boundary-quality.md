@@ -1,7 +1,7 @@
 # Chunker Boundary Quality
 
-_Status: active_
-_Started: 2026-06-04 - Decided: pending_
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -38,13 +38,13 @@ at or below 1.30x, and no more than 24 chunks on the fixture.
 
 | metric | before | after |
 |---|---:|---:|
-| Boundary score | 88.0 | |
-| Fenced-code fractures | 2 | |
-| Oversize chunks | 0 | |
-| Heading prefix coverage | 100% | |
-| Title prefix coverage | 100% | |
-| Mean token-load ratio | 1.18x | |
-| Chunk count | 21 | |
+| Boundary score | 88.0 | 100.0 |
+| Fenced-code fractures | 2 | 0 |
+| Oversize chunks | 0 | 0 |
+| Heading prefix coverage | 100% | 100% |
+| Title prefix coverage | 100% | 100% |
+| Mean token-load ratio | 1.18x | 1.15x |
+| Chunk count | 21 | 21 |
 
 Baseline command samples:
 
@@ -67,5 +67,22 @@ Stop if fenced-code fractures cannot reach zero without pushing token load above
 
 ## Decision
 
-Active. The next step is a chunker prototype that preserves fenced-code boundaries
-while keeping the existing title and heading prefix behavior.
+Ship. Oversized fenced code blocks now split by lines into chunks that carry the
+original opening and closing fence. Non-code paragraphs keep the existing
+paragraph and character-window behavior. Code-block splits skip copied line
+overlap because the wrapper fences already preserve boundary context and the
+experiment's token/chunk-load bars are tighter without duplicate code lines.
+
+A regression test forces a large fenced block through the chunker and verifies
+every emitted code chunk has a balanced opening and closing fence.
+
+Measured after the prototype with:
+
+```powershell
+npm run build
+node scripts/bench-chunker-quality.mjs --json
+node scripts/bench-chunker-quality.mjs --json
+```
+
+Both runs scored 100.0 with zero fenced-code fractures, zero oversize chunks,
+21 chunks, and 1.15x mean token load.
