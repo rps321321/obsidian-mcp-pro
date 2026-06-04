@@ -9,13 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Active R&D experiment for `query_base` warm-query performance, with a synthetic benchmark harness in `scripts/bench-bases.mjs` and ship/kill metric in `docs/rnd/bases-query-warm-path.md`.
+- R&D experiment for `query_base` warm-query performance, with a synthetic benchmark harness in `scripts/bench-bases.mjs` and ship/kill metric in `docs/rnd/bases-query-warm-path.md`.
 - Active R&D experiment for `find_broken_links` warm-scan performance, with a synthetic benchmark harness in `scripts/bench-broken-links.mjs` and ship/kill metric in `docs/rnd/broken-link-warm-path.md`.
 - Active R&D experiment for link graph warm-cache performance, with a synthetic benchmark harness in `scripts/bench-links.mjs` and ship/kill metric in `docs/rnd/link-graph-warm-path.md`.
 - Active R&D experiment for `search_notes` warm-cache performance, with a baseline fixture and ship/kill metric in `docs/rnd/search-cache-warm-path.md`.
 
 ### Changed
 
+- `query_base` now reuses stat metadata gathered by the content cache, cutting the 1,000-note warm Base query bench below the R&D ship bar while preserving stat-backed file filters.
 - `find_broken_links` now reuses link graph data for unresolved-link reporting and skips a duplicate cold fingerprint stat pass, cutting the 1,000-note warm broken-link bench below the R&D ship bar.
 - Link graph cache validation now reuses the vault root realpath across each fingerprint batch, cutting the 1,000-note warm `get_backlinks` bench below the R&D ship bar while keeping per-note symlink checks.
 - `search_notes` warm-cache scans now reuse the vault root realpath across each cached read batch and skip per-entry `lstat` calls during broad vault walks, cutting the 1,000-note warm bench below the R&D ship bar while keeping per-note symlink checks.
