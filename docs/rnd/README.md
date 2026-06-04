@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [List Notes Warm Path](list-notes-warm-path.md) | performance / agent workflows | active | Baseline measures cold/warm whole-vault `list_notes` and warm folder-scoped listing on synthetic 100 and 1,000-note vaults. |
 | [Graph Neighbors Warm Path](graph-neighbors-warm-path.md) | performance / vault navigation | stopped | Traversal-only cleanup missed the 23.5ms warm-call ship bar, and higher fingerprint stat concurrency exceeded guardrails. |
 | [Outlinks Warm Path](outlinks-warm-path.md) | performance / vault navigation | shipped | Warm 1,000-note `get_outlinks` fell from 40.2ms to 29.6ms while cold and mixed-output calls stayed under their guardrails. |
 | [Orphan Discovery Warm Path](orphan-discovery-warm-path.md) | performance / vault hygiene | stopped | Simple stat-concurrency and derived-category prototypes missed the 24ms warm-call ship bar, so no runtime change shipped. |
