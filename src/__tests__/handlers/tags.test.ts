@@ -23,6 +23,28 @@ describe("tag handlers — list_tags", () => {
     expect(text).toMatch(/#nested\/archive/);
   });
 
+  it("escapes frontmatter tag labels in list output", async () => {
+    const dirtyTag = "dirty\x7ftag";
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "dirty-tag.md",
+        content: "Body.",
+        frontmatter: JSON.stringify({ tags: [dirtyTag] }),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "list_tags",
+      arguments: { sortBy: "name" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("#dirty\\x7ftag (1 note)");
+    expect(text).not.toContain(dirtyTag);
+  });
+
   it("sorts by count desc by default (review appears in 2 notes)", async () => {
     const result = await env.client.callTool({ name: "list_tags", arguments: {} });
     const text = textContent(result);
