@@ -900,8 +900,9 @@ export async function searchNotes(
 export async function getNoteStats(
   vaultPath: string,
   relativePath: string,
+  options?: { realVaultRoot?: string },
 ): Promise<{ size: number; created: Date | null; modified: Date | null }> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "read", options);
   const stats = await fs.stat(fullPath);
 
   return {

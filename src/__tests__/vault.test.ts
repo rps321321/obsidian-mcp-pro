@@ -15,6 +15,8 @@ import {
   searchNotes,
   listCanvasFiles,
   readCanvasFile,
+  getNoteStats,
+  getVaultRootRealPath,
 } from "../lib/vault.js";
 
 let vaultDir: string;
@@ -129,6 +131,26 @@ describe("listNotes", () => {
 
     const notes = await listNotes(vaultDir, "journal");
     expect(notes).toEqual(["journal/day1.md"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getNoteStats
+// ---------------------------------------------------------------------------
+describe("getNoteStats", () => {
+  it.skipIf(!SYMLINKS_SUPPORTED)("rejects symlink escapes with a reused vault root", async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "vault-stats-outside-"));
+    try {
+      await fs.writeFile(path.join(outsideDir, "secret.md"), "outside");
+      await fs.symlink(path.join(outsideDir, "secret.md"), path.join(vaultDir, "linked.md"));
+
+      const realVaultRoot = await getVaultRootRealPath(vaultDir);
+      await expect(
+        getNoteStats(vaultDir, "linked.md", { realVaultRoot }),
+      ).rejects.toThrow("Path traversal via symlink detected");
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });
 

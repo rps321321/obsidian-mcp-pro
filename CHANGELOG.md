@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Link graph cache validation now reuses the vault root realpath across each fingerprint batch, cutting the 1,000-note warm `get_backlinks` bench below the R&D ship bar while keeping per-note symlink checks.
 - `search_notes` warm-cache scans now reuse the vault root realpath across each cached read batch and skip per-entry `lstat` calls during broad vault walks, cutting the 1,000-note warm bench below the R&D ship bar while keeping per-note symlink checks.
 
 ### Fixed
