@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `list_sections` now reuses a small mtime-validated rendered heading cache, cutting the 1,000-heading warm bench below the R&D ship bar while preserving heading escaping and write freshness.
+- The `get_daily_note` warm-path R&D experiment is stopped after config and rendered-response cache prototypes missed the warm ship bar or exceeded guardrails.
 - The `get_note` section-read warm-path R&D experiment is stopped after cache and streaming-parser prototypes missed the cold or warm ship bar.
 - `get_note` line fragments now read only through the requested line range, cutting the 10,000-line warm fragment bench below the R&D ship bar while preserving section, block, full-note, and EOF behavior.
 - `get_outlinks` now renders from resolved link rows captured by the shared graph cache, cutting the 1,000-note warm outlinks bench below the R&D ship bar while preserving alias resolution and valid/broken/embed grouping.

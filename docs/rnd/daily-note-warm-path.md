@@ -1,7 +1,7 @@
 # Daily Note Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: stopped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -47,9 +47,9 @@ unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-line warm get_daily_note | 1.9ms | |
-| 1,000-line cold get_daily_note guardrail | 7.1ms | |
-| 1,000-line warm get_daily_note other-date guardrail | 2.2ms | |
+| 1,000-line warm get_daily_note | 1.9ms | 2.0ms |
+| 1,000-line cold get_daily_note guardrail | 7.1ms | 7.6ms |
+| 1,000-line warm get_daily_note other-date guardrail | 2.2ms | 2.4ms |
 
 ## Safety review
 
@@ -74,4 +74,9 @@ watcher to stay correct.
 
 ## Decision
 
-Open.
+Stopped. An mtime/size/ctime-validated daily-note config cache preserved config
+freshness but still missed the primary warm bar, with the slower 1,000-line warm
+call at 2.0ms against the 1.5ms target. A rendered daily-note response cache
+added note metadata validation but made the fixture worse, including a
+21.2ms cold run and 4.3ms warm other-date run, both beyond guardrails. No
+runtime change shipped.
