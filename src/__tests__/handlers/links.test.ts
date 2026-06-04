@@ -105,6 +105,33 @@ describe("link handlers — get_outlinks", () => {
     expect(text).toContain("note-b.md");
   });
 
+  it("refreshes a warm graph before resolving a new source note", async () => {
+    const warmed = await env.client.callTool({
+      name: "get_outlinks",
+      arguments: { path: "note-a.md" },
+    });
+    expect(isError(warmed)).toBe(false);
+
+    const created = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "warm-new-source.md",
+        content: "# Warm new source\n\nLinks to [[note-a]].",
+      },
+    });
+    expect(isError(created)).toBe(false);
+
+    const result = await env.client.callTool({
+      name: "get_outlinks",
+      arguments: { path: "warm-new-source.md" },
+    });
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("Outgoing links from: warm-new-source.md");
+    expect(text).toContain("[[note-a]]");
+    expect(text).toContain("note-a.md");
+  });
+
   it("returns a friendly message for a note with no outgoing links", async () => {
     const result = await env.client.callTool({
       name: "get_outlinks",
