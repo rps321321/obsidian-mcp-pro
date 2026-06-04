@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Vault Stats Warm Path](vault-stats-warm-path.md) | performance / observability | active | Baseline measures cold/warm `get_vault_stats` and warm folder-scoped stats on synthetic 100 and 1,000-note vaults. |
 | [Recent Notes Warm Path](recent-notes-warm-path.md) | performance / agent workflows | shipped | Warm 1,000-note `get_recent_notes` fell from 107.1ms to 27.5ms while cold and `since` calls stayed under their guardrails. |
 | [Attachment Inventory Warm Path](attachment-inventory-warm-path.md) | performance / vault hygiene | shipped | Warm 1,000 attachment/note unused scans fell from 58.9ms to 39.3ms while cold scans and warm listings stayed under their guardrails. |
 | [Canvas Read Warm Path](canvas-read-warm-path.md) | performance / Obsidian format coverage | shipped | Warm 1,000-node canvas reads fell from 6.9ms to 1.7ms while cold stayed under the guardrail. |
