@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Active R&D experiment for similar-note quality, with a synthetic embedding-store fixture in `scripts/bench-similar-notes-quality.mjs` and ship/kill metric in `docs/rnd/similar-notes-quality.md`.
 - R&D experiment for semantic ranking quality, with a synthetic embedding-store fixture in `scripts/bench-semantic-ranking-quality.mjs` and ship/kill metric in `docs/rnd/semantic-ranking-quality.md`.
 - R&D experiment for chunker boundary quality, with a synthetic fixture in `scripts/bench-chunker-quality.mjs` and ship/kill metric in `docs/rnd/chunker-boundary-quality.md`.
 - Active R&D experiment for `get_daily_note` warm-path performance, with a synthetic benchmark harness in `scripts/bench-daily-notes.mjs` and ship/kill metric in `docs/rnd/daily-note-warm-path.md`.
