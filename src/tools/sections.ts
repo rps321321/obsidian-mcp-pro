@@ -8,7 +8,7 @@ import {
   replaceSectionBody,
   insertAfterHeading,
 } from "../lib/sections.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 
 function textResult(text: string) {
@@ -18,6 +18,9 @@ function textResult(text: string) {
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
+
+/** Escape control characters before embedding values in section-tool display text. */
+const displaySectionValue = escapeControlChars;
 
 function splitHeadingPath(section: string): string[] {
   return section.split("/").map((s) => s.trim()).filter(Boolean);
@@ -71,7 +74,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           return updated;
         });
         return textResult(
-          `Updated section "${resolvedHeading}" in ${notePath} (${bodyBytes} bytes of new body)`,
+          `Updated section "${displaySectionValue(resolvedHeading)}" in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`,
         );
       } catch (err) {
         log.error("update_section failed", { tool: "update_section", err: err as Error });
@@ -133,7 +136,9 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           if (!payload.endsWith("\n")) payload += "\n";
           return before + payload + after;
         });
-        return textResult(`Inserted ${Buffer.byteLength(content, "utf-8")} bytes into "${resolvedHeading}" (${position}) in ${notePath}`);
+        return textResult(
+          `Inserted ${Buffer.byteLength(content, "utf-8")} bytes into "${displaySectionValue(resolvedHeading)}" (${position}) in ${displaySectionValue(notePath)}`,
+        );
       } catch (err) {
         log.error("insert_at_section failed", { tool: "insert_at_section", err: err as Error });
         return errorResult(`Error inserting at section: ${sanitizeError(err)}`);
@@ -161,10 +166,10 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         const { readNote } = await import("../lib/vault.js");
         const content = await readNote(vaultPath, notePath);
         const headings = parseHeadings(content);
-        if (headings.length === 0) return textResult(`No headings in ${notePath}`);
-        const lines = [`${headings.length} heading(s) in ${notePath}:`, ""];
+        if (headings.length === 0) return textResult(`No headings in ${displaySectionValue(notePath)}`);
+        const lines = [`${headings.length} heading(s) in ${displaySectionValue(notePath)}:`, ""];
         for (const h of headings) {
-          lines.push(`${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${h.text}`);
+          lines.push(`${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${displaySectionValue(h.text)}`);
         }
         return textResult(lines.join("\n"));
       } catch (err) {
@@ -221,12 +226,12 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           for (const ch of f) {
             if (!ALLOWED_FLAGS.has(ch)) {
               return errorResult(
-                `Error replacing in note: invalid regex flag '${ch}'. Allowed flags: g, i, m, s, u, y.`,
+                `Error replacing in note: invalid regex flag '${displaySectionValue(ch)}'. Allowed flags: g, i, m, s, u, y.`,
               );
             }
             if (seen.has(ch)) {
               return errorResult(
-                `Error replacing in note: duplicate regex flag '${ch}'.`,
+                `Error replacing in note: duplicate regex flag '${displaySectionValue(ch)}'.`,
               );
             }
             seen.add(ch);
@@ -272,8 +277,8 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         });
         return textResult(
           count === 0
-            ? `No matches in ${notePath} - file unchanged.`
-            : `Replaced ${count} match(es) in ${notePath}.`,
+            ? `No matches in ${displaySectionValue(notePath)} - file unchanged.`
+            : `Replaced ${count} match(es) in ${displaySectionValue(notePath)}.`,
         );
       } catch (err) {
         log.error("replace_in_note failed", { tool: "replace_in_note", err: err as Error });
@@ -325,7 +330,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           const replacement = isMultiline ? `${body}\n^${block}\n` : `${body} ^${block}\n`;
           return before + replacement + after;
         });
-        return textResult(`Updated block ^${block} in ${notePath}`);
+        return textResult(`Updated block ^${displaySectionValue(block)} in ${displaySectionValue(notePath)}`);
       } catch (err) {
         log.error("edit_block failed", { tool: "edit_block", err: err as Error });
         return errorResult(`Error editing block: ${sanitizeError(err)}`);
