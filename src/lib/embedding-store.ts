@@ -28,6 +28,9 @@ import { renameWithRetry } from "./fs-ops.js";
 
 const STORE_REL_PATH = ".obsidian/cache/mcp-pro-embeddings.json";
 const STORE_VERSION = 1;
+const NOTE_BEST_CHUNK_WEIGHT = 0.8;
+const NOTE_FOCUS_WEIGHT = 0.2;
+const NOTE_FOCUS_CHUNKS = 3;
 // Hard cap on the on-disk snapshot size. A 50k-note vault with 768-dim
 // vectors can produce a multi-GB JSON blob, at which point persisting it
 // each pass costs more than the cold-start re-embed it saves. When the
@@ -500,18 +503,37 @@ export function searchEmbeddings(
       score,
     });
   }
-  // Per-note dedup: keep the highest-scoring chunk per note. The semantic
-  // search tool surfaces note-level results; chunk-level granularity is
-  // available through the score breakdown but rarely useful for ranking.
-  const bestPerNote = new Map<string, SearchHit>();
+  // Per-note ranking: keep the highest-scoring chunk for the snippet, but
+  // sort notes with a small focus signal from their top chunks. This avoids
+  // one incidental perfect chunk outranking notes that are consistently about
+  // the query.
+  const byNote = new Map<string, { best: SearchHit; scores: number[] }>();
   for (const h of hits) {
-    const existing = bestPerNote.get(h.notePath);
-    if (!existing || h.score > existing.score) {
-      bestPerNote.set(h.notePath, h);
+    const existing = byNote.get(h.notePath);
+    if (!existing) {
+      byNote.set(h.notePath, { best: h, scores: [h.score] });
+    } else {
+      existing.scores.push(h.score);
+      if (h.score > existing.best.score) existing.best = h;
     }
   }
-  const out = Array.from(bestPerNote.values()).sort((a, b) => b.score - a.score);
+  const out = Array.from(byNote.values()).map(({ best, scores }) => {
+    const score = noteFocusScore(scores);
+    return { ...best, score };
+  }).sort((a, b) => {
+    const scoreDelta = b.score - a.score;
+    if (scoreDelta !== 0) return scoreDelta;
+    return a.notePath.localeCompare(b.notePath);
+  });
   return out.slice(0, limit);
+}
+
+function noteFocusScore(scores: number[]): number {
+  const sorted = scores.toSorted((a, b) => b - a);
+  const top = sorted.slice(0, NOTE_FOCUS_CHUNKS);
+  const best = top[0] ?? 0;
+  const focus = top.reduce((sum, score) => sum + score, 0) / top.length;
+  return NOTE_BEST_CHUNK_WEIGHT * best + NOTE_FOCUS_WEIGHT * focus;
 }
 
 /** Get the embeddings owned by a specific note (used by find_similar). */
