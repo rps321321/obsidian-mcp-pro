@@ -6,7 +6,7 @@ import { parseBaseFile, queryBase, buildRow } from "../lib/bases.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { extractWikilinks } from "../lib/markdown.js";
 import { mapConcurrent } from "../lib/concurrency.js";
-import { sanitizeError } from "../lib/errors.js";
+import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 
 const MAX_CONCURRENT_STATS = 16;
@@ -18,6 +18,9 @@ function textResult(text: string) {
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
+
+/** Escape control characters before embedding values in Base tool display text. */
+const displayBaseValue = escapeControlChars;
 
 export function registerBaseTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
@@ -37,7 +40,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
       try {
         const bases = await listBaseFiles(vaultPath);
         if (bases.length === 0) return textResult("No .base files in this vault.");
-        const lines = [`Found ${bases.length} Base file(s):`, "", ...bases];
+        const lines = [`Found ${bases.length} Base file(s):`, "", ...bases.map(displayBaseValue)];
         return textResult(lines.join("\n"));
       } catch (err) {
         log.error("list_bases failed", { tool: "list_bases", err: err as Error });
@@ -69,10 +72,10 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
       try {
         const raw = await readBaseFile(vaultPath, basePath);
         const { doc, warnings } = parseBaseFile(raw);
-        const lines: string[] = [`Base: ${basePath}`, ""];
+        const lines: string[] = [`Base: ${displayBaseValue(basePath)}`, ""];
         if (warnings.length > 0) {
           lines.push("Parse warnings:");
-          for (const w of warnings) lines.push(`  - ${w}`);
+          for (const w of warnings) lines.push(`  - ${displayBaseValue(w)}`);
           lines.push("");
         }
         lines.push("Filters:");
@@ -81,7 +84,9 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         if (doc.properties) {
           lines.push(`Properties (${Object.keys(doc.properties).length}):`);
           for (const [key, spec] of Object.entries(doc.properties)) {
-            lines.push(`  - ${key}${spec.displayName ? ` (display: ${spec.displayName})` : ""}`);
+            lines.push(
+              `  - ${displayBaseValue(key)}${spec.displayName ? ` (display: ${displayBaseValue(spec.displayName)})` : ""}`,
+            );
           }
           lines.push("");
         }
@@ -89,7 +94,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
           lines.push(`Views (${doc.views.length}):`);
           for (const v of doc.views) {
             const nm = v.name ?? "(unnamed)";
-            lines.push(`  - ${nm} [type: ${v.type}]`);
+            lines.push(`  - ${displayBaseValue(nm)} [type: ${displayBaseValue(v.type)}]`);
           }
         }
         return textResult(lines.join("\n"));
@@ -220,21 +225,21 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         const truncated = result.rows.slice(0, limit);
 
         const lines: string[] = [];
-        lines.push(`Base: ${basePath}${view ? ` (view: ${view})` : ""}`);
+        lines.push(`Base: ${displayBaseValue(basePath)}${view ? ` (view: ${displayBaseValue(view)})` : ""}`);
         lines.push(
           `Matched ${result.rows.length} note(s)${result.rows.length > limit ? ` (showing first ${limit})` : ""}`,
         );
         if (allWarnings.length > 0) {
           lines.push("");
           lines.push("Warnings:");
-          for (const w of allWarnings) lines.push(`  - ${w}`);
+          for (const w of allWarnings) lines.push(`  - ${displayBaseValue(w)}`);
         }
         lines.push("");
         for (const row of truncated) {
-          lines.push(`- ${row.path}`);
+          lines.push(`- ${displayBaseValue(row.path)}`);
           if (includeFrontmatter && Object.keys(row.frontmatter).length > 0) {
             for (const [k, v] of Object.entries(row.frontmatter)) {
-              lines.push(`    ${k}: ${JSON.stringify(v)}`);
+              lines.push(`    ${displayBaseValue(k)}: ${JSON.stringify(v)}`);
             }
           }
         }
