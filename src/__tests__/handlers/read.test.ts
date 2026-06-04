@@ -84,6 +84,25 @@ describe("read handlers — search_notes", () => {
     ]);
   });
 
+  it("renders repeated same-line matches as one snippet row", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "repeat.md"),
+      "alpha alpha alpha\nbeta alpha\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "search_notes",
+      arguments: { query: "alpha", maxResults: 1 },
+    });
+
+    const lineRows = textContent(result).split("\n").filter((line) => line.includes("Line "));
+    expect(lineRows).toEqual([
+      "  Line 1: alpha alpha alpha",
+      "  Line 2: beta alpha",
+    ]);
+  });
+
   it("restricts scan to a folder when folder= is set", async () => {
     const result = await env.client.callTool({
       name: "search_notes",

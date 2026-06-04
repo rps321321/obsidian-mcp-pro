@@ -63,13 +63,13 @@ After command samples:
 
 Current top five:
 
-| rank | note | rel | matches | score |
+| rank | note | rel | snippet lines | score |
 |---:|---|---:|---:|---:|
-| 1 | `migration-checklist.md` | 3 | 3 | 9.847 |
-| 2 | `migration-plan.md` | 3 | 4 | 9.402 |
+| 1 | `migration-checklist.md` | 3 | 2 | 9.847 |
+| 2 | `migration-plan.md` | 3 | 2 | 9.402 |
 | 3 | `release-notes.md` | 2 | 1 | 1.173 |
 | 4 | `zz-glossary.md` | 0 | 1 | 1.173 |
-| 5 | `meeting-transcript.md` | 1 | 8 | 0.000 |
+| 5 | `meeting-transcript.md` | 1 | 2 | 0.000 |
 
 ## Safety review
 
@@ -90,4 +90,5 @@ line snippets that explain each lexical hit.
 Shipped. `search_notes` now scores literal matches with a small focus signal from
 note paths and headings, plus dampening for repeated matches on the same line.
 The fixture clears the ship bar while preserving tool names, parameters, result
-shape, literal matching, and the matched line snippets shown for each hit.
+shape, literal matching, and the matched line snippets shown for each matching
+line.

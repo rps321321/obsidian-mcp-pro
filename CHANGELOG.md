@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `search_notes` now renders repeated matches on the same line as one snippet row while preserving repeated-hit ranking signals.
 - `search_notes` now ranks literal matches with title/path focus and repeated-line dampening, so noisy repeated mentions are less likely to outrank focused notes.
 - `find_similar_notes` now builds its source query vector from chunks aligned with the source note's opening topic, so unrelated appendices are less likely to dominate similar-note ranking.
 - Semantic search now ranks note-level results with a small focus signal from each note's top chunks, so one incidental high-scoring chunk is less likely to outrank notes that are consistently about the query.

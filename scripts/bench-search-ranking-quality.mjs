@@ -138,7 +138,7 @@ if (invokedDirectly) {
     console.log(`precision@3 ${result.precisionAt3.toFixed(3)}`);
     console.log(`top relevance ${result.topRelevance}`);
     console.log(`incidental before focused ${result.incidentalBeforeFocused}`);
-    console.log("\n| rank | note | rel | matches | score |");
+    console.log("\n| rank | note | rel | snippet lines | score |");
     console.log("|---:|---|---:|---:|---:|");
     for (const row of result.rows) {
       console.log(`| ${row.rank} | ${row.notePath} | ${row.relevance} | ${row.matchCount} | ${row.score.toFixed(3)} |`);
