@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Active R&D experiment for `resolve_alias` warm-path performance, with a synthetic benchmark harness in `scripts/bench-resolve-alias.mjs` and ship/kill metric in `docs/rnd/resolve-alias-warm-path.md`.
 - R&D experiment for `get_vault_stats` warm-path performance, with a synthetic benchmark harness in `scripts/bench-vault-stats.mjs` and ship/kill metric in `docs/rnd/vault-stats-warm-path.md`.
 - R&D experiment for `get_recent_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-recent-notes.mjs` and ship/kill metric in `docs/rnd/recent-notes-warm-path.md`.
 - R&D experiment for attachment inventory warm-path performance, with a synthetic benchmark harness in `scripts/bench-attachments.mjs` and ship/kill metric in `docs/rnd/attachment-inventory-warm-path.md`.

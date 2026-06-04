@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Resolve Alias Warm Path](resolve-alias-warm-path.md) | performance / agent workflows | active | Baseline measures cold/warm `resolve_alias` and basename fallback on synthetic 100 and 1,000-note vaults. |
 | [Vault Stats Warm Path](vault-stats-warm-path.md) | performance / observability | shipped | Warm 1,000-note `get_vault_stats` fell from 94.6ms to 40.4ms while cold and folder-scoped calls stayed under their guardrails. |
 | [Recent Notes Warm Path](recent-notes-warm-path.md) | performance / agent workflows | shipped | Warm 1,000-note `get_recent_notes` fell from 107.1ms to 27.5ms while cold and `since` calls stayed under their guardrails. |
 | [Attachment Inventory Warm Path](attachment-inventory-warm-path.md) | performance / vault hygiene | shipped | Warm 1,000 attachment/note unused scans fell from 58.9ms to 39.3ms while cold scans and warm listings stayed under their guardrails. |
