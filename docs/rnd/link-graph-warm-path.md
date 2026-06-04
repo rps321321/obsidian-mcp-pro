@@ -1,7 +1,7 @@
 # Link Graph Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -48,8 +48,8 @@ text for alias-resolved backlinks or graph traversal.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm backlinks | 80.4ms | |
-| 1,000-note cold graph guardrail | 331.3ms | |
+| 1,000-note warm backlinks | 80.4ms | 42.5ms |
+| 1,000-note cold graph guardrail | 331.3ms | 280.7ms |
 
 ## Safety review
 
@@ -75,4 +75,21 @@ implementation would weaken stale-cache detection or vault-boundary validation.
 
 ## Decision
 
-Open.
+Ship. The prototype keeps the existing graph cache, fingerprint, TTL, and result
+shape, but passes one resolved vault root through each fingerprint validation
+batch. `getNoteStats` still runs `resolveVaultPathSafe` for every note, so
+per-note symlink and vault-boundary checks stay in place while avoiding a
+repeated vault-root `realpath` syscall for each path.
+
+Measured after the prototype with:
+
+```powershell
+npm run build
+node scripts\bench-links.mjs 100,1000 --json
+node scripts\bench-links.mjs 100,1000 --json
+```
+
+The two repeated 1,000-note warm backlink runs were 42.5ms and 37.0ms, both
+below the 64ms ship bar. The slower repeated cold graph run was 283.7ms, below
+the 365ms guardrail. A regression test keeps symlink escapes rejected when
+`getNoteStats` receives a reused vault root.

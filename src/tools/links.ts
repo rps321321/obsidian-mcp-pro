@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes, getNoteStats } from "../lib/vault.js";
+import { listNotes, getNoteStats, getVaultRootRealPath } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { extractWikilinks, resolveWikilink, extractAliases } from "../lib/markdown.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
@@ -60,10 +60,11 @@ async function fingerprintVault(
   const sorted = [...notes].sort();
   let hash = 0x811c9dc5;
   const CONCURRENCY = 16;
+  const realVaultRoot = await getVaultRootRealPath(vaultPath);
   for (let i = 0; i < sorted.length; i += CONCURRENCY) {
     const slice = sorted.slice(i, i + CONCURRENCY);
     const stats = await Promise.all(
-      slice.map((n) => getNoteStats(vaultPath, n).catch(() => null)),
+      slice.map((n) => getNoteStats(vaultPath, n, { realVaultRoot }).catch(() => null)),
     );
     for (let j = 0; j < slice.length; j++) {
       const mtime = stats[j]?.modified?.getTime() ?? 0;
