@@ -150,6 +150,78 @@ function headingLineEnd(_body: string, heading: Heading): number {
   return heading.lineEnd;
 }
 
+function splitFencedCodeBlock(text: string, target: number): string[] | null {
+  const lines = text.split("\n");
+  const opener = lines[0];
+  const closer = lines.at(-1);
+  if (!opener || !closer) return null;
+
+  const openerMatch = opener.match(/^(`{3,}|~{3,})(.*)$/);
+  if (!openerMatch) return null;
+  const fence = openerMatch[1]!;
+  const fenceChar = fence[0]!;
+  if (!isClosingFence(closer, fenceChar, fence.length)) return null;
+
+  const bodyLines = lines.slice(1, -1);
+  if (bodyLines.length === 0) return [text];
+
+  const out: string[] = [];
+  let start = 0;
+  while (start < bodyLines.length) {
+    const piece: string[] = [];
+    let emittedLongLine = false;
+    let end = start;
+    while (end < bodyLines.length) {
+      const line = bodyLines[end]!;
+      const candidate = formatFencedCodeChunk(opener, closer, [...piece, line]);
+      if (piece.length > 0 && candidate.length > target) break;
+      if (piece.length === 0 && candidate.length > target) {
+        const lineChunks = splitLongFencedCodeLine(opener, closer, line, target);
+        if (lineChunks.length === 0) return null;
+        out.push(...lineChunks);
+        emittedLongLine = true;
+        end++;
+        break;
+      }
+      piece.push(line);
+      end++;
+    }
+
+    if (!emittedLongLine) {
+      if (piece.length === 0) return null;
+      out.push(formatFencedCodeChunk(opener, closer, piece));
+    }
+    // The wrapper fences already carry boundary context. Avoid copying code
+    // lines across chunks so syntax-safe splits do not inflate token load.
+    start = end;
+  }
+
+  return out;
+}
+
+function isClosingFence(line: string, fenceChar: string, minLength: number): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length < minLength) return false;
+  for (const ch of trimmed) {
+    if (ch !== fenceChar) return false;
+  }
+  return true;
+}
+
+function formatFencedCodeChunk(opener: string, closer: string, bodyLines: string[]): string {
+  return [opener, ...bodyLines, closer].join("\n");
+}
+
+function splitLongFencedCodeLine(opener: string, closer: string, line: string, target: number): string[] {
+  const bodyBudget = target - opener.length - closer.length - 2;
+  if (bodyBudget < 1) return [];
+  const out: string[] = [];
+  for (let i = 0; i < line.length; i += bodyBudget) {
+    out.push(formatFencedCodeChunk(opener, closer, [line.slice(i, i + bodyBudget)]));
+  }
+  return out;
+}
+
 /**
  * Sliding-window split for sections that exceed the target chunk size.
  * Splits on paragraph boundaries when possible, falls back to fixed-size
@@ -168,8 +240,13 @@ function splitOversized(text: string, targetChars: number, overlapChars: number)
     if (para.length > target) {
       // Flush buffer first, then character-window the giant paragraph.
       if (buffer) { out.push(buffer); buffer = ""; }
-      for (let i = 0; i < para.length; i += target - overlap) {
-        out.push(para.slice(i, Math.min(para.length, i + target)));
+      const fencedPieces = splitFencedCodeBlock(para, target);
+      if (fencedPieces) {
+        out.push(...fencedPieces);
+      } else {
+        for (let i = 0; i < para.length; i += target - overlap) {
+          out.push(para.slice(i, Math.min(para.length, i + target)));
+        }
       }
       continue;
     }
