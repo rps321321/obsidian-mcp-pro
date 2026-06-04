@@ -1,10 +1,23 @@
+import { randomUUID } from "crypto";
+import fs from "fs/promises";
+import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPathSafe } from "../lib/vault.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import type { CanvasNode, CanvasData } from "../types.js";
-import { randomUUID } from "crypto";
+
+const CANVAS_READ_CACHE_LIMIT = 16;
+
+interface CanvasReadCacheEntry {
+  fullPath: string;
+  size: number;
+  mtimeMs: number;
+  text: string;
+}
+
+const canvasReadCache = new Map<string, CanvasReadCacheEntry>();
 
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
@@ -12,6 +25,115 @@ function errorResult(text: string) {
 
 function displayCanvasValue(value: string): string {
   return escapeControlChars(value);
+}
+
+function canvasReadCacheKey(vaultPath: string, canvasPath: string): string {
+  return `${path.resolve(vaultPath)}\0${canvasPath}`;
+}
+
+async function getCanvasReadSignature(
+  vaultPath: string,
+  canvasPath: string,
+): Promise<{ fullPath: string; size: number; mtimeMs: number }> {
+  const fullPath = await resolveVaultPathSafe(vaultPath, canvasPath);
+  try {
+    const stats = await fs.stat(fullPath);
+    return { fullPath, size: stats.size, mtimeMs: stats.mtimeMs };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      // Preserve the existing read_canvas missing-file error shape, which
+      // came from readFile rather than stat.
+      await readCanvasFile(vaultPath, canvasPath);
+    }
+    throw err;
+  }
+}
+
+function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
+  const lines: string[] = [];
+
+  lines.push(`Canvas: ${displayCanvasValue(canvasPath)}`);
+  lines.push(`Nodes: ${data.nodes.length} | Edges: ${data.edges.length}`);
+  lines.push("");
+
+  if (data.nodes.length > 0) {
+    lines.push("--- Nodes ---");
+    for (const node of data.nodes) {
+      const pos = `(${node.x}, ${node.y})`;
+      const size = `${node.width}x${node.height}`;
+      let preview = "";
+
+      if (node.type === "text" && node.text) {
+        preview = node.text.length > 100
+          ? node.text.slice(0, 100) + "..."
+          : node.text;
+      } else if (node.type === "file" && node.file) {
+        preview = node.file;
+      } else if (node.type === "link" && node.url) {
+        preview = node.url;
+      } else if (node.type === "group" && node.label) {
+        preview = `Group: ${node.label}`;
+      }
+
+      lines.push(
+        `  [${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)} pos=${pos} size=${size}`,
+      );
+      if (preview) {
+        lines.push(`    content: ${displayCanvasValue(preview)}`);
+      }
+      if (node.color) {
+        lines.push(`    color: ${displayCanvasValue(node.color)}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (data.edges.length > 0) {
+    lines.push("--- Edges ---");
+    for (const edge of data.edges) {
+      const label = edge.label ? ` [${displayCanvasValue(edge.label)}]` : "";
+      const sides = [
+        edge.fromSide ? `from-side=${displayCanvasValue(edge.fromSide)}` : "",
+        edge.toSide ? `to-side=${displayCanvasValue(edge.toSide)}` : "",
+      ].filter(Boolean).join(" ");
+      const sideInfo = sides ? ` (${sides})` : "";
+      lines.push(
+        `  ${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${label}${sideInfo}`,
+      );
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function readCanvasSummaryCached(vaultPath: string, canvasPath: string): Promise<string> {
+  const signature = await getCanvasReadSignature(vaultPath, canvasPath);
+  const key = canvasReadCacheKey(vaultPath, canvasPath);
+  const cached = canvasReadCache.get(key);
+  if (
+    cached &&
+    cached.fullPath === signature.fullPath &&
+    cached.size === signature.size &&
+    cached.mtimeMs === signature.mtimeMs
+  ) {
+    canvasReadCache.delete(key);
+    canvasReadCache.set(key, cached);
+    return cached.text;
+  }
+
+  const data = await readCanvasFile(vaultPath, canvasPath);
+  const text = renderCanvasSummary(canvasPath, data);
+  canvasReadCache.set(key, { ...signature, text });
+  while (canvasReadCache.size > CANVAS_READ_CACHE_LIMIT) {
+    const oldestKey = canvasReadCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    canvasReadCache.delete(oldestKey);
+  }
+  return text;
+}
+
+function invalidateCanvasReadCache(vaultPath: string, canvasPath: string): void {
+  canvasReadCache.delete(canvasReadCacheKey(vaultPath, canvasPath));
 }
 
 export function registerCanvasTools(server: McpServer, vaultPath: string): void {
@@ -69,61 +191,8 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     },
     async ({ path: canvasPath }) => {
       try {
-        const data = await readCanvasFile(vaultPath, canvasPath);
-        const lines: string[] = [];
-
-        lines.push(`Canvas: ${displayCanvasValue(canvasPath)}`);
-        lines.push(`Nodes: ${data.nodes.length} | Edges: ${data.edges.length}`);
-        lines.push("");
-
-        if (data.nodes.length > 0) {
-          lines.push("--- Nodes ---");
-          for (const node of data.nodes) {
-            const pos = `(${node.x}, ${node.y})`;
-            const size = `${node.width}x${node.height}`;
-            let preview = "";
-
-            if (node.type === "text" && node.text) {
-              preview = node.text.length > 100
-                ? node.text.slice(0, 100) + "..."
-                : node.text;
-            } else if (node.type === "file" && node.file) {
-              preview = node.file;
-            } else if (node.type === "link" && node.url) {
-              preview = node.url;
-            } else if (node.type === "group" && node.label) {
-              preview = `Group: ${node.label}`;
-            }
-
-            lines.push(
-              `  [${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)} pos=${pos} size=${size}`,
-            );
-            if (preview) {
-              lines.push(`    content: ${displayCanvasValue(preview)}`);
-            }
-            if (node.color) {
-              lines.push(`    color: ${displayCanvasValue(node.color)}`);
-            }
-          }
-          lines.push("");
-        }
-
-        if (data.edges.length > 0) {
-          lines.push("--- Edges ---");
-          for (const edge of data.edges) {
-            const label = edge.label ? ` [${displayCanvasValue(edge.label)}]` : "";
-            const sides = [
-              edge.fromSide ? `from-side=${displayCanvasValue(edge.fromSide)}` : "",
-              edge.toSide ? `to-side=${displayCanvasValue(edge.toSide)}` : "",
-            ].filter(Boolean).join(" ");
-            const sideInfo = sides ? ` (${sides})` : "";
-            lines.push(
-              `  ${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${label}${sideInfo}`,
-            );
-          }
-        }
-
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        const text = await readCanvasSummaryCached(vaultPath, canvasPath);
+        return { content: [{ type: "text" as const, text }] };
       } catch (err) {
         log.error("read_canvas failed", { tool: "read_canvas", err: err as Error });
         return errorResult(`Error reading canvas: ${sanitizeError(err)}`);
@@ -275,6 +344,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           data.nodes.push(node);
           return data;
         });
+        invalidateCanvasReadCache(vaultPath, canvasPath);
 
         return {
           content: [{ type: "text" as const, text: `Node added successfully.\nID: ${id}\nType: ${type}\nPosition: (${finalX}, ${finalY})` }],
@@ -385,6 +455,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           }
           throw err;
         }
+        invalidateCanvasReadCache(vaultPath, canvasPath);
 
         return {
           content: [{
