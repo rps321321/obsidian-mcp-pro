@@ -1,7 +1,7 @@
 # Tag Index Warm Path
 
-_Status: active_
-_Started: 2026-06-04 - Decided: _
+_Status: shipped_
+_Started: 2026-06-04 - Decided: 2026-06-04_
 
 ## Hypothesis
 
@@ -45,9 +45,9 @@ tag display must stay unchanged.
 
 | | before | after |
 |---|---:|---:|
-| 1,000-note warm sparse search_by_tag | 36.8ms | |
-| 1,000-note warm list_tags | 35.7ms | |
-| 1,000-note cold list_tags guardrail | 74.3ms | |
+| 1,000-note warm sparse search_by_tag | 36.8ms | 22.5ms / 26.0ms |
+| 1,000-note warm list_tags | 35.7ms | 23.8ms / 22.2ms |
+| 1,000-note cold list_tags guardrail | 74.3ms | 63.7ms / 61.3ms |
 
 ## Safety review
 
@@ -73,4 +73,11 @@ use stale note content.
 
 ## Decision
 
-Open.
+Ship. The tag tools now keep a small in-memory index keyed by vault path, note
+list, and the same per-note mtimes gathered by `readAllCached`. Repeat
+`list_tags` calls reuse normalized tag counts, and `search_by_tag` uses a reverse
+tag-to-file index while preserving note-order output, nested-tag matching, and
+preview content from the current content cache. Sequential repeated 1,000-note
+warm sparse searches landed at 22.5ms and 26.0ms against the 29ms ship bar,
+warm `list_tags` landed at 23.8ms and 22.2ms against the 29ms secondary bar,
+and cold `list_tags` stayed at 63.7ms and 61.3ms against the 82ms guardrail.

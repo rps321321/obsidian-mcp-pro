@@ -19,7 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
-| [Tag Index Warm Path](tag-index-warm-path.md) | performance / retrieval quality | active | Baseline measures cold/warm `list_tags` plus sparse warm `search_by_tag` on synthetic 100-note and 1,000-note vaults. |
+| [Tag Index Warm Path](tag-index-warm-path.md) | performance / retrieval quality | shipped | Warm 1,000-note sparse tag searches fell from 36.8ms to 22.5ms while warm `list_tags` and cold scans stayed under their guardrails. |
 | [Bases Query Warm Path](bases-query-warm-path.md) | performance / Obsidian format coverage | shipped | Warm 1,000-note Base queries fell from 99.7ms to 54.1ms while cold stayed under the guardrail. |
 | [Broken Link Warm Path](broken-link-warm-path.md) | performance / graph analysis | shipped | Warm 1,000-note broken-link scans fell from 222.7ms to 29.1ms while cold stayed under the guardrail. |
 | [Link Graph Warm Path](link-graph-warm-path.md) | performance / graph analysis | shipped | Warm 1,000-note backlinks fell from 80.4ms to 42.5ms while cold graph traversal stayed under the guardrail. |

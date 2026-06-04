@@ -149,6 +149,26 @@ describe("tag handlers — search_by_tag", () => {
     const text = textContent(result);
     expect(text).toMatch(/Found 1 note with tag #review/);
   });
+
+  it("refreshes the warm tag index after a new note appears", async () => {
+    await env.client.callTool({ name: "list_tags", arguments: {} });
+
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "fresh-tag.md",
+        content: "A new indexed note. #freshcache",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "freshcache" },
+    });
+
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toContain("fresh-tag.md");
+  });
 });
 
 describe("tag handlers — rename_tag", () => {
