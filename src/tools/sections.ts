@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { updateNote } from "../lib/vault.js";
+import fs from "fs/promises";
+import path from "path";
+import { readNote, resolveVaultPathSafe, updateNote } from "../lib/vault.js";
 import {
   findSection,
   findBlockById,
@@ -10,6 +12,17 @@ import {
 } from "../lib/sections.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
+
+const SECTION_LIST_CACHE_LIMIT = 16;
+
+interface SectionListCacheEntry {
+  fullPath: string;
+  size: number;
+  mtimeMs: number;
+  text: string;
+}
+
+const sectionListCache = new Map<string, SectionListCacheEntry>();
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -24,6 +37,74 @@ const displaySectionValue = escapeControlChars;
 
 function splitHeadingPath(section: string): string[] {
   return section.split("/").map((s) => s.trim()).filter(Boolean);
+}
+
+function sectionListCacheKey(vaultPath: string, notePath: string): string {
+  return `${path.resolve(vaultPath)}\0${notePath}`;
+}
+
+async function getSectionListSignature(
+  vaultPath: string,
+  notePath: string,
+): Promise<{ fullPath: string; size: number; mtimeMs: number }> {
+  const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
+  try {
+    const stats = await fs.stat(fullPath);
+    return { fullPath, size: stats.size, mtimeMs: stats.mtimeMs };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      await readNote(vaultPath, notePath);
+    }
+    throw err;
+  }
+}
+
+function renderSectionList(notePath: string, content: string): string {
+  const headings = parseHeadings(content);
+  if (headings.length === 0) return `No headings in ${displaySectionValue(notePath)}`;
+  const lines = [`${headings.length} heading(s) in ${displaySectionValue(notePath)}:`, ""];
+  for (const h of headings) {
+    lines.push(`${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${displaySectionValue(h.text)}`);
+  }
+  return lines.join("\n");
+}
+
+async function readSectionListCached(vaultPath: string, notePath: string): Promise<string> {
+  const signature = await getSectionListSignature(vaultPath, notePath);
+  const key = sectionListCacheKey(vaultPath, notePath);
+  const cached = sectionListCache.get(key);
+  if (
+    cached &&
+    cached.fullPath === signature.fullPath &&
+    cached.size === signature.size &&
+    cached.mtimeMs === signature.mtimeMs
+  ) {
+    sectionListCache.delete(key);
+    sectionListCache.set(key, cached);
+    return cached.text;
+  }
+
+  let content: string;
+  try {
+    content = await fs.readFile(signature.fullPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Note not found: ${notePath}`, { cause: err });
+    }
+    throw err;
+  }
+  const text = renderSectionList(notePath, content);
+  sectionListCache.set(key, { ...signature, text });
+  while (sectionListCache.size > SECTION_LIST_CACHE_LIMIT) {
+    const oldestKey = sectionListCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    sectionListCache.delete(oldestKey);
+  }
+  return text;
+}
+
+function invalidateSectionListCache(vaultPath: string, notePath: string): void {
+  sectionListCache.delete(sectionListCacheKey(vaultPath, notePath));
 }
 
 export function registerSectionTools(server: McpServer, vaultPath: string): void {
@@ -73,6 +154,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           bodyBytes = Buffer.byteLength(newBody, "utf-8");
           return updated;
         });
+        invalidateSectionListCache(vaultPath, notePath);
         return textResult(
           `Updated section "${displaySectionValue(resolvedHeading)}" in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`,
         );
@@ -136,6 +218,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           if (!payload.endsWith("\n")) payload += "\n";
           return before + payload + after;
         });
+        invalidateSectionListCache(vaultPath, notePath);
         return textResult(
           `Inserted ${Buffer.byteLength(content, "utf-8")} bytes into "${displaySectionValue(resolvedHeading)}" (${position}) in ${displaySectionValue(notePath)}`,
         );
@@ -163,15 +246,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
     },
     async ({ path: notePath }) => {
       try {
-        const { readNote } = await import("../lib/vault.js");
-        const content = await readNote(vaultPath, notePath);
-        const headings = parseHeadings(content);
-        if (headings.length === 0) return textResult(`No headings in ${displaySectionValue(notePath)}`);
-        const lines = [`${headings.length} heading(s) in ${displaySectionValue(notePath)}:`, ""];
-        for (const h of headings) {
-          lines.push(`${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${displaySectionValue(h.text)}`);
-        }
-        return textResult(lines.join("\n"));
+        return textResult(await readSectionListCached(vaultPath, notePath));
       } catch (err) {
         log.error("list_sections failed", { tool: "list_sections", err: err as Error });
         return errorResult(`Error listing sections: ${sanitizeError(err)}`);
@@ -275,6 +350,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
             ? existing.replace(pattern, replace)
             : existing.replace(pattern, () => replace);
         });
+        invalidateSectionListCache(vaultPath, notePath);
         return textResult(
           count === 0
             ? `No matches in ${displaySectionValue(notePath)} - file unchanged.`
@@ -330,6 +406,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           const replacement = isMultiline ? `${body}\n^${block}\n` : `${body} ^${block}\n`;
           return before + replacement + after;
         });
+        invalidateSectionListCache(vaultPath, notePath);
         return textResult(`Updated block ^${displaySectionValue(block)} in ${displaySectionValue(notePath)}`);
       } catch (err) {
         log.error("edit_block failed", { tool: "edit_block", err: err as Error });
