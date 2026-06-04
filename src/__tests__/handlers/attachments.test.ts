@@ -55,6 +55,17 @@ describe("attachments handlers — list_attachments", () => {
     expect(isError(result)).toBe(false);
     expect(textContent(result)).toMatch(/No attachments with extension/i);
   });
+
+  it("escapes control characters in extension filters", async () => {
+    const result = await env.client.callTool({
+      name: "list_attachments",
+      arguments: { extension: "mp4\nnext" },
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain('No attachments with extension "mp4\\nnext".');
+    expect(text).not.toContain("mp4\nnext");
+  });
 });
 
 describe("attachments handlers — find_unused_attachments", () => {
@@ -135,6 +146,28 @@ describe("attachments handlers — get_attachment", () => {
     });
     expect(isError(md)).toBe(true);
     expect(textContent(md)).toMatch(/use get_note/i);
+  });
+
+  it("escapes control characters in rejected text-format paths", async () => {
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "bad\nnote.md" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('Refusing to fetch "bad\\nnote.md"');
+    expect(text).not.toContain("bad\nnote.md");
+  });
+
+  it("escapes control characters in blocked executable paths", async () => {
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "tools/bad\tthing.exe" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('"tools/bad\\tthing.exe"');
+    expect(text).not.toContain("tools/bad\tthing.exe");
   });
 
   it("enforces the maxBytes cap", async () => {
