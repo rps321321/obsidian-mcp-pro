@@ -431,6 +431,22 @@ describe("searchInContents", () => {
     ]);
   });
 
+  it("centers long snippets around the first visible match", () => {
+    const before = Array.from({ length: 80 }, (_, index) => `before-${index + 1}`).join(" ");
+    const after = Array.from({ length: 80 }, (_, index) => `after-${index + 1}`).join(" ");
+    const contents = new Map([
+      ["alpha.md", `${before} alpha target ${after}`],
+    ]);
+
+    const results = searchInContents(["alpha.md"], contents, "alpha");
+    const snippet = results[0].matches[0].content;
+
+    expect(snippet.length).toBeLessThanOrEqual(240);
+    expect(snippet).toContain("alpha");
+    expect(snippet.startsWith("...")).toBe(true);
+    expect(snippet.endsWith("...")).toBe(true);
+  });
+
   it("ranks focused title matches ahead of repeated incidental mentions", () => {
     const contents = new Map([
       [
@@ -543,6 +559,21 @@ describe("searchNotes", () => {
     expect(repeatResult!.matches).toEqual([
       { line: 1, content: "foo bar foo baz foo", column: 0 },
     ]);
+  });
+
+  it("should cap long snippets while preserving the source column", async () => {
+    const before = Array.from({ length: 80 }, (_, index) => `before-${index + 1}`).join(" ");
+    const after = Array.from({ length: 80 }, (_, index) => `after-${index + 1}`).join(" ");
+    const line = `${before} needle ${after}`;
+    await writeNote(vaultDir, "long.md", line);
+
+    const results = await searchNotes(vaultDir, "needle");
+    const longResult = results.find((r) => r.relativePath === "long.md");
+
+    expect(longResult).toBeDefined();
+    expect(longResult!.matches[0].content.length).toBeLessThanOrEqual(240);
+    expect(longResult!.matches[0].content).toContain("needle");
+    expect(longResult!.matches[0].column).toBe(line.indexOf("needle"));
   });
 
   it("should return empty array when nothing matches", async () => {
