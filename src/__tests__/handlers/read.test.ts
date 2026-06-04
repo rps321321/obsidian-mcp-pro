@@ -598,6 +598,38 @@ describe("read handlers — resolve_alias", () => {
     expect(textContent(result)).toMatch(/note-a\.md/);
   });
 
+  it("reflects alias edits between repeated lookups", async () => {
+    const first = await env.client.callTool({
+      name: "resolve_alias",
+      arguments: { name: "Warm Alias", includeBasename: false },
+    });
+    expect(textContent(first)).toMatch(/No alias or basename match/i);
+
+    const notePath = path.join(env.vaultDir, "alias-refresh.md");
+    await fs.writeFile(
+      notePath,
+      [
+        "---",
+        "aliases:",
+        "  - Warm Alias",
+        "---",
+        "",
+        "# Alias Refresh",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(notePath, future, future);
+
+    const second = await env.client.callTool({
+      name: "resolve_alias",
+      arguments: { name: "Warm Alias", includeBasename: false },
+    });
+    expect(isError(second)).toBe(false);
+    expect(textContent(second)).toMatch(/alias-refresh\.md/);
+  });
+
   it("returns a friendly message when nothing matches", async () => {
     const result = await env.client.callTool({
       name: "resolve_alias",

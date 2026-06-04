@@ -679,24 +679,20 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           }
         }
 
-        // For alias matches, read frontmatter per-note with bounded
-        // concurrency instead of loading the entire vault into memory.
-        // Per-note failures are logged and skipped.
+        // For alias matches, read through the shared content cache so repeat
+        // lookups reuse warm note bodies while preserving per-note path checks.
         const aliasMatches: string[] = [];
-        await mapConcurrent<string, void>(
-          notes,
-          MAX_CONCURRENT_OPS,
-          async (notePath) => {
-            const content = await readNote(vaultPath, notePath);
-            const aliases = extractAliases(content);
-            if (aliases.some((a) => a.toLowerCase() === target)) {
-              aliasMatches.push(notePath);
-            }
-          },
-          (err, notePath) => {
-            log.warn("resolve_alias: note read failed", { note: notePath, err: err as Error });
-          },
-        );
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("resolve_alias: note read failed", { note, err });
+        });
+        for (const notePath of notes) {
+          const content = contents.get(notePath);
+          if (content === undefined) continue;
+          const aliases = extractAliases(content);
+          if (aliases.some((a) => a.toLowerCase() === target)) {
+            aliasMatches.push(notePath);
+          }
+        }
 
         const total = aliasMatches.length + basenameMatches.length;
         if (total === 0) {
