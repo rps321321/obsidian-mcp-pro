@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Search Snippet Length](search-snippet-length.md) | retrieval quality | active | Baseline max snippet chars are 2152 and total snippet chars are 2285 because one long matching line dominates the visible search output. |
 | [Search Snippet Quality](search-snippet-quality.md) | retrieval quality | shipped | Duplicate snippet rows fell from 6 to 0, unique-line coverage rose from 0.667 to 1.000, and each matching note still keeps at least one visible snippet line. |
 | [Search Ranking Quality](search-ranking-quality.md) | retrieval quality | shipped | NDCG@3 rose from 0.690 to 1.000, precision@3 rose from 0.667 to 1.000, and repeated incidental mentions no longer rank ahead of focused lexical matches. |
 | [Similar Notes Quality](similar-notes-quality.md) | retrieval quality | shipped | NDCG@3 rose from 0.418 to 1.000, precision@3 rose from 0.667 to 1.000, and unrelated source appendices no longer push an off-topic kitchen note into first place. |
