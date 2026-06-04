@@ -1,8 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import path from "path";
 import { z } from "zod";
 import { listNotes, getNoteStats, getVaultRootRealPath } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
-import { extractWikilinks, resolveWikilink, extractAliases } from "../lib/markdown.js";
+import { extractWikilinks, extractAliases } from "../lib/markdown.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 import type { LinkInfo, BrokenLink, OrphanNote, GraphNeighbor } from "../types.js";
@@ -21,6 +22,22 @@ interface LinkGraphData {
   aliasMap: Map<string, string>;
   /** Unresolved wikilinks per note, keyed by source path. */
   brokenLinks: Map<string, BrokenLink[]>;
+  /** Normalized caller path -> graph note path. Exact keys win over basename keys. */
+  sourceLookup: Map<string, string>;
+  pathIndex: NotePathIndex;
+  outlinkDetails: Map<string, OutlinkDetail[]>;
+}
+
+interface NotePathIndex {
+  exact: Map<string, string>;
+  basename: Map<string, string[]>;
+}
+
+interface OutlinkDetail {
+  target: string;
+  resolvedPath: string | null;
+  isValid: boolean;
+  isEmbed: boolean;
 }
 
 // Per-vault+folder cache. Invalidated when any note's mtime changes,
@@ -35,6 +52,7 @@ interface CachedGraph {
 }
 const GRAPH_CACHE_TTL_MS = 30_000;
 const GRAPH_CACHE_MAX_ENTRIES = 32;
+const GRAPH_FINGERPRINT_CONCURRENCY = 64;
 
 function displayLinkValue(value: string): string {
   return escapeControlChars(value);
@@ -78,10 +96,9 @@ async function fingerprintVault(
 ): Promise<string> {
   const mtimes = new Map<string, number>();
   const sorted = [...notes].sort();
-  const CONCURRENCY = 16;
   const realVaultRoot = await getVaultRootRealPath(vaultPath);
-  for (let i = 0; i < sorted.length; i += CONCURRENCY) {
-    const slice = sorted.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < sorted.length; i += GRAPH_FINGERPRINT_CONCURRENCY) {
+    const slice = sorted.slice(i, i + GRAPH_FINGERPRINT_CONCURRENCY);
     const stats = await Promise.all(
       slice.map((n) => getNoteStats(vaultPath, n, { realVaultRoot }).catch(() => null)),
     );
@@ -91,6 +108,100 @@ async function fingerprintVault(
     }
   }
   return fingerprintFromMtimes(sorted, mtimes);
+}
+
+function buildSourceLookup(notes: string[]): Map<string, string> {
+  const lookup = new Map<string, string>();
+  for (const notePath of notes) {
+    const normalized = notePath.replace(/\.md$/i, "").toLowerCase();
+    const exactKey = `exact:${normalized}`;
+    if (!lookup.has(exactKey)) lookup.set(exactKey, notePath);
+    const basename = normalized.split("/").pop() ?? normalized;
+    if (!lookup.has(`base:${basename}`)) {
+      lookup.set(`base:${basename}`, notePath);
+    }
+  }
+  return lookup;
+}
+
+function sharedPathDepth(a: string, b: string): number {
+  const as = a.toLowerCase().split("/");
+  const bs = b.toLowerCase().split("/");
+  let i = 0;
+  const max = Math.min(as.length, bs.length);
+  while (i < max && as[i] === bs[i]) i++;
+  return i;
+}
+
+function buildNotePathIndex(notes: string[]): NotePathIndex {
+  const exact = new Map<string, string>();
+  const basename = new Map<string, string[]>();
+  for (const notePath of notes) {
+    const normalized = notePath.replace(/\.md$/i, "").toLowerCase();
+    if (!exact.has(normalized)) exact.set(normalized, notePath);
+
+    const noteBasename = path
+      .basename(notePath, path.extname(notePath))
+      .toLowerCase();
+    const matches = basename.get(noteBasename);
+    if (matches) {
+      matches.push(notePath);
+    } else {
+      basename.set(noteBasename, [notePath]);
+    }
+  }
+  return { exact, basename };
+}
+
+function resolveWikilinkWithIndex(
+  link: string,
+  currentNotePath: string,
+  allNotePaths: string[],
+  index: NotePathIndex,
+  aliasMap: Map<string, string>,
+): string | null {
+  const cleanLink = link.split("#")[0]!.split("^")[0]!.trim();
+  if (!cleanLink) return null;
+
+  const normalizedLink = cleanLink.replace(/\.md$/i, "");
+  const normalizedLinkLower = normalizedLink.toLowerCase();
+
+  const exact = index.exact.get(normalizedLinkLower);
+  if (exact) return exact;
+
+  if (normalizedLink.includes("/")) {
+    const suffixCandidates: string[] = [];
+    for (const notePath of allNotePaths) {
+      const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
+      if (withoutExt.endsWith(normalizedLinkLower)) {
+        const prefix = withoutExt.slice(0, withoutExt.length - normalizedLinkLower.length);
+        if (prefix === "" || prefix.endsWith("/")) suffixCandidates.push(notePath);
+      }
+    }
+    if (suffixCandidates.length === 1) return suffixCandidates[0]!;
+    if (suffixCandidates.length > 1) {
+      return nearestNotePath(currentNotePath, suffixCandidates);
+    }
+  }
+
+  const linkBasename = path.basename(normalizedLink).toLowerCase();
+  const basenameCandidates = index.basename.get(linkBasename) ?? [];
+  if (basenameCandidates.length === 1) return basenameCandidates[0]!;
+  if (basenameCandidates.length > 1) {
+    return nearestNotePath(currentNotePath, basenameCandidates);
+  }
+
+  return aliasMap.get(normalizedLinkLower) ?? null;
+}
+
+function nearestNotePath(currentNotePath: string, candidates: readonly string[]): string {
+  const sourceDir = path.dirname(currentNotePath).replace(/\\/g, "/");
+  return [...candidates].sort((a, b) => {
+    const da = sharedPathDepth(sourceDir, path.dirname(a).replace(/\\/g, "/"));
+    const db = sharedPathDepth(sourceDir, path.dirname(b).replace(/\\/g, "/"));
+    if (da !== db) return db - da;
+    return a.length - b.length;
+  })[0]!;
 }
 
 async function buildLinkGraph(
@@ -115,6 +226,7 @@ async function buildLinkGraph(
   const rawLinks = new Map<string, LinkInfo[]>();
   const noteLines = new Map<string, string[]>();
   const brokenLinks = new Map<string, BrokenLink[]>();
+  const outlinkDetails = new Map<string, OutlinkDetail[]>();
 
   // Initialize sets for all notes
   for (const notePath of allNotes) {
@@ -150,6 +262,7 @@ async function buildLinkGraph(
       aliasMap.set(key, notePath);
     }
   }
+  const pathIndex = buildNotePathIndex(allNotes);
 
   for (const notePath of allNotes) {
     const content = noteContents.get(notePath);
@@ -166,13 +279,20 @@ async function buildLinkGraph(
     rawLinks.set(notePath, links);
 
     const outSet = outlinks.get(notePath) ?? new Set<string>();
+    const details: OutlinkDetail[] = [];
 
     for (const link of links) {
       // Strip heading/block refs for resolution (e.g., "note#heading" -> "note")
       const targetBase = link.target.split("#")[0]!.trim();
       if (!targetBase) continue;
 
-      const resolved = resolveWikilink(targetBase, notePath, allNotes, { aliasMap });
+      const resolved = resolveWikilinkWithIndex(targetBase, notePath, allNotes, pathIndex, aliasMap);
+      details.push({
+        target: link.target,
+        resolvedPath: resolved,
+        isValid: resolved !== null,
+        isEmbed: link.isEmbed,
+      });
       if (resolved) {
         outSet.add(resolved);
 
@@ -196,6 +316,7 @@ async function buildLinkGraph(
     }
 
     outlinks.set(notePath, outSet);
+    outlinkDetails.set(notePath, details);
   }
 
   const data: LinkGraphData = {
@@ -206,6 +327,9 @@ async function buildLinkGraph(
     noteLines,
     aliasMap,
     brokenLinks,
+    sourceLookup: buildSourceLookup(allNotes),
+    pathIndex,
+    outlinkDetails,
   };
   const fingerprint = fingerprintFromMtimes(allNotes, mtimes);
   setGraphCache(cacheKey, { data, fingerprint, cachedAt: Date.now() });
@@ -336,9 +460,13 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
             // resolve here exactly as they did during graph build. Without
             // it, the source slipped into the backlink set during build but
             // produced an empty line/context in this display pass.
-            const resolved = resolveWikilink(base, sourcePath, graph.allNotes, {
-              aliasMap: graph.aliasMap,
-            });
+            const resolved = resolveWikilinkWithIndex(
+              base,
+              sourcePath,
+              graph.allNotes,
+              graph.pathIndex,
+              graph.aliasMap,
+            );
             return resolved === resolvedTarget;
           });
 
@@ -416,43 +544,15 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         // get_backlinks does).
         const targetNormalized = notePath.replace(/\.md$/i, "").toLowerCase();
         const targetBasename = targetNormalized.split("/").pop() ?? targetNormalized;
-        let resolvedSource: string | null = null;
-        for (const p of graph.allNotes) {
-          if (p.replace(/\.md$/i, "").toLowerCase() === targetNormalized) {
-            resolvedSource = p;
-            break;
-          }
-        }
-        if (!resolvedSource) {
-          for (const p of graph.allNotes) {
-            const base = p.replace(/\.md$/i, "").split("/").pop()?.toLowerCase();
-            if (base === targetBasename) {
-              resolvedSource = p;
-              break;
-            }
-          }
-        }
+        const resolvedSource =
+          graph.sourceLookup.get(`exact:${targetNormalized}`) ??
+          graph.sourceLookup.get(`base:${targetBasename}`) ??
+          null;
         if (!resolvedSource) {
           return errorResult(`No note found matching path: ${displayLinkValue(notePath)}`);
         }
 
-        const links = graph.rawLinks.get(resolvedSource) ?? [];
-        const results: { target: string; resolvedPath: string | null; isValid: boolean; isEmbed: boolean }[] = [];
-
-        for (const link of links) {
-          const targetBase = link.target.split("#")[0]!.trim();
-          if (!targetBase) continue;
-
-          const resolved = resolveWikilink(targetBase, resolvedSource, graph.allNotes, {
-            aliasMap: graph.aliasMap,
-          });
-          results.push({
-            target: link.target,
-            resolvedPath: resolved,
-            isValid: resolved !== null,
-            isEmbed: link.isEmbed,
-          });
-        }
+        const results = graph.outlinkDetails.get(resolvedSource) ?? [];
 
         if (results.length === 0) {
           return {
