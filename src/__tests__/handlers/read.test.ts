@@ -116,6 +116,34 @@ describe("read handlers — get_note", () => {
     expect(text).toContain("Links to");
   });
 
+  it("escapes generated frontmatter and tag labels", async () => {
+    const dirtyKey = "dirty\x7fkey";
+    const dirtyValue = "value\x7fvalue";
+    const dirtyTag = "dirty\x7ftag";
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "dirty-metadata.md",
+        content: "Body stays raw.",
+        frontmatter: JSON.stringify({ [dirtyKey]: dirtyValue, tags: [dirtyTag] }),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "dirty-metadata.md" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain('dirty\\x7fkey: "value\\x7fvalue"');
+    expect(text).toContain('tags: ["dirty\\x7ftag"]');
+    expect(text).toContain("Tags: dirty\\x7ftag");
+    expect(text).not.toContain(dirtyKey);
+    expect(text).not.toContain(dirtyValue);
+    expect(text).not.toContain(dirtyTag);
+  });
+
   it("returns isError for a missing note with sanitized message", async () => {
     const result = await env.client.callTool({
       name: "get_note",
@@ -191,6 +219,27 @@ describe("read handlers — list_notes", () => {
     expect(text).toContain("Found 7 note");
     expect(text).toContain("showing first 2");
   });
+
+  it("escapes folder labels and listed note paths", async () => {
+    const dirtyFolder = "list\x7ffolder";
+    const dirtyPath = `${dirtyFolder}/note\x7fname.md`;
+    await env.client.callTool({
+      name: "create_note",
+      arguments: { path: dirtyPath, content: "Listed note." },
+    });
+
+    const result = await env.client.callTool({
+      name: "list_notes",
+      arguments: { folder: dirtyFolder },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain('Found 1 note(s) in "list\\x7ffolder"');
+    expect(text).toContain("list\\x7ffolder/note\\x7fname.md");
+    expect(text).not.toContain(dirtyFolder);
+    expect(text).not.toContain(dirtyPath);
+  });
 });
 
 describe("read handlers — get_daily_note", () => {
@@ -230,6 +279,30 @@ describe("read handlers — get_daily_note", () => {
     const text = textContent(result);
     expect(text).toContain('expected at "daily\\nnotes/1999-01-01.md"');
     expect(text).not.toContain("daily\nnotes");
+  });
+
+  it("escapes generated daily-note frontmatter labels", async () => {
+    const dirtyKey = "daily\x7fkey";
+    const dirtyValue = "daily\x7fvalue";
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "daily/2026-05-08.md",
+        content: "Daily body.",
+        frontmatter: JSON.stringify({ [dirtyKey]: dirtyValue }),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "get_daily_note",
+      arguments: { date: "2026-05-08" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain('daily\\x7fkey: "daily\\x7fvalue"');
+    expect(text).not.toContain(dirtyKey);
+    expect(text).not.toContain(dirtyValue);
   });
 
   it("rejects malformed dates at the schema layer", async () => {
@@ -411,6 +484,27 @@ describe("read handlers — get_vault_stats", () => {
     expect(text).toMatch(/folder: nested/);
     // Only nested/note-d.md sits there.
     expect(text).toMatch(/Notes:\s+1/);
+  });
+
+  it("escapes folder labels and most-recent note paths", async () => {
+    const dirtyFolder = "stats\x7ffolder";
+    const dirtyPath = `${dirtyFolder}/recent\x7fnote.md`;
+    await env.client.callTool({
+      name: "create_note",
+      arguments: { path: dirtyPath, content: "Stats note." },
+    });
+
+    const result = await env.client.callTool({
+      name: "get_vault_stats",
+      arguments: { folder: dirtyFolder },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("Vault stats (folder: stats\\x7ffolder)");
+    expect(text).toContain("Most recent:     stats\\x7ffolder/recent\\x7fnote.md");
+    expect(text).not.toContain(dirtyFolder);
+    expect(text).not.toContain(dirtyPath);
   });
 });
 

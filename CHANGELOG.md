@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Semantic tools now escape control characters in displayed queries, provider labels, note paths, heading paths, and snippets before returning them to MCP clients.
 - Write tools now escape control characters in displayed note paths before returning create, update, move, delete, and daily-note messages to MCP clients.
 - `list_tags` and `rename_tag` now escape control characters in displayed tag labels before returning them to MCP clients.
+- Read tools now escape control characters in generated frontmatter/tag headers, note-list rows, and vault-stat path labels before returning them to MCP clients.
 
 ## [2.2.0] - 2026-06-03
 
