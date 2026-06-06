@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `read_base` and `query_base` now require `.base` file paths instead of accepting arbitrary readable vault files.
 - Daily-note config-derived paths in `get_daily_note`, `create_daily_note`, and `obsidian://daily` output now use explicit untrusted-content markers, and note/daily resource metadata labels are generic.
 - The note-content mtime cache is now in-memory only; legacy `mcp-pro-index-cache.json` snapshots are ignored and removed instead of loading or persisting note bodies and absolute paths.
+- Semantic search now verifies persisted embedding chunk text against the live note chunks before accepting cached snippets or skipping an unchanged note.
 - `replace_in_note` now rejects bounded repeated regex groups that contain quantified atoms before matching.
 - Tool outputs that include vault-authored bodies, snippets, previews, frontmatter values, Base data, SVG attachment text, section headings, Canvas node content, or backlink context now mark those portions with explicit untrusted-content boundaries before they enter an MCP client's model context.
 - `search_notes` result path and snippet marker labels are now generic; clients should read the path or snippet from inside the untrusted block body.

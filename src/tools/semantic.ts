@@ -84,10 +84,35 @@ function canReadStoredEmbeddingNote(vaultPath: string, notePath: string): boolea
   }
 }
 
+function headingPathsEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((part, index) => part === b[index]);
+}
+
+function storedChunksMatchLiveChunks(
+  vaultPath: string,
+  notePath: string,
+  chunks: ReturnType<typeof chunkNote>,
+): boolean {
+  const stored = getNoteEmbeddings(vaultPath, notePath);
+  if (stored.length !== chunks.length) return false;
+  const storedByIndex = new Map(stored.map((chunk) => [chunk.chunkIndex, chunk]));
+  for (const chunk of chunks) {
+    const storedChunk = storedByIndex.get(chunk.index);
+    if (!storedChunk) return false;
+    if (storedChunk.text !== chunk.text) return false;
+    if (!headingPathsEqual(storedChunk.headingPath, chunk.headingPath)) return false;
+  }
+  return true;
+}
+
 async function storedNoteIsCurrent(vaultPath: string, notePath: string): Promise<boolean> {
   try {
     const content = await readNote(vaultPath, notePath);
-    return noteIsCurrent(vaultPath, notePath, hashText(content));
+    const chunks = chunkNote(content);
+    return (
+      noteIsCurrent(vaultPath, notePath, hashText(content)) &&
+      storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
+    );
   } catch {
     return false;
   }
@@ -248,14 +273,18 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           const content = contents.get(notePath);
           if (content === undefined) continue;
           const contentHash = hashText(content);
-          if (!force && noteIsCurrent(vaultPath, notePath, contentHash)) {
+          const chunks = chunkNote(content);
+          if (
+            !force &&
+            noteIsCurrent(vaultPath, notePath, contentHash) &&
+            storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
+          ) {
             stats.notesUnchanged++;
             stats.notesScanned++;
             await reportProgress(stats.notesScanned, notes.length, `Unchanged note ${stats.notesScanned}/${notes.length}`);
             continue;
           }
           noteHashByPath.set(notePath, contentHash);
-          const chunks = chunkNote(content);
           expectedChunksByNote.set(notePath, chunks.length);
           for (const ch of chunks) {
             pending.push({
