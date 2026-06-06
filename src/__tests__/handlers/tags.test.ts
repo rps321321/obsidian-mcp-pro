@@ -252,8 +252,9 @@ describe("tag handlers — rename_tag", () => {
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
     expect(text).toContain("Skipped due to errors: 1");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note: dirty\\x7ffailed.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note]");
     expect(text).toContain("dirty\\x7ffailed.md: Note file exceeds size cap");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note: dirty\\x7ffailed.md]");
     expect(text).not.toContain(dirtyPath);
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("rename_tag failed notes");
