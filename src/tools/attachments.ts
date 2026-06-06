@@ -53,6 +53,10 @@ function errorResult(text: string) {
 /** Escape control characters in a value before embedding it in a display string. */
 const displayAttachmentValue = escapeControlChars;
 
+function vaultResourceUri(relPath: string): string {
+  return `vault://${relPath.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/")}`;
+}
+
 /** Group attachments by their lower-cased extension for the summary line. */
 function summarizeByExtension(paths: readonly string[]): Map<string, number> {
   const out = new Map<string, number>();
@@ -468,7 +472,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
               {
                 type: "resource" as const,
                 resource: {
-                  uri: `vault://${relPath}`,
+                  uri: vaultResourceUri(relPath),
                   mimeType: "text/plain",
                   text: svgText,
                 },
@@ -520,7 +524,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
               resource: {
                 // vault:// URI lets clients distinguish vault files from
                 // arbitrary URLs in their UI without leaking the host path.
-                uri: `vault://${relPath}`,
+                uri: vaultResourceUri(relPath),
                 mimeType: mime,
                 blob: data,
               },

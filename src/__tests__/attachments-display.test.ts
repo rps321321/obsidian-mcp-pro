@@ -133,4 +133,38 @@ describe("attachment display escaping", () => {
       await env.cleanup();
     }
   });
+
+  it("percent-encodes control characters in resource URIs", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "attachment-display-"));
+    tempDirs.push(dir);
+    const fullPath = path.join(dir, "dirty.pdf");
+    await fs.writeFile(fullPath, "PDF-dirty-name", "utf-8");
+
+    const env = await createAttachmentClient({
+      attachments: [],
+      resolvedPath: fullPath,
+    });
+    try {
+      const result = await env.client.callTool({
+        name: "get_attachment",
+        arguments: { path: "assets/bad\nname.pdf" },
+      });
+
+      expect(isError(result)).toBe(false);
+      const blocks = result.content as Array<{
+        type: string;
+        text?: string;
+        resource?: { uri?: string; mimeType?: string };
+      }>;
+      const resourceBlock = blocks.find((b) => b.type === "resource");
+      const textBlock = blocks.find((b) => b.type === "text");
+      expect(resourceBlock).toBeDefined();
+      expect(resourceBlock!.resource!.uri).toBe("vault://assets/bad%0Aname.pdf");
+      expect(resourceBlock!.resource!.uri).not.toContain("\n");
+      expect(textBlock!.text).toContain("bad\\nname.pdf");
+      expect(textBlock!.text).not.toContain("bad\nname.pdf");
+    } finally {
+      await env.cleanup();
+    }
+  });
 });
