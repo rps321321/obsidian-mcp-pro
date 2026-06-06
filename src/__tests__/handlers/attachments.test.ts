@@ -218,6 +218,17 @@ describe("attachments handlers — get_attachment", () => {
     expect(textContent(md)).toMatch(/use get_note/i);
   });
 
+  itWin32("rejects trailing-dot aliases before attachment classification", async () => {
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "embed-host.md." },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/space or period|windows normalizes/i);
+    expect(text).not.toContain("Embed host");
+  });
+
   it("escapes control characters in rejected text-format paths", async () => {
     const result = await env.client.callTool({
       name: "get_attachment",
