@@ -19,7 +19,8 @@ export interface HttpServerOptions {
   /** Allowed CORS origins. Defaults to localhost-only patterns
    *  (`["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"]`).
    *  Use an explicit list (e.g. `["https://claude.ai"]`) for browser-facing
-   *  deployments. Pass `["*"]` to allow all origins (a warning is logged).
+   *  deployments. Pass `["*"]` to allow all origins only when Bearer auth is
+   *  configured.
    *  Requests from other origins still succeed (CORS is a browser-only
    *  restriction) but the browser will reject the response. */
   allowedOrigins?: string[];
@@ -264,6 +265,14 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   if (opts.bearerToken !== undefined && !bearerToken) {
     throw new Error("HTTP bearer token cannot be empty");
   }
+  const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
+    ? opts.allowedOrigins
+    : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
+  if (!bearerToken && allowedOrigins.includes("*")) {
+    throw new Error(
+      "HTTP bearer token is required when CORS allows all origins. Set MCP_HTTP_TOKEN or pass --token, or restrict --allow-origin.",
+    );
+  }
   if (!bearerToken && !isLoopbackBindHost(opts.host)) {
     throw new Error(
       "HTTP bearer token is required when binding to a non-loopback host. Set MCP_HTTP_TOKEN or pass --token, or bind to 127.0.0.1.",
@@ -278,9 +287,6 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // `initialize` builds a fresh server below; GC reclaims it once the
   // transport closes (Protocol._onclose clears the transport reference).
   // See https://github.com/rps321321/obsidian-mcp-pro/issues/8.
-  const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
-    ? opts.allowedOrigins
-    : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
   if (allowedOrigins.includes("*")) {
     log.warn("CORS configured with wildcard origin '*'. Consider restricting to specific origins for production deployments.");
   }
