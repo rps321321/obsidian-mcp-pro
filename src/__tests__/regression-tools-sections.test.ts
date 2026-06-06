@@ -519,9 +519,12 @@ describe("regression: section tool output escaping", () => {
     });
 
     expect(isError(result)).toBe(false);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: section headings: dirty-heading.md]");
     expect(text).toContain("## Dirty\\tHeading");
     expect(text).not.toContain("Dirty\tHeading");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("re-renders list_sections after a same-size heading edit", async () => {
@@ -573,9 +576,13 @@ describe("regression: section tool output escaping", () => {
     });
 
     expect(isError(result)).toBe(false);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
-    expect(text).toContain('Updated section "Dirty\\tHeading" in update-dirty-heading.md');
+    expect(text).toContain("Updated section in update-dirty-heading.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: section heading: update-dirty-heading.md]");
+    expect(text).toContain("Dirty\\tHeading");
     expect(text).not.toContain("Dirty\tHeading");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("escapes control characters in insert_at_section success output", async () => {
@@ -596,9 +603,13 @@ describe("regression: section tool output escaping", () => {
     });
 
     expect(isError(result)).toBe(false);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
-    expect(text).toContain('bytes into "Dirty\\tHeading" (append) in insert-dirty-heading.md');
+    expect(text).toContain("bytes (append) in insert-dirty-heading.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: section heading: insert-dirty-heading.md]");
+    expect(text).toContain("Dirty\\tHeading");
     expect(text).not.toContain("Dirty\tHeading");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("escapes control characters in invalid regex flag errors", async () => {
