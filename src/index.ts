@@ -229,13 +229,14 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
 
       try {
         const content = await readNote(vaultPath, notePath);
+        const trustLabel = "note resource body";
         return {
           contents: [
             {
               uri: uri.href,
               mimeType: "text/markdown",
-              text: content,
-              _meta: untrustedVaultContentMeta("note resource body"),
+              text: formatUntrustedVaultContent(trustLabel, content),
+              _meta: untrustedVaultContentMeta(trustLabel),
             },
           ],
         };
@@ -293,13 +294,14 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
 
     try {
       const content = await readNote(vaultPath, notePath);
+      const trustLabel = "daily note resource body";
       return {
         contents: [
           {
             uri: uri.href,
             mimeType: "text/markdown",
-            text: content,
-            _meta: untrustedVaultContentMeta("daily note resource body"),
+            text: formatUntrustedVaultContent(trustLabel, content),
+            _meta: untrustedVaultContentMeta(trustLabel),
           },
         ],
       };
