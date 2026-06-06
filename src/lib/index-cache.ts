@@ -1,7 +1,12 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
-import { getVaultRootRealPath, resolveVaultInternalPathSafe, resolveVaultPathSafe } from "./vault.js";
+import {
+  assertNoteFileSize,
+  getVaultRootRealPath,
+  resolveVaultInternalPathSafe,
+  resolveVaultPathSafe,
+} from "./vault.js";
 import { mapConcurrent } from "./concurrency.js";
 import { log } from "./logger.js";
 import { renameWithRetry } from "./fs-ops.js";
@@ -344,6 +349,7 @@ export async function readAllCached(
     let mtimeMs: number;
     try {
       const stat = await fs.stat(fullPath);
+      assertNoteFileSize(relPath, stat.size);
       mtimeMs = stat.mtimeMs;
       mtimes.set(relPath, stat.mtime.getTime());
       statsByPath.set(relPath, {

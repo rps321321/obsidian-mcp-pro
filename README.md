@@ -343,6 +343,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 
 - **Vault boundary** — every tool and resource routes through a single path resolver that rejects `..` traversal, null-byte injection, and symlinks pointing outside the vault (ancestor-realpath check). On Windows it also rejects reserved device names and alternate data stream syntax.
 - **Note/file boundary** — note read and edit surfaces only target `.md` files; attachments, Canvas files, and Bases stay on their dedicated tools with their own caps and parsers.
+- **Full-note cap** — full `.md` note reads and read-modify-write helpers refuse notes over 5 MiB before materializing them; `get_note` line fragments still stream from large notes for targeted inspection.
 - **Excluded directories** — `.obsidian`, `.git`, and `.trash` are pruned at traversal time and at resolution time, so nested occurrences never leak back to clients.
 - **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time. Malformed request URL or Host data is rejected before routing.
 - **Attachment safety** — executable extensions are blocked, SVGs are returned as `text/plain`, and active text formats such as HTML/XML/CSS are served with `text/plain` resource metadata.

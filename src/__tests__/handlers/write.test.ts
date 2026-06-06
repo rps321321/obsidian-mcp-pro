@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
+import { setMaxNoteFileBytesForTests } from "../../lib/vault.js";
 
 let env: TestEnv;
 
@@ -10,6 +11,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setMaxNoteFileBytesForTests(null);
   await env.cleanup();
 });
 
@@ -133,6 +135,24 @@ describe("write handlers — append_to_note / prepend_to_note", () => {
       arguments: { path: "no-such-file.md", content: "x" },
     });
     expect(isError(result)).toBe(true);
+  });
+
+  it("refuses to append to oversized existing notes without changing bytes", async () => {
+    setMaxNoteFileBytesForTests(10);
+    const original = "private body";
+    await fs.writeFile(path.join(env.vaultDir, "oversized.md"), original, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "append_to_note",
+      arguments: { path: "oversized.md", content: "tail" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(true);
+    expect(text).toMatch(/note file exceeds size cap/i);
+    expect(text).not.toContain(original);
+    await expect(fs.readFile(path.join(env.vaultDir, "oversized.md"), "utf-8"))
+      .resolves.toBe(original);
   });
 
   it("prepend preserves frontmatter and inserts after it", async () => {

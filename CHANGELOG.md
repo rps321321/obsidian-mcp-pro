@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Full-note `.md` reads and read-modify-write helpers now refuse files over 5 MiB before materializing them, while `get_note` line fragments still stream targeted ranges from large notes.
 - YAML frontmatter parsing now ignores anchors and aliases, and frontmatter updates refuse to rewrite notes containing them.
 - Exclusive note creation now removes its zero-byte reservation if the staged atomic write fails.
 - `get_attachment` now refuses symlinked attachment paths, matching attachment inventory scans and reducing path-swap exposure during direct reads.
