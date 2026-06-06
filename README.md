@@ -115,7 +115,7 @@ The server exposes five starter prompts that clients (Claude Desktop, Cursor) su
 
 ### Operational features
 - **Folder-scoped permissions**: `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists gate every tool at the path-resolution choke point
-- **Persistent mtime cache** at `<vault>/.obsidian/cache/mcp-pro-index-cache.json` survives restarts; subsequent vault scans serve from cache after one stat-pass
+- **In-memory mtime cache** speeds repeated vault scans within a running process without persisting note bodies to disk
 - **Progress notifications** (`notifications/progress`) on `rename_tag`, `find_unused_attachments`, and `index_vault` when the client subscribes via `_meta.progressToken`
 - **Elicitation** prompts the user for typed confirmation on `delete_note(permanent: true)`, `move_note` reference rewrites, and `rename_tag` bulk writes when the client supports it
 
@@ -308,16 +308,20 @@ Restrict the tools' read/write surface to specific folders without exposing the 
 
 Read and write are independent, so an audit account can be read-only on most of the vault but write-only to a `Drafts/` folder. Moving a note requires read access to the source and write access to the destination, because the move carries the source content into its new folder. Surgical edits (`replace_in_note`, `update_section`, `insert_at_section`, and `edit_block`) require read access to the target plus write access because they inspect existing content before writing. In-vault symlinks are checked against their real target before the allowlist decision is finalized. The startup log line and `--help` advertise the active scope. The allowlist is enforced at a single path-resolution choke point so every tool inherits it.
 
-### Persistent Caches
+### Caches
 
-Two caches live under `<vault>/.obsidian/cache/`:
+The note-content mtime cache is in-memory only. It speeds repeated vault-wide scans
+inside the running process, but it does not persist note bodies or absolute paths to
+disk. Any legacy `<vault>/.obsidian/cache/mcp-pro-index-cache.json` snapshot is
+ignored and removed on first cache use.
+
+Semantic embeddings live under `<vault>/.obsidian/cache/`:
 
 | File | Purpose |
 |------|---------|
-| `mcp-pro-index-cache.json` | mtime-keyed snapshot of recently read notes. The next process start hydrates from this and stat-passes against the live filesystem; only changed notes are re-read. |
 | `mcp-pro-embeddings.json` | Persisted embeddings for semantic search (only present once `index_vault` has run). Vault-relocation safe via an embedded `vaultRoot` check; switching providers/models or stale note content invalidates entries automatically. |
 
-Both are vault-local, are excluded from vault scans (`.obsidian/` is pruned), and can be deleted at any time. Oversized snapshots are ignored before loading so a corrupted or synced cache file cannot force an unbounded JSON parse. Persistence can be turned off entirely with `OBSIDIAN_CACHE_DISABLED=1`.
+The embedding cache is vault-local, excluded from vault scans (`.obsidian/` is pruned), and can be deleted at any time. Persistence can be turned off with `OBSIDIAN_CACHE_DISABLED=1`.
 
 ### Semantic Search Provider
 
@@ -567,7 +571,7 @@ src/
     chunker.ts            # Heading-aware chunking for embeddings
     embedding-providers.ts# Ollama + OpenAI providers
     embedding-store.ts    # Persistent vector index, cosine search
-    index-cache.ts        # mtime-keyed content cache (in-memory + on-disk)
+    index-cache.ts        # mtime-keyed content cache (in-memory)
     progress.ts           # MCP progress-notification helper
     mime.ts               # extension -> MIME map for attachments
     dates.ts              # Moment-style date format for daily-note filenames
@@ -684,7 +688,7 @@ npm run lint:fix   # auto-fix
 - **Attachments.** `list_attachments`, `find_unused_attachments`, `get_attachment` (returns image / audio / blob bytes inline).
 - **Tag renames vault-wide.** `rename_tag` rewrites both inline `#tag` and frontmatter `tags:` (hierarchical mode rebases nested sub-tags).
 - **Folder-scoped permissions.** `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists.
-- **Persistent mtime cache.** Vault-wide scans (`get_tags`, `search_notes`, `search_by_tag`) hydrate from `<vault>/.obsidian/cache/mcp-pro-index-cache.json` after a restart and stat-pass against current state, only re-reading changed notes.
+- **In-memory mtime cache.** Vault-wide scans (`get_tags`, `search_notes`, `search_by_tag`) reuse unchanged note content within the running process without persisting note bodies to disk.
 - **Quick wins.** `get_recent_notes`, `get_vault_stats`, `resolve_alias`.
 - **MCP prompts.** `daily-review`, `weekly-rollup`, `find-stale-notes`, `extract-action-items`, `build-moc`.
 - **Progress notifications** on `rename_tag`, `find_unused_attachments`, `index_vault`.
