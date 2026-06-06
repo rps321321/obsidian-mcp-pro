@@ -40,6 +40,23 @@ afterEach(async () => {
   }
 });
 
+describe("regression: malformed Host is rejected before auth and routing", () => {
+  it("returns 400 instead of leaving the response open", async () => {
+    const handle = await startOnEphemeral({ bearerToken: "secret", rateLimitPerMinute: 1 });
+    handles.push(handle);
+
+    const res = await rawRequest(handle.port, {
+      method: "GET",
+      path: "/health",
+      host: "bad%zz",
+      timeoutMs: 1_000,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toContain("Malformed request URL");
+  });
+});
+
 // Send a raw HTTP/1.1 request so we can override the Host header (Node's
 // global fetch silently rewrites Host from the URL).
 interface RawResponse {
@@ -56,9 +73,14 @@ function rawRequest(
     host?: string;
     headers?: Record<string, string>;
     body?: string;
+    timeoutMs?: number;
   },
 ): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
+    const finish = (fn: () => void): void => {
+      clearTimeout(timeout);
+      fn();
+    };
     const headers: Record<string, string> = {
       Host: options.host ?? `127.0.0.1:${port}`,
       ...(options.headers ?? {}),
@@ -78,15 +100,18 @@ function rawRequest(
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => chunks.push(c));
         res.on("end", () => {
-          resolve({
+          finish(() => resolve({
             status: res.statusCode ?? 0,
             headers: res.headers,
             body: Buffer.concat(chunks).toString("utf-8"),
-          });
+          }));
         });
       },
     );
-    req.on("error", reject);
+    const timeout = setTimeout(() => {
+      req.destroy(new Error("raw request timed out"));
+    }, options.timeoutMs ?? 5_000);
+    req.on("error", (err) => finish(() => reject(err)));
     if (options.body !== undefined) req.write(options.body);
     req.end();
   });

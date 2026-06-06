@@ -68,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Folder-scoped permissions now re-check the canonical in-vault target after following symlinks, preventing allowed symlink aliases from reading or writing outside their configured folders.
 - Persistent index and embedding cache loaders now ignore oversized snapshot files before reading or parsing them, preventing corrupted vault-local cache files from forcing unbounded memory use.
+- HTTP transport now returns `400` for malformed request URL or Host data before auth and routing, preventing those requests from escaping the normal response path.
 - Windows vault paths containing alternate data stream syntax are now rejected at the shared resolver, preventing tools such as `get_attachment` from addressing hidden streams through path suffixes.
 - Surgical note edit tools now require read access to the target before inspecting section, block, or replacement matches, preventing write-only notes from leaking structure or match counts.
 - `move_note` now requires read access to the source note as well as write access to the source and destination, preventing write-only folders from being used to disclose notes by moving them into readable paths.
