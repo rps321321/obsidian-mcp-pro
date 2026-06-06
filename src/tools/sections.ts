@@ -14,6 +14,9 @@ import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { log } from "../lib/logger.js";
 
 const SECTION_LIST_CACHE_LIMIT = 16;
+const SECTION_EDIT_PAYLOAD_MAX_CHARS = 1_000_000;
+const FIND_MAX_LEN = 4096;
+const NOTE_INPUT_MAX_LEN = 1_000_000;
 
 interface SectionListCacheEntry {
   fullPath: string;
@@ -399,6 +402,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           .describe("Heading path identifying the section to replace (e.g., 'Tasks' or 'Daily/Today')."),
         newBody: z
           .string()
+          .max(SECTION_EDIT_PAYLOAD_MAX_CHARS)
           .describe("Replacement body content. The heading line itself is kept intact."),
       },
     },
@@ -449,7 +453,10 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note."),
         section: z.string().min(1).describe("Heading path identifying the section."),
-        content: z.string().describe("Content to insert. A trailing newline is normalized."),
+        content: z
+          .string()
+          .max(SECTION_EDIT_PAYLOAD_MAX_CHARS)
+          .describe("Content to insert. A trailing newline is normalized."),
         position: z
           .enum(["before", "after-heading", "append"])
           .default("append")
@@ -538,8 +545,15 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
       },
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note."),
-        find: z.string().min(1).describe("Literal string (default) or regex pattern to match."),
-        replace: z.string().describe("Replacement text. With `regex: true`, supports $1, $2 backreferences."),
+        find: z
+          .string()
+          .min(1)
+          .max(FIND_MAX_LEN)
+          .describe("Literal string (default) or regex pattern to match."),
+        replace: z
+          .string()
+          .max(SECTION_EDIT_PAYLOAD_MAX_CHARS)
+          .describe("Replacement text. With `regex: true`, supports $1, $2 backreferences."),
         regex: z.boolean().default(false).describe("Treat `find` as a JavaScript regex (multi-line, case-sensitive by default)."),
         flags: z.string().optional().describe("Regex flags (e.g., 'gi'). Defaults to 'g' so all matches are replaced."),
         expectedCount: z.number().int().min(0).optional().describe("If set, abort unless exactly this many matches are found."),
@@ -549,8 +563,6 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
       // Defense in depth: arbitrary regex from LLM input is inherently risky.
       // The validation below caps obvious foot-guns, rejects known
       // backtracking-prone shapes, and keeps `regex: true` a deliberate choice.
-      const FIND_MAX_LEN = 4096;
-      const INPUT_MAX_LEN = 1_000_000;
       const ALLOWED_FLAGS = new Set(["g", "i", "m", "s", "u", "y"]);
 
       try {
@@ -605,9 +617,9 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           // Cap the input size we apply the regex to — refusing the work is
           // far better than holding the per-file write lock while the engine
           // backtracks against a pathological pattern.
-          if (existing.length > INPUT_MAX_LEN) {
+          if (existing.length > NOTE_INPUT_MAX_LEN) {
             throw new Error(
-              `note is too large for replace_in_note (${existing.length} > ${INPUT_MAX_LEN} chars). Use a more targeted tool.`,
+              `note is too large for replace_in_note (${existing.length} > ${NOTE_INPUT_MAX_LEN} chars). Use a more targeted tool.`,
             );
           }
           if (unsafeRegexPattern) {
@@ -663,7 +675,10 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           .transform((s) => s.replace(/^\^+/, ""))
           .refine((s) => s.length > 0, { message: "block id must not be empty after stripping leading '^'" })
           .describe("Block id with or without the leading `^` (e.g. `myid` or `^myid`)."),
-        newContent: z.string().describe("Replacement content. The `^id` anchor is appended automatically."),
+        newContent: z
+          .string()
+          .max(SECTION_EDIT_PAYLOAD_MAX_CHARS)
+          .describe("Replacement content. The `^id` anchor is appended automatically."),
       },
     },
     async ({ path: notePath, block, newContent }) => {
