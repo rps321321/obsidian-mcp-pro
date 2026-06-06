@@ -8,6 +8,7 @@ import {
   type TestEnv,
 } from "./handlers/harness.js";
 import { setPermissions } from "../lib/permissions.js";
+import { setMaxNoteFileBytesForTests } from "../lib/vault.js";
 
 /**
  * Regression tests for src/tools/sections.ts.
@@ -27,11 +28,13 @@ const TOO_LARGE_FIND = "x".repeat(4097);
 
 beforeEach(async () => {
   setPermissions({ readPaths: null, writePaths: null });
+  setMaxNoteFileBytesForTests(null);
   env = await createTestEnv();
 });
 
 afterEach(async () => {
   setPermissions({ readPaths: null, writePaths: null });
+  setMaxNoteFileBytesForTests(null);
   await env.cleanup();
 });
 
@@ -521,7 +524,35 @@ describe("regression: surgical edits only target markdown notes", () => {
 
     expect(isError(update)).toBe(true);
     expect(textContent(update)).toMatch(/not a markdown note/i);
+
+    const list = await env.client.callTool({
+      name: "list_sections",
+      arguments: { path: "asset.txt" },
+    });
+
+    expect(isError(list)).toBe(true);
+    expect(textContent(list)).toMatch(/not a markdown note/i);
     await expect(fs.readFile(assetPath, "utf-8")).resolves.toBe(original);
+  });
+});
+
+describe("regression: list_sections respects note read bounds", () => {
+  it("rejects oversized notes before parsing headings", async () => {
+    setMaxNoteFileBytesForTests(16);
+    await fs.writeFile(
+      path.join(env.vaultDir, "oversized-sections.md"),
+      "# Heading\n\nThis note is larger than the test cap.\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "list_sections",
+      arguments: { path: "oversized-sections.md" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/exceeds size cap/i);
+    expect(textContent(result)).not.toContain("# Heading");
   });
 });
 

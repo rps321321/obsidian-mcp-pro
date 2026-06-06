@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
-import { readNote, resolveVaultPathSafe, updateNote } from "../lib/vault.js";
+import { assertNoteFileSize, readNote, resolveVaultPathSafe, updateNote } from "../lib/vault.js";
 import {
   findSection,
   findBlockById,
@@ -338,6 +338,12 @@ function splitHeadingPath(section: string): string[] {
   return section.split("/").map((s) => s.trim()).filter(Boolean);
 }
 
+function assertMarkdownSectionListPath(relativePath: string): void {
+  if (!relativePath.toLowerCase().endsWith(".md")) {
+    throw new Error(`Not a markdown note: ${relativePath}`);
+  }
+}
+
 function sectionListCacheKey(vaultPath: string, notePath: string): string {
   return `${path.resolve(vaultPath)}\0${notePath}`;
 }
@@ -346,9 +352,11 @@ async function getSectionListSignature(
   vaultPath: string,
   notePath: string,
 ): Promise<{ fullPath: string; size: number; mtimeMs: number }> {
+  assertMarkdownSectionListPath(notePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
   try {
     const stats = await fs.stat(fullPath);
+    assertNoteFileSize(notePath, stats.size);
     return { fullPath, size: stats.size, mtimeMs: stats.mtimeMs };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
