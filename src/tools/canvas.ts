@@ -27,6 +27,27 @@ function displayCanvasValue(value: string): string {
   return escapeControlChars(value);
 }
 
+const BLOCKED_CANVAS_LINK_PROTOCOLS = new Set(["javascript:", "data:", "vbscript:"]);
+
+function blockedCanvasLinkProtocol(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    return BLOCKED_CANVAS_LINK_PROTOCOLS.has(parsed.protocol)
+      ? parsed.protocol.slice(0, -1)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasUrlControlChars(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
 function canvasReadCacheKey(vaultPath: string, canvasPath: string): string {
   return `${path.resolve(vaultPath)}\0${canvasPath}`;
 }
@@ -294,11 +315,17 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         }
 
         if (type === "link") {
-          // Reject dangerous URI schemes that could execute code when the
-          // canvas is opened in Obsidian or exported to HTML.
-          if (/^(javascript|data|vbscript):/i.test(content)) {
+          // WHATWG URL parsing normalizes leading spaces and C0 whitespace
+          // inside schemes, so check the parsed protocol instead of raw text.
+          const blockedProtocol = blockedCanvasLinkProtocol(content);
+          if (blockedProtocol) {
             return errorResult(
-              `Invalid URL scheme in "${displayCanvasValue(content)}". javascript:, data:, and vbscript: URIs are not allowed.`,
+              `Invalid URL scheme in "${displayCanvasValue(content)}". ${blockedProtocol}: URIs are not allowed.`,
+            );
+          }
+          if (hasUrlControlChars(content)) {
+            return errorResult(
+              `Invalid URL in "${displayCanvasValue(content)}". Control characters are not allowed in canvas link URLs.`,
             );
           }
         }
