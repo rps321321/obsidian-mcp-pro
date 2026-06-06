@@ -61,9 +61,9 @@ function displayHeadingPath(path: readonly string[]): string {
   return path.map(displaySemanticValue).join(" / ");
 }
 
-function semanticHeadingBlock(notePath: string, headingPath: readonly string[]): string {
+function semanticHeadingBlock(headingPath: readonly string[]): string {
   return indentBlock(
-    formatUntrustedVaultContent(`semantic heading: ${notePath}`, displayHeadingPath(headingPath)),
+    formatUntrustedVaultContent("semantic heading", displayHeadingPath(headingPath)),
     "    ",
   );
 }
@@ -449,16 +449,16 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         for (const hit of hits) {
           lines.push(`- score: ${hit.score.toFixed(3)}`);
           lines.push("    Path:");
-          lines.push(semanticPathBlock(`search_semantic result path: ${hit.notePath}`, hit.notePath));
+          lines.push(semanticPathBlock("search_semantic result path", hit.notePath));
           if (hit.headingPath.length > 0) {
             lines.push("    Heading:");
-            lines.push(semanticHeadingBlock(hit.notePath, hit.headingPath));
+            lines.push(semanticHeadingBlock(hit.headingPath));
           }
           if (includeSnippet) {
             const snippet = hit.text.replace(/\s+/g, " ").trim().slice(0, 200);
             const clipped = `${displaySemanticValue(snippet)}${hit.text.length > 200 ? "..." : ""}`;
             lines.push(indentBlock(
-              formatUntrustedVaultContent(`semantic snippet: ${hit.notePath}`, clipped),
+              formatUntrustedVaultContent("semantic snippet", clipped),
               "    ",
             ));
           }
@@ -543,10 +543,10 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         for (const r of ranked) {
           lines.push(`- score: ${r.score.toFixed(3)}`);
           lines.push("    Path:");
-          lines.push(semanticPathBlock(`find_similar_notes result path: ${r.notePath}`, r.notePath));
+          lines.push(semanticPathBlock("find_similar_notes result path", r.notePath));
           if (r.headingPath.length > 0) {
             lines.push("    Heading:");
-            lines.push(semanticHeadingBlock(r.notePath, r.headingPath));
+            lines.push(semanticHeadingBlock(r.headingPath));
           }
         }
         return untrustedVaultTextResult(lines.join("\n"), "find_similar_notes paths and headings");
