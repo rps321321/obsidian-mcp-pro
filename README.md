@@ -97,6 +97,7 @@ Give AI assistants deep, structured access to your Obsidian knowledge base. Read
 - `index_vault` chunks each note (heading-aware), embeds via the configured provider, persists vectors to `<vault>/.obsidian/cache/`, and incrementally re-embeds only changed notes
 - `search_semantic` ranks notes by cosine similarity against an embedded query
 - `find_similar_notes` reuses an existing note's embeddings, with source-topic anchoring, to surface neighbors without a live API call
+- Stored snippets are returned only while the current note content hash still matches the indexed text; stale chunks are pruned on search
 
 ### MCP Resources
 - `obsidian://note/{path}` reads any note by its vault-relative path
@@ -314,7 +315,7 @@ Two caches live under `<vault>/.obsidian/cache/`:
 | File | Purpose |
 |------|---------|
 | `mcp-pro-index-cache.json` | mtime-keyed snapshot of recently read notes. The next process start hydrates from this and stat-passes against the live filesystem; only changed notes are re-read. |
-| `mcp-pro-embeddings.json` | Persisted embeddings for semantic search (only present once `index_vault` has run). Vault-relocation safe via an embedded `vaultRoot` check; switching providers / models invalidates entries automatically. |
+| `mcp-pro-embeddings.json` | Persisted embeddings for semantic search (only present once `index_vault` has run). Vault-relocation safe via an embedded `vaultRoot` check; switching providers/models or stale note content invalidates entries automatically. |
 
 Both are vault-local, are excluded from vault scans (`.obsidian/` is pruned), and can be deleted at any time. Oversized snapshots are ignored before loading so a corrupted or synced cache file cannot force an unbounded JSON parse. Persistence can be turned off entirely with `OBSIDIAN_CACHE_DISABLED=1`.
 
@@ -351,6 +352,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **Regex edit safety** — `replace_in_note` caps regex pattern/input size and rejects backtracking-prone repeated groups before matching.
 - **Error and log sanitization** — filesystem error messages are stripped of absolute host paths before being returned to MCP clients, ASCII control bytes and Unicode bidi controls are escaped in displayed values, and note-derived duplicate-alias text is not copied into graph warnings. Uncaught HTTP errors respond with a generic `Internal server error` body; full detail stays in the server log.
 - **YAML parser boundaries** — Obsidian properties are parsed only from `---` YAML delimiter lines; non-YAML gray-matter language blocks stay as body text, oversized frontmatter is skipped on reads and refused for metadata updates, and note/Base YAML containing anchors or aliases is not parsed.
+- **Semantic index freshness** — `search_semantic` and `find_similar_notes` re-check current note content hashes before returning stored snippets or source-note embeddings, pruning stale cache entries instead of surfacing old note text.
 - **Bulk-write confirmations** — clients that support MCP elicitation are asked to re-type the destination path or new tag before `move_note` rewrites references or `rename_tag` writes across the vault. Dry runs and clients without elicitation keep their existing behavior.
 - **Atomic writes** — every note write (`create_note`, `append`, `prepend`, `update_frontmatter`, canvas mutations) stages content to a sibling temp file then renames onto the target, so a crash or kill mid-write never leaves a truncated file. Combined with per-path locks for the full read-modify-write cycle, concurrent callers can't lose each other's updates. The `install` subcommand uses the same pattern and keeps a backup of the previous config.
 - **Rate limiting + CORS allowlist** — optional `--rate-limit` caps per-IP request volume; `--allow-origin` restricts browser-facing CORS and refuses `*` unless bearer auth is enabled. `/health` and `/version` stay reachable under load for monitoring.

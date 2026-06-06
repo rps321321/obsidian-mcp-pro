@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "fs/promises";
+import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
 import { setProviderForTests, resetProviderForTests, type EmbeddingProvider } from "../../lib/embedding-providers.js";
 import { clearStore } from "../../lib/embedding-store.js";
@@ -199,6 +201,35 @@ describe("semantic handlers — search_semantic", () => {
     expect(text).not.toContain("private/secret.md");
     expect(text).not.toContain("private launch notes");
   });
+
+  it("drops stale snippets when an indexed note has changed", async () => {
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "cats.md": "# Cats\n\nCats carry the stale launch instructions.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await fs.writeFile(
+      path.join(env.vaultDir, "cats.md"),
+      "# Dogs\n\nThe current note is only about dogs.",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "cats", limit: 5 },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toMatch(/No matches/);
+    expect(text).not.toContain("stale launch instructions");
+  });
 });
 
 describe("semantic handlers — find_similar_notes", () => {
@@ -309,6 +340,36 @@ describe("semantic handlers — find_similar_notes", () => {
     expect(isError(result)).toBe(false);
     expect(text).toContain("public/dogs.md");
     expect(text).not.toContain("private/secret.md");
+  });
+
+  it("refuses stale source-note embeddings", async () => {
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "source.md": "# Cats\n\nCats are the original source topic.",
+        "target.md": "# Target\n\nCats are nearby.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await fs.writeFile(
+      path.join(env.vaultDir, "source.md"),
+      "# Weather\n\nThe current source topic is rain.",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "find_similar_notes",
+      arguments: { path: "source.md", limit: 5 },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/No current embeddings found/);
+    expect(text).not.toContain("target.md");
   });
 });
 
