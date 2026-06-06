@@ -1,10 +1,10 @@
-import fs from "fs/promises";
 import path from "path";
 import {
   listCanvasFiles,
   readNote,
   readCanvasFile,
   resolveVaultPathSafe,
+  readVaultTextFile,
   withFileLock,
   atomicWriteFile,
   assertNoteFileSize,
@@ -361,9 +361,9 @@ export async function applyRewrites(
           // applyEditsBackToFront verifies each edit's `expected` slice
           // matches before splicing — a parallel `write_note` that landed
           // between plan and apply will fail the comparison.
-          const stats = await fs.stat(fullPath);
-          assertNoteFileSize(notePath, stats.size);
-          const current = await fs.readFile(fullPath, "utf-8");
+          const read = await readVaultTextFile(vaultPath, notePath, "write");
+          assertNoteFileSize(notePath, read.stats.size);
+          const current = read.content;
           let next = applyEditsBackToFront(current, edits);
           if (next === null) {
             // Single bounded retry: the offsets drifted because content
@@ -404,9 +404,9 @@ export async function applyRewrites(
       const fullPath = await resolveVaultPathSafe(vaultPath, cp, "write");
       let didWrite = false;
       await withFileLock(fullPath, async () => {
-        const stats = await fs.stat(fullPath);
-        assertCanvasApplyFileSize(cp, stats.size);
-        const raw = await fs.readFile(fullPath, "utf-8");
+        const read = await readVaultTextFile(vaultPath, cp, "write");
+        assertCanvasApplyFileSize(cp, read.stats.size);
+        const raw = read.content;
         let parsed: unknown;
         try {
           parsed = JSON.parse(raw);

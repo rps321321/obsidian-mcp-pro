@@ -1,9 +1,14 @@
 import { randomUUID } from "crypto";
-import fs from "fs/promises";
 import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPathSafe } from "../lib/vault.js";
+import {
+  listCanvasFiles,
+  openVaultFileForRead,
+  readCanvasFile,
+  updateCanvasFile,
+  resolveVaultPathSafe,
+} from "../lib/vault.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import {
   formatUntrustedVaultContent,
@@ -82,10 +87,10 @@ async function getCanvasReadSignature(
   vaultPath: string,
   canvasPath: string,
 ): Promise<{ fullPath: string; size: number; mtimeMs: number }> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, canvasPath);
+  let opened: Awaited<ReturnType<typeof openVaultFileForRead>> | undefined;
   try {
-    const stats = await fs.stat(fullPath);
-    return { fullPath, size: stats.size, mtimeMs: stats.mtimeMs };
+    opened = await openVaultFileForRead(vaultPath, canvasPath);
+    return { fullPath: opened.fullPath, size: opened.stats.size, mtimeMs: opened.stats.mtimeMs };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       // Preserve the existing read_canvas missing-file error shape, which
@@ -93,6 +98,8 @@ async function getCanvasReadSignature(
       await readCanvasFile(vaultPath, canvasPath);
     }
     throw err;
+  } finally {
+    await opened?.handle.close();
   }
 }
 

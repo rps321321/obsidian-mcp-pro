@@ -1,10 +1,9 @@
 import * as fs from "fs";
-import * as fsp from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import type { VaultConfig, DailyNoteConfig } from "./types.js";
 import { log } from "./lib/logger.js";
-import { resolveVaultInternalPathSafe } from "./lib/vault.js";
+import { openVaultInternalFileForRead } from "./lib/vault.js";
 
 const DAILY_NOTES_CONFIG_REL_PATH = ".obsidian/daily-notes.json";
 const MAX_DAILY_NOTES_CONFIG_BYTES = 64 * 1024;
@@ -217,29 +216,28 @@ export async function getDailyNoteConfig(vaultPath?: string): Promise<DailyNoteC
   };
 
   const resolvedVaultPath = vaultPath ?? getVaultConfig().vaultPath;
-  let dailyNotesConfigPath: string;
+  let dailyNotesConfigPath = "";
+  let raw: string;
   try {
-    dailyNotesConfigPath = await resolveVaultInternalPathSafe(
+    const opened = await openVaultInternalFileForRead(
       resolvedVaultPath,
       DAILY_NOTES_CONFIG_REL_PATH,
     );
-  } catch (err) {
-    log.warn("Failed to resolve daily notes config path", { err: err as Error });
-    return defaults;
-  }
-
-  let raw: string;
-  try {
-    const stats = await fsp.stat(dailyNotesConfigPath);
-    if (!stats.isFile()) return defaults;
+    dailyNotesConfigPath = opened.fullPath;
+    const stats = opened.stats;
     if (stats.size > MAX_DAILY_NOTES_CONFIG_BYTES) {
+      await opened.handle.close();
       log.warn("Daily notes config exceeds size cap; using defaults", {
         bytes: stats.size,
         max: MAX_DAILY_NOTES_CONFIG_BYTES,
       });
       return defaults;
     }
-    raw = await fsp.readFile(dailyNotesConfigPath, "utf-8");
+    try {
+      raw = await opened.handle.readFile("utf-8");
+    } finally {
+      await opened.handle.close();
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return defaults;
     log.warn("Failed to read daily notes config", {
