@@ -292,6 +292,7 @@ async function walkVaultExcluding(
       if (entry.isSymbolicLink()) continue;
 
       if (entry.isDirectory()) {
+        if (name.startsWith(".")) continue;
         if (EXCLUDED_SET.has(name.toLowerCase())) continue;
         const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
         await walk(fullEntry, nextPrefix);
