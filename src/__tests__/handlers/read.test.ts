@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
-import { setMaxNoteFileBytesForTests } from "../../lib/vault.js";
+import { setMaxNoteFileBytesForTests, setMaxNoteLineRangeBytesForTests } from "../../lib/vault.js";
 
 let env: TestEnv;
 
@@ -12,6 +12,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   setMaxNoteFileBytesForTests(null);
+  setMaxNoteLineRangeBytesForTests(null);
   await env.cleanup();
 });
 
@@ -311,6 +312,33 @@ describe("read handlers — get_note", () => {
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_note fragment]");
     expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: long.md lines 2-2]");
     expect(text).toContain("\nsecond\n");
+  });
+
+  it("rejects oversized line fragments without returning note content", async () => {
+    setMaxNoteLineRangeBytesForTests(10);
+    await fs.writeFile(path.join(env.vaultDir, "oversized-line.md"), "private-body", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "oversized-line.md", lines: "1" },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/note line fragment exceeds size cap/i);
+    expect(text).not.toContain("private-body");
+  });
+
+  it("rejects line ranges outside safe integer bounds before reading", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "safe-lines.md"), "one\ntwo", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "safe-lines.md", lines: "999999999999999999999999" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toContain('Invalid lines format: "999999999999999999999999"');
   });
 
   it("rejects non-markdown vault files", async () => {
