@@ -180,10 +180,10 @@ claude mcp add obsidian-mcp-pro -- npx -y obsidian-mcp-pro
 ### HTTP Transport (Remote Clients, Cursor, ChatGPT, Web)
 
 ```bash
-npx -y obsidian-mcp-pro --transport=http --port=3333
+MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http --port=3333
 ```
 
-Endpoint: `http://127.0.0.1:3333/mcp` (Streamable HTTP). Protect with a bearer token:
+Endpoint: `http://127.0.0.1:3333/mcp` (Streamable HTTP). HTTP transport requires a bearer token:
 
 ```bash
 npx -y obsidian-mcp-pro --transport=http --token=your-secret
@@ -191,11 +191,10 @@ npx -y obsidian-mcp-pro --transport=http --token=your-secret
 ```
 
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
-If `--host` is set to a non-loopback address or `--allow-origin=*` is configured,
-startup requires `--token=<secret>` or `MCP_HTTP_TOKEN`.
+Startup always requires `--token=<secret>` or `MCP_HTTP_TOKEN`, including loopback-only local servers.
 
 > [!WARNING]
-> **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. The server refuses non-loopback binds without a bearer token, but if you need remote access:
+> **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. The server refuses HTTP startup without a bearer token, but if you need remote access:
 > - Put the server behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS, **and**
 > - Require `--token=<secret>` (or `MCP_HTTP_TOKEN`), **and**
 > - Restrict `--allow-origin` to the specific origins you trust, **and**
@@ -207,6 +206,7 @@ Additional hardening flags:
 
 | Flag | Purpose |
 |------|---------|
+| `--token=<secret>` | Required bearer token for `/mcp` requests. Prefer `MCP_HTTP_TOKEN` so the secret is not passed on the command line. |
 | `--allow-origin=<csv>` | Restrict CORS to an allowlist (e.g. `https://claude.ai,https://chat.openai.com`). Default is localhost-only; `*` requires bearer auth. |
 | `--rate-limit=<n>` | Cap requests per minute per client IP. `/health` and `/version` are exempt. Default is unlimited. |
 
@@ -214,7 +214,7 @@ Operational endpoints (no auth required):
 
 | Endpoint | Returns |
 |----------|---------|
-| `GET /health` | `{ status: "ok", sessions: <n>, version: <string> }` — liveness + session count. |
+| `GET /health` | `{ status: "ok", version: <string> }` — liveness for monitoring. |
 | `GET /version` | `{ version: <string> }` — package version, for rollout auditing. |
 
 Structured logging is controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`, default `info`) and `LOG_FORMAT` (`text`/`json`, default `text`). All logs go to stderr so the stdio transport on stdout is never polluted.
@@ -359,7 +359,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **Note/file boundary** — note read and edit surfaces only target `.md` files; attachments, Canvas files, and Bases stay on their dedicated tools with their own caps and parsers.
 - **Full-note cap** — full `.md` note reads and read-modify-write helpers refuse notes over 5 MiB before materializing them; `get_note` line fragments still stream from large notes for targeted inspection.
 - **Excluded directories** — `.obsidian`, `.git`, and `.trash` are pruned at traversal time and at resolution time, so nested occurrences never leak back to clients.
-- **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time. Non-loopback binds and wildcard CORS require bearer auth. Malformed request URL or Host data is rejected before routing.
+- **HTTP transport** — requires a bearer token at startup and binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). `/mcp` requests must send `Authorization: Bearer <secret>`, compared in constant time. Malformed request URL or Host data is rejected before routing.
 - **Attachment safety** — executable extensions are blocked, SVGs are returned as `text/plain`, and active text formats such as HTML/XML/CSS are served with `text/plain` resource metadata.
 - **Canvas link safety** — Canvas link nodes added through the server accept only absolute `http://` and `https://` URLs, preventing local file and application-protocol links from being persisted by tool calls.
 - **Regex edit safety** — `replace_in_note` caps regex pattern/input size and rejects backtracking-prone repeated groups before matching.
@@ -654,8 +654,8 @@ npm run lint:fix   # auto-fix
   block (and don't expose subsequent content to wikilink rewriting).
 - **`/health` no longer leaks the live session count when a Bearer
   token is configured.** Status + version stay public for monitoring;
-  `sessions` is dropped in authenticated deployments. Local-only
-  setups still see it.
+  `sessions` is dropped in authenticated deployments. In 4.0.0 and
+  later, HTTP always starts with bearer auth, so the field stays hidden.
 - **`constantTimeEqual` is now fully length-safe** (pads both inputs
   to a fixed width before comparing), and the regex / parser hardening
   list also closed: `resolveWikilink` proximity tie-break for
