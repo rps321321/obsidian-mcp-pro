@@ -120,7 +120,7 @@ export function redactUrlSecrets(s: string): string {
 
 // Replace anything that looks like an absolute path with `<path>`. Covers:
 //   - POSIX: starts with `/` followed by a non-space char
-//   - Windows: `C:\…` or `C:/…`
+//   - Windows: `C:\…` or `C:/…`, including unquoted paths with spaces
 //   - Quoted paths in fs error messages: `'…'`
 //
 // Exported (alongside `sanitizeError`) so the logger can apply the same
@@ -129,6 +129,6 @@ export function redactUrlSecrets(s: string): string {
 export function stripPaths(s: string): string {
   return s
     .replace(/'[^']*[\\/][^']*'/g, "<path>")
-    .replace(/\b[a-zA-Z]:[\\/][^\s'"]+/g, "<path>")
+    .replace(/\b[a-zA-Z]:[\\/][^\r\n'"]+/g, "<path>")
     .replace(/(^|\s)\/[^\s'"]+/g, "$1<path>");
 }
