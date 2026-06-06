@@ -53,6 +53,7 @@ interface CachedGraph {
 const GRAPH_CACHE_TTL_MS = 30_000;
 const GRAPH_CACHE_MAX_ENTRIES = 32;
 const GRAPH_FINGERPRINT_CONCURRENCY = 64;
+const REDACTED_ALIAS_LABEL = "<vault alias>";
 
 function displayLinkValue(value: string): string {
   return escapeControlChars(value);
@@ -257,7 +258,7 @@ async function buildLinkGraph(
       if (!key) continue;
       const prior = aliasMap.get(key);
       if (prior && prior !== notePath) {
-        log.warn("Duplicate alias", { alias, notes: [prior, notePath] });
+        log.warn("Duplicate alias", { alias: REDACTED_ALIAS_LABEL, notes: [prior, notePath] });
       }
       aliasMap.set(key, notePath);
     }
