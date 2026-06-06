@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Display and error sanitization now escape Unicode bidi controls as `\uHHHH`, preventing vault-controlled names or snippets from visually reordering client output.
+- `add_canvas_node` now accepts only absolute `http://` and `https://` URLs for Canvas link nodes, rejecting malformed, local-file, and application-protocol links before persistence.
 - Base YAML parsing now refuses anchors and aliases before `js-yaml` runs, preventing alias graphs from shaping Base filters, views, or serialized output.
 - Full-note `.md` reads and read-modify-write helpers now refuse files over 5 MiB before materializing them, while `get_note` line fragments still stream targeted ranges from large notes.
 - YAML frontmatter parsing now ignores anchors and aliases, and frontmatter updates refuse to rewrite notes containing them.

@@ -29,17 +29,22 @@ function displayCanvasValue(value: string): string {
   return escapeControlChars(value);
 }
 
-const BLOCKED_CANVAS_LINK_PROTOCOLS = new Set(["javascript:", "data:", "vbscript:"]);
+const ALLOWED_CANVAS_LINK_PROTOCOLS = new Set(["http:", "https:"]);
 
-function blockedCanvasLinkProtocol(value: string): string | null {
+function validateCanvasLinkUrl(value: string): string | null {
+  let parsed: URL;
   try {
-    const parsed = new URL(value.trim());
-    return BLOCKED_CANVAS_LINK_PROTOCOLS.has(parsed.protocol)
-      ? parsed.protocol.slice(0, -1)
-      : null;
+    parsed = new URL(value.trim());
   } catch {
-    return null;
+    return `Invalid URL in "${displayCanvasValue(value)}". Canvas link URLs must be absolute http:// or https:// URLs.`;
   }
+  if (!ALLOWED_CANVAS_LINK_PROTOCOLS.has(parsed.protocol)) {
+    return `Invalid URL scheme in "${displayCanvasValue(value)}". Only http:// and https:// canvas link URLs are allowed.`;
+  }
+  if (hasUrlControlChars(value)) {
+    return `Invalid URL in "${displayCanvasValue(value)}". Control characters are not allowed in canvas link URLs.`;
+  }
+  return null;
 }
 
 function hasUrlControlChars(value: string): boolean {
@@ -329,17 +334,8 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         if (type === "link") {
           // WHATWG URL parsing normalizes leading spaces and C0 whitespace
           // inside schemes, so check the parsed protocol instead of raw text.
-          const blockedProtocol = blockedCanvasLinkProtocol(content);
-          if (blockedProtocol) {
-            return errorResult(
-              `Invalid URL scheme in "${displayCanvasValue(content)}". ${blockedProtocol}: URIs are not allowed.`,
-            );
-          }
-          if (hasUrlControlChars(content)) {
-            return errorResult(
-              `Invalid URL in "${displayCanvasValue(content)}". Control characters are not allowed in canvas link URLs.`,
-            );
-          }
+          const invalidUrl = validateCanvasLinkUrl(content);
+          if (invalidUrl) return errorResult(invalidUrl);
         }
 
         let finalX = 0;

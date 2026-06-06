@@ -348,6 +348,48 @@ describe("canvas handlers — add_canvas_node", () => {
     expect(canvas.nodes.some((n) => n.url === "https://example.com/deep/path?q=1")).toBe(true);
   });
 
+  it("rejects non-web link URL schemes before persisting", async () => {
+    const canvasPath = path.join(env.vaultDir, "boards/test.canvas");
+    const before = await fs.readFile(canvasPath, "utf-8");
+
+    for (const content of ["file:///C:/Users/me/secret.txt", "obsidian://open?vault=main"]) {
+      const result = await env.client.callTool({
+        name: "add_canvas_node",
+        arguments: {
+          canvasPath: "boards/test.canvas",
+          type: "link",
+          content,
+        },
+      });
+
+      expect(isError(result)).toBe(true);
+      expect(textContent(result)).toMatch(/only http:\/\/ and https:\/\//i);
+    }
+
+    const after = await fs.readFile(canvasPath, "utf-8");
+    expect(after).toBe(before);
+  });
+
+  it("rejects malformed link URLs before persisting", async () => {
+    const canvasPath = path.join(env.vaultDir, "boards/test.canvas");
+    const before = await fs.readFile(canvasPath, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "add_canvas_node",
+      arguments: {
+        canvasPath: "boards/test.canvas",
+        type: "link",
+        content: "example.com/no-scheme",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/absolute http:\/\/ or https:\/\//i);
+
+    const after = await fs.readFile(canvasPath, "utf-8");
+    expect(after).toBe(before);
+  });
+
   it("rejects color values that don't match the palette regex", async () => {
     const result = await env.client.callTool({
       name: "add_canvas_node",
