@@ -7,6 +7,8 @@ import {
   resolveVaultPathSafe,
   withFileLock,
   atomicWriteFile,
+  assertNoteFileSize,
+  MAX_CANVAS_FILE_BYTES,
 } from "./vault.js";
 import {
   extractAliases,
@@ -20,6 +22,14 @@ import { log } from "./logger.js";
 import type { CanvasData } from "../types.js";
 
 const SCAN_CONCURRENCY = 8;
+
+function assertCanvasApplyFileSize(relativePath: string, size: number): void {
+  if (size > MAX_CANVAS_FILE_BYTES) {
+    throw new Error(
+      `Canvas file exceeds size cap (${size} > ${MAX_CANVAS_FILE_BYTES} bytes): ${relativePath}`,
+    );
+  }
+}
 
 /** A single in-place edit on a referrer file, expressed as a byte-offset slice
  *  to replace. Edits within a file are listed in increasing-offset order.
@@ -351,6 +361,8 @@ export async function applyRewrites(
           // applyEditsBackToFront verifies each edit's `expected` slice
           // matches before splicing — a parallel `write_note` that landed
           // between plan and apply will fail the comparison.
+          const stats = await fs.stat(fullPath);
+          assertNoteFileSize(notePath, stats.size);
           const current = await fs.readFile(fullPath, "utf-8");
           let next = applyEditsBackToFront(current, edits);
           if (next === null) {
@@ -373,6 +385,7 @@ export async function applyRewrites(
             return;
           }
           if (next !== current) {
+            assertNoteFileSize(notePath, Buffer.byteLength(next, "utf-8"));
             await atomicWriteFile(fullPath, next);
             didWrite = true;
           }
@@ -391,6 +404,8 @@ export async function applyRewrites(
       const fullPath = await resolveVaultPathSafe(vaultPath, cp, "write");
       let didWrite = false;
       await withFileLock(fullPath, async () => {
+        const stats = await fs.stat(fullPath);
+        assertCanvasApplyFileSize(cp, stats.size);
         const raw = await fs.readFile(fullPath, "utf-8");
         let parsed: unknown;
         try {
@@ -409,7 +424,9 @@ export async function applyRewrites(
           }
         }
         if (mutated) {
-          await atomicWriteFile(fullPath, JSON.stringify({ ...obj, nodes }, null, 2));
+          const serialized = JSON.stringify({ ...obj, nodes }, null, 2);
+          assertCanvasApplyFileSize(cp, Buffer.byteLength(serialized, "utf-8"));
+          await atomicWriteFile(fullPath, serialized);
           didWrite = true;
         }
       });
