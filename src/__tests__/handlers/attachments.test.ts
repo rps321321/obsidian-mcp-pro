@@ -13,6 +13,9 @@ beforeEach(async () => {
       "assets/orphan-image.png": "PNG-orphan-bytes",
       "assets/screenshot.jpg": "JPEG-fake-bytes",
       "assets/notes.pdf": "PDF-fake",
+      "assets/page.html": "<script>alert(1)</script>",
+      "assets/feed.xml": "<?xml version=\"1.0\"?><feed />",
+      "assets/theme.css": "body { background: red; }",
       "embed-host.md": "# Embed host\n\n![[used-image.png]]\n\nAlso linked: [doc](assets/notes.pdf)\n",
     },
   });
@@ -176,6 +179,29 @@ describe("attachments handlers — get_attachment", () => {
     expect(resourceBlock).toBeDefined();
     expect(resourceBlock!.resource!.mimeType).toBe("application/pdf");
     expect(resourceBlock!.resource!.uri).toBe("vault://assets/notes.pdf");
+  });
+
+  it.each([
+    ["assets/page.html", "text/html"],
+    ["assets/feed.xml", "application/xml"],
+    ["assets/theme.css", "text/css"],
+  ])("downgrades active text MIME for %s", async (relPath, originalMime) => {
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: relPath },
+    });
+    expect(isError(result)).toBe(false);
+    const blocks = result.content as Array<{
+      type: string;
+      text?: string;
+      resource?: { uri?: string; mimeType?: string; blob?: string };
+    }>;
+    const textBlock = blocks.find((b) => b.type === "text");
+    const resourceBlock = blocks.find((b) => b.type === "resource");
+    expect(textBlock!.text).toContain(`${originalMime} returned as text/plain`);
+    expect(resourceBlock).toBeDefined();
+    expect(resourceBlock!.resource!.mimeType).toBe("text/plain");
+    expect(resourceBlock!.resource!.blob).toEqual(expect.any(String));
   });
 
   it("rejects markdown / canvas / base files", async () => {
