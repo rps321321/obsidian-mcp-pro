@@ -81,10 +81,13 @@ describe("attachment display escaping", () => {
       });
       expect(isError(result)).toBe(false);
       const text = textContent(result);
+      const block = result.content[0] as { _meta?: Record<string, unknown> };
+      expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_attachments paths]");
       expect(text).toContain("- assets/bad\\nname.png");
       expect(text).toContain("- assets/tab\\tname.jpg");
       expect(text).not.toContain("assets/bad\nname.png");
       expect(text).not.toContain("assets/tab\tname.jpg");
+      expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     } finally {
       await env.cleanup();
     }
@@ -103,8 +106,11 @@ describe("attachment display escaping", () => {
       });
       expect(isError(result)).toBe(false);
       const text = textContent(result);
+      const block = result.content[0] as { _meta?: Record<string, unknown> };
+      expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_unused_attachments paths]");
       expect(text).toContain("- assets/orphan\\nfile.png  (7 bytes)");
       expect(text).not.toContain("assets/orphan\nfile.png");
+      expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     } finally {
       await env.cleanup();
     }
