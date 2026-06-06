@@ -259,9 +259,14 @@ describe("attachments handlers — get_attachment", () => {
     const resourceBlock = blocks.find((b) => b.type === "resource");
     expect(resourceBlock).toBeDefined();
     expect(resourceBlock!._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(resourceBlock!._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("get_attachment text");
     expect(resourceBlock!.resource!._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(resourceBlock!.resource!._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("get_attachment text");
     expect(resourceBlock!.resource!.mimeType).toBe("text/plain");
     expect(resourceBlock!.resource!.text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: get_attachment text]",
+    );
+    expect(resourceBlock!.resource!.text).not.toContain(
       "[BEGIN UNTRUSTED VAULT CONTENT: attachment text: assets/vector.svg]",
     );
     expect(resourceBlock!.resource!.text).toContain(
