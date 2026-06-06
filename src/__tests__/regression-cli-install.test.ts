@@ -3,8 +3,9 @@ import { parseArgs } from "../index.js";
 import { runInstall } from "../install.js";
 
 // Regression coverage for three audit findings:
-//   - C7: --token <secret> / --token=<secret> leaks via process.argv (ps,
-//         /proc/<pid>/cmdline).
+//   - C7: --token <secret> / --token=<secret> leaks via process command-line
+//         storage before runtime redaction can help, so HTTP auth uses
+//         MCP_HTTP_TOKEN instead.
 //   - H2: install.ts serverName accepts control characters that corrupt the
 //         JSON config or spoof terminal output via ANSI escapes.
 //
@@ -12,7 +13,7 @@ import { runInstall } from "../install.js";
 // the existing SDK error-response contract — these tests focus on the CLI
 // surface where direct argv/option mutation matters.
 
-describe("parseArgs token redaction (C7)", () => {
+describe("parseArgs HTTP token handling (C7)", () => {
   let originalArgv: string[];
 
   beforeEach(() => {
@@ -23,52 +24,25 @@ describe("parseArgs token redaction (C7)", () => {
     process.argv = originalArgv;
   });
 
-  it("should redact both argv slots when --token VALUE is passed as two arguments", () => {
-    // Simulate `node script ... --token supersecret`.
+  it("should reject --token VALUE because command-line secrets can leak", () => {
     process.argv = ["node", "script", "--transport", "http", "--token", "supersecret"];
-    const argv = process.argv.slice(2);
-
-    const opts = parseArgs(argv);
-
-    expect(opts.bearerToken).toBe("supersecret");
-    // The local slice the caller passes in is redacted.
-    expect(argv).not.toContain("supersecret");
-    // And process.argv itself, which is what `ps` and /proc/<pid>/cmdline
-    // expose, no longer contains the plaintext token.
-    expect(process.argv).not.toContain("supersecret");
-    expect(process.argv).toContain("***");
+    expect(() => parseArgs(process.argv.slice(2))).toThrow(/MCP_HTTP_TOKEN/i);
   });
 
-  it("should redact the argv entry when --token=VALUE is passed as one argument", () => {
+  it("should reject --token=VALUE because command-line secrets can leak", () => {
     process.argv = ["node", "script", "--token=secret"];
-    const argv = process.argv.slice(2);
-
-    const opts = parseArgs(argv);
-
-    expect(opts.bearerToken).toBe("secret");
-    expect(argv).not.toContain("--token=secret");
-    expect(argv).toContain("--token=***");
-    expect(process.argv).not.toContain("--token=secret");
-    expect(process.argv).toContain("--token=***");
+    expect(() => parseArgs(process.argv.slice(2))).toThrow(/MCP_HTTP_TOKEN/i);
   });
 
-  it("should still expose the captured token via the returned options", () => {
-    // Redaction must not break the legitimate use of the token by the HTTP
-    // server, only hide it from external observers.
-    process.argv = ["node", "script", "--token", "abc123"];
-    const opts = parseArgs(process.argv.slice(2));
-    expect(opts.bearerToken).toBe("abc123");
-  });
-
-  it("should reject an empty inline token instead of silently disabling auth", () => {
+  it("should reject an empty inline token flag with the removed-flag message", () => {
     process.argv = ["node", "script", "--token="];
-    expect(() => parseArgs(process.argv.slice(2))).toThrow(/token.*empty/i);
+    expect(() => parseArgs(process.argv.slice(2))).toThrow(/removed.*MCP_HTTP_TOKEN/i);
   });
 
   it("should reject a whitespace MCP_HTTP_TOKEN", () => {
     process.env.MCP_HTTP_TOKEN = "   ";
     try {
-      expect(() => parseArgs([])).toThrow(/token.*empty/i);
+      expect(() => parseArgs([])).toThrow(/MCP_HTTP_TOKEN cannot be empty/i);
     } finally {
       delete process.env.MCP_HTTP_TOKEN;
     }
