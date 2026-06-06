@@ -355,7 +355,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           lines.push(`  Failures:        ${stats.failed.length}`);
           for (const f of stats.failed.slice(0, 5)) {
             lines.push(formatUntrustedFailedPath(
-              `index_vault failed note: ${f.path}`,
+              "index_vault failed note",
               f.path,
               f.error,
               "    ",

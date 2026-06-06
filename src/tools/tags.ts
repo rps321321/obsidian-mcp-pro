@@ -443,7 +443,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           lines.push(`  Skipped due to errors: ${failed.length}`);
           for (const f of failed.slice(0, 5)) {
             lines.push(formatUntrustedFailedPath(
-              `rename_tag failed note: ${f.path}`,
+              "rename_tag failed note",
               f.path,
               f.error,
               "    ",

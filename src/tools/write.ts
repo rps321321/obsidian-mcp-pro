@@ -414,7 +414,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
               lines.push(formatUntrustedFailedPath(
-                `move_note failed referrer: ${f.path}`,
+                "move_note failed referrer",
                 f.path,
                 f.error,
               ));
@@ -561,7 +561,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
               lines.push(formatUntrustedFailedPath(
-                `delete_note failed referrer: ${f.path}`,
+                "delete_note failed referrer",
                 f.path,
                 f.error,
               ));

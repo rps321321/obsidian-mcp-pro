@@ -167,8 +167,9 @@ describe("semantic handlers — index_vault", () => {
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
     expect(text).toContain("Failures:        1");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note: dirty\\x7fsemantic.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note]");
     expect(text).toContain("dirty\\x7fsemantic.md: provider failed");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note: dirty\\x7fsemantic.md]");
     expect(text).not.toContain(dirtyPath);
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("index_vault failed notes");
