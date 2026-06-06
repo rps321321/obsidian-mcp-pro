@@ -1337,8 +1337,12 @@ export async function readBaseFile(
   vaultPath: string,
   relativePath: string,
 ): Promise<string> {
+  if (!relativePath.toLowerCase().endsWith(".base")) {
+    throw new Error(`Not a Base file: ${relativePath}`);
+  }
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   const stats = await fs.stat(fullPath);
+  assertRegularFile(relativePath, stats);
   if (stats.size > MAX_BASE_FILE_BYTES) {
     throw new Error(
       `Base file exceeds size cap (${stats.size} > ${MAX_BASE_FILE_BYTES} bytes)`,

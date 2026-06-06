@@ -10,6 +10,24 @@ afterEach(async () => {
 });
 
 describe("base handlers — read_base", () => {
+  it("rejects non-Base file paths before parsing", async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "secret.yaml": "properties:\n  token:\n    displayName: Secret\n",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "read_base",
+      arguments: { path: "secret.yaml" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/end in \.base|not a base file/i);
+    expect(textContent(result)).not.toContain("Secret");
+  });
+
   it("rejects oversized Base files before parsing", async () => {
     env = await createTestEnv({
       skipFixtures: true,
@@ -93,6 +111,33 @@ describe("base handlers - list_bases", () => {
 });
 
 describe("base handlers — query_base", () => {
+  it("rejects non-Base query paths without returning readable rows", async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "note.md": [
+          "---",
+          "secret: readable",
+          "---",
+          "# Note",
+          "",
+        ].join("\n"),
+        "query.yaml": "filters:\n  - file.name.contains(\"note\")\n",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "query_base",
+      arguments: { path: "query.yaml", includeFrontmatter: true },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/end in \.base|not a base file/i);
+    expect(text).not.toContain("note.md");
+    expect(text).not.toContain("secret");
+  });
+
   it("rejects oversized Base files without returning readable rows", async () => {
     env = await createTestEnv({
       skipFixtures: true,
