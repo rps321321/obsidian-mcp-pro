@@ -3,7 +3,9 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { loadPermissionsFromEnv, setPermissions } from "../lib/permissions.js";
-import { listAttachments, listBaseFiles, listCanvasFiles, listNotes } from "../lib/vault.js";
+import { listAttachments, listBaseFiles, listCanvasFiles, listNotes, readNote } from "../lib/vault.js";
+
+const itPosix = process.platform === "win32" ? it.skip : it;
 
 /**
  * M6 regression: parseList delimiter behavior.
@@ -134,5 +136,13 @@ describe("regression: read allowlists apply to vault-wide listings", () => {
 
   it("still rejects explicit folder listings outside the allowlist", async () => {
     await expect(listNotes(vaultDir, "private")).rejects.toThrow(/Access denied/i);
+  });
+
+  itPosix("does not treat literal backslashes as folder separators", async () => {
+    await fs.writeFile(path.join(vaultDir, "public\\secret.md"), "secret", "utf-8");
+
+    await expect(readNote(vaultDir, "public\\secret.md")).rejects.toThrow(
+      /OBSIDIAN_READ_PATHS/,
+    );
   });
 });
