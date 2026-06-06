@@ -141,7 +141,136 @@ function regexGroupBodyStart(pattern: string, openIndex: number): number {
   return namedGroupEnd === -1 ? openIndex + 2 : namedGroupEnd + 1;
 }
 
-function hasUnsafeNestedQuantifier(pattern: string): boolean {
+function regexGroupEnd(pattern: string, openIndex: number): number {
+  let depth = 0;
+  for (let i = openIndex; i < pattern.length; i += 1) {
+    const ch = pattern.charAt(i);
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      i = regexCharacterClassEnd(pattern, i);
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return pattern.length - 1;
+}
+
+function regexTopLevelAlternatives(pattern: string): string[] {
+  const alternatives: string[] = [];
+  let start = 0;
+  let depth = 0;
+
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern.charAt(i);
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      i = regexCharacterClassEnd(pattern, i);
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      if (depth > 0) depth -= 1;
+      continue;
+    }
+    if (ch === "|" && depth === 0) {
+      alternatives.push(pattern.slice(start, i));
+      start = i + 1;
+    }
+  }
+
+  alternatives.push(pattern.slice(start));
+  return alternatives;
+}
+
+function regexAtomTokens(pattern: string): string[] {
+  const tokens: string[] = [];
+
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern.charAt(i);
+    if (ch === "\\") {
+      tokens.push(pattern.slice(i, Math.min(i + 2, pattern.length)));
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      const end = regexCharacterClassEnd(pattern, i);
+      tokens.push(pattern.slice(i, end + 1));
+      i = end;
+      continue;
+    }
+    if (ch === "(") {
+      const end = regexGroupEnd(pattern, i);
+      tokens.push("(group)");
+      i = end;
+      continue;
+    }
+    if (ch === "^" || ch === "$") continue;
+    tokens.push(ch);
+  }
+
+  return tokens;
+}
+
+function regexTokensSharePrefix(a: readonly string[], b: readonly string[]): boolean {
+  const len = Math.min(a.length, b.length);
+  if (len === 0) return true;
+  for (let i = 0; i < len; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function hasAmbiguousAlternation(pattern: string): boolean {
+  const alternatives = regexTopLevelAlternatives(pattern);
+  if (alternatives.length > 1) {
+    const tokenized = alternatives.map(regexAtomTokens);
+    for (let i = 0; i < tokenized.length; i += 1) {
+      for (let j = i + 1; j < tokenized.length; j += 1) {
+        if (regexTokensSharePrefix(tokenized[i]!, tokenized[j]!)) return true;
+      }
+    }
+  }
+
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern.charAt(i);
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      i = regexCharacterClassEnd(pattern, i);
+      continue;
+    }
+    if (ch !== "(") continue;
+
+    const end = regexGroupEnd(pattern, i);
+    const bodyStart = regexGroupBodyStart(pattern, i);
+    if (bodyStart < end && hasAmbiguousAlternation(pattern.slice(bodyStart, end))) {
+      return true;
+    }
+    i = end;
+  }
+
+  return false;
+}
+
+function hasUnsafeRepeatedGroup(pattern: string): boolean {
   const groups: Array<{ bodyStart: number }> = [];
 
   for (let i = 0; i < pattern.length; i += 1) {
@@ -161,10 +290,11 @@ function hasUnsafeNestedQuantifier(pattern: string): boolean {
     if (ch !== ")") continue;
 
     const group = groups.pop();
+    const body = group === undefined ? "" : pattern.slice(group.bodyStart, i);
     if (
       group !== undefined &&
       regexQuantifierIsUnboundedRepeat(pattern, i + 1) &&
-      hasQuantifiedAtom(pattern.slice(group.bodyStart, i))
+      (hasQuantifiedAtom(body) || hasAmbiguousAlternation(body))
     ) {
       return true;
     }
@@ -462,7 +592,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
               `Error replacing in note: invalid regex pattern: ${sanitizeError(syntaxErr)}`,
             );
           }
-          unsafeRegexPattern = hasUnsafeNestedQuantifier(find);
+          unsafeRegexPattern = hasUnsafeRepeatedGroup(find);
           pattern = compiledPattern;
         } else {
           const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -482,7 +612,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           }
           if (unsafeRegexPattern) {
             throw new Error(
-              "unsafe regex pattern: nested quantifiers can cause catastrophic backtracking. Use a simpler pattern.",
+              "unsafe regex pattern: nested quantifiers or ambiguous repeated alternation can cause catastrophic backtracking. Use a simpler pattern.",
             );
           }
           const matches = existing.match(pattern);

@@ -92,6 +92,26 @@ describe("regression: replace_in_note ReDoS guards (C3)", () => {
     expect(onDisk).toBe("abc\n");
   });
 
+  it("rejects ambiguous repeated alternation before matching", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "redos-alternation.md"), "aaaaaaaaaaaaaaaaab\n", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "redos-alternation.md",
+        find: "^(a|aa)+$",
+        replace: "X",
+        regex: true,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/unsafe regex pattern|ambiguous repeated alternation/i);
+
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "redos-alternation.md"), "utf-8");
+    expect(onDisk).toBe("aaaaaaaaaaaaaaaaab\n");
+  });
+
   it("rejects invalid regex flags with a clean error mentioning the bad flag", async () => {
     const result = await env.client.callTool({
       name: "replace_in_note",
@@ -183,6 +203,25 @@ describe("regression: replace_in_note ReDoS guards (C3)", () => {
     expect(isError(result)).toBe(false);
     const onDisk = await fs.readFile(path.join(env.vaultDir, "optional-url.md"), "utf-8");
     expect(onDisk).toBe("site site\n");
+  });
+
+  it("allows repeated alternation when alternatives do not overlap", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "safe-alternation.md"), "catdogcat\n", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "safe-alternation.md",
+        find: "(?:cat|dog)+",
+        replace: "animal",
+        regex: true,
+        flags: "g",
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "safe-alternation.md"), "utf-8");
+    expect(onDisk).toBe("animal\n");
   });
 
   it("treats replacement dollar tokens literally when regex=false", async () => {
