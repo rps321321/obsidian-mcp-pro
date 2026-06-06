@@ -250,7 +250,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     throw new Error("HTTP bearer token cannot be empty");
   }
   if (!bearerToken) {
-    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN or pass --token.");
+    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN in the CLI or pass bearerToken when embedding.");
   }
   const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
     ? opts.allowedOrigins
