@@ -358,7 +358,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
     {
       title: "Move/Rename Note",
       description:
-        "Move or rename a note within the vault, preserving its full content. Parent folders at the destination are created as needed. By default, wikilinks and file references are updated, matching Obsidian's \"Automatically update internal links\" behavior. Pass `updateLinks: false` to skip the rewrite scan (faster on large vaults; pair with `find_broken_links` if you need to audit afterward). A .md extension is added automatically if omitted from either path.",
+        "Move or rename a note within the vault, preserving its full content. Parent folders at the destination are created as needed. By default, wikilinks and file references are updated, matching Obsidian's \"Automatically update internal links\" behavior; this rewrite requires `confirmPath` to match the destination path after .md normalization. Pass `updateLinks: false` to skip the rewrite scan (faster on large vaults; pair with `find_broken_links` if you need to audit afterward). A .md extension is added automatically if omitted from either path.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -381,13 +381,24 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           .optional()
           .default(true)
           .describe("If true (default), update every wikilink, markdown link, and canvas node reference across the vault to point at the new path. Set false to skip the rewrite pass."),
+        confirmPath: z
+          .string()
+          .max(500)
+          .optional()
+          .describe("Required when updateLinks is true: re-type the destination path after .md normalization to confirm vault-wide reference rewriting."),
       },
     },
-    async ({ oldPath, newPath, updateLinks }) => {
+    async ({ oldPath, newPath, updateLinks, confirmPath }) => {
       try {
         const resolvedOld = ensureMdExtension(oldPath);
         const resolvedNew = ensureMdExtension(newPath);
         if (updateLinks !== false) {
+          if (confirmPath?.trim() !== resolvedNew) {
+            return errorResult(
+              `Reference rewriting for "${displayWriteValue(resolvedOld)}" requires confirmPath="${displayWriteValue(resolvedNew)}". ` +
+              "Set updateLinks=false to move without rewriting references.",
+            );
+          }
           const confirmation = await elicitTextConfirmation(server, {
             tool: "move_note",
             message:
