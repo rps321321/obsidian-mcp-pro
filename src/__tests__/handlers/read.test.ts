@@ -229,7 +229,8 @@ describe("read handlers — get_note", () => {
     expect(text).toContain("Tags:");
     expect(text).toContain("draft");
     expect(text).toContain("Links to");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note: note-a.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_note body]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: note: note-a.md]");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
@@ -307,7 +308,8 @@ describe("read handlers — get_note", () => {
 
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: long.md lines 2-2]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_note fragment]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: long.md lines 2-2]");
     expect(text).toContain("\nsecond\n");
   });
 
@@ -383,7 +385,8 @@ describe("read handlers — get_note", () => {
 
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: line-fragment.md lines 5-6]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_note fragment]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: line-fragment.md lines 5-6]");
     expect(text).toContain("\ntwo\nthree\n");
     expect(text).not.toContain("Frontmatter");
     expect(text).not.toContain("Tags:");
@@ -419,7 +422,8 @@ describe("read handlers — get_note", () => {
 
     expect(isError(after)).toBe(false);
     const text = textContent(after);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: fresh-lines.md lines 2-2]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_note fragment]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: fresh-lines.md lines 2-2]");
     expect(text).toContain("\nnew\n");
   });
 });
@@ -491,6 +495,8 @@ describe("read handlers — get_daily_note", () => {
     });
     const text = textContent(result);
     expect(isError(result)).toBe(false);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_daily_note body]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: daily note: daily/2026-04-24.md]");
     expect(text).toContain("Daily Note: 2026-04-24");
     expect(text).toContain("daily/2026-04-24.md");
     expect(text).toContain("Daily note fixture");

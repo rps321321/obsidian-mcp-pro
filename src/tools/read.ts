@@ -188,7 +188,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
               return errorResult(`Line ${range.pastEndLine.requested} is past end of file (${range.pastEndLine.total} lines)`);
             }
             return {
-              content: [untrustedTextContent(`note fragment: ${notePath} lines ${a}-${b}`, range.text)],
+              content: [untrustedTextContent("get_note fragment", range.text)],
             };
           }
         }
@@ -205,7 +205,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             return errorResult(`Section not found: "${displayReadValue(section)}" in ${displayReadValue(notePath)}`);
           }
           return {
-            content: [untrustedTextContent(`note section: ${notePath}#${section}`, content.slice(found.start, found.end))],
+            content: [untrustedTextContent("get_note section", content.slice(found.start, found.end))],
           };
         }
 
@@ -215,7 +215,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             return errorResult(`Block not found: "^${displayReadValue(block)}" in ${displayReadValue(notePath)}`);
           }
           return {
-            content: [untrustedTextContent(`note block: ${notePath}^${block}`, stripBlockId(content.slice(found.start, found.end)))],
+            content: [untrustedTextContent("get_note block", stripBlockId(content.slice(found.start, found.end)))],
           };
         }
 
@@ -230,7 +230,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           }
           const slice = allLines.slice(a - 1, Math.min(b, allLines.length));
           return {
-            content: [untrustedTextContent(`note fragment: ${notePath} lines ${a}-${b}`, slice.join("\n"))],
+            content: [untrustedTextContent("get_note fragment", slice.join("\n"))],
           };
         }
 
@@ -259,8 +259,8 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           content: [
             {
               type: "text" as const,
-              text: formatUntrustedVaultContent(`note: ${notePath}`, renderedNote),
-              _meta: untrustedVaultContentMeta(`note: ${notePath}`),
+              text: formatUntrustedVaultContent("get_note body", renderedNote),
+              _meta: untrustedVaultContentMeta("get_note body"),
             },
           ],
         };
@@ -395,8 +395,8 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           content: [
             {
               type: "text" as const,
-              text: formatUntrustedVaultContent(`daily note: ${notePath}`, header.join("\n") + dailyBody),
-              _meta: untrustedVaultContentMeta(`daily note: ${notePath}`),
+              text: formatUntrustedVaultContent("get_daily_note body", header.join("\n") + dailyBody),
+              _meta: untrustedVaultContentMeta("get_daily_note body"),
             },
           ],
         };
