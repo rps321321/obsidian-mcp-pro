@@ -471,8 +471,9 @@ describe("write handlers — move_note", () => {
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
     expect(text).toContain("Warning: 1 file(s) could not be updated:");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: move_note failed referrer: dirty\\x7fref.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: move_note failed referrer]");
     expect(text).toContain("dirty\\x7fref.md: content changed during move; references not updated");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: move_note failed referrer: dirty\\x7fref.md]");
     expect(text).not.toContain(dirtyPath);
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("move_note failed referrers");
@@ -564,8 +565,9 @@ describe("write handlers — delete_note", () => {
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
     expect(text).toContain("Warning: 1 file(s) could not be updated:");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: delete_note failed referrer: dirty\\x7fdelete-ref.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: delete_note failed referrer]");
     expect(text).toContain("dirty\\x7fdelete-ref.md: content changed during move; references not updated");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: delete_note failed referrer: dirty\\x7fdelete-ref.md]");
     expect(text).not.toContain(dirtyPath);
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("delete_note failed referrers");
