@@ -106,7 +106,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
     {
       title: "Query Base",
       description:
-        "Run a Base file's filters against the vault and return matching note paths. Optionally pick a named view to apply that view's filters and ordering on top of the base-level filters. Supported filter syntax (subset of Obsidian's full DSL): chained methods `file.hasTag(\"tag\")`, `file.hasProperty(\"key\")`, `file.inFolder(\"path\")`, `file.linksTo(\"target\")`, `file.name.contains(\"x\")`/`.startsWith`/`.endsWith`/`.equals`, plus `.isEmpty`/`.isNotEmpty` on any value; legacy function form `taggedWith(file, \"tag\")`; comparisons `key == \"val\"`, `key != x`, `key contains x`, `>=`, `<=`, `>`, `<`; combinators `and:`, `or:`, `not:`. Recognized file properties: file.name, file.basename, file.folder, file.ext, file.path, file.size, file.ctime, file.mtime, file.tags, file.properties, file.links, file.embeds, file.backlinks. Unsupported clauses are reported as warnings and treated as match-all.",
+        "Run a Base file's filters against the vault and return matching note paths. Optionally pick a named view to apply that view's filters and ordering on top of the base-level filters. Supported filter syntax (subset of Obsidian's full DSL): chained methods `file.hasTag(\"tag\")`, `file.hasProperty(\"key\")`, `file.inFolder(\"path\")`, `file.linksTo(\"target\")`, `file.name.contains(\"x\")`/`.startsWith`/`.endsWith`/`.equals`, plus `.isEmpty`/`.isNotEmpty` on any value; legacy function form `taggedWith(file, \"tag\")`; comparisons `key == \"val\"`, `key != x`, `key contains x`, `>=`, `<=`, `>`, `<`; combinators `and:`, `or:`, `not:`. Recognized file properties: file.name, file.basename, file.folder, file.ext, file.path, file.size, file.ctime, file.mtime, file.tags, file.properties, file.links, file.embeds, file.backlinks. Unsupported clauses are reported as warnings and treated as no-match.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -161,8 +161,8 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
             const row = buildRow(notePath, content, stats.get(notePath));
             // BUG-4: Populate row.links from the note's outgoing wikilinks so
             // file.linksTo() / file.hasLink() filters evaluate correctly.
-            // Without this, row.links is undefined and the evaluator falls
-            // back to a permissive match-all.
+            // Without this, row.links is undefined and link filters fail
+            // closed with a warning.
             const linkInfos = extractWikilinks(content);
             row.links = linkInfos
               .filter((l) => !l.isEmbed)
