@@ -7,18 +7,15 @@ import {
   clearCache,
   cacheSize,
   flushNow,
-  setMaxPersistedBytesForTests,
 } from "../lib/index-cache.js";
 
 let vaultDir: string;
-const itPosix = process.platform === "win32" ? it.skip : it;
 
 beforeEach(async () => {
   vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-test-"));
 });
 
 afterEach(async () => {
-  setMaxPersistedBytesForTests(null);
   await clearCache(vaultDir);
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
@@ -107,48 +104,15 @@ describe("readAllCached", () => {
   });
 });
 
-describe("persistent cache", () => {
-  it("writes a snapshot under <vault>/.obsidian/cache/ after a flush", async () => {
-    await write("a.md", "alpha");
-    await readAllCached(vaultDir, ["a.md"]);
-    await flushNow(vaultDir);
-    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
-    const raw = await fs.readFile(snap, "utf-8");
-    const parsed = JSON.parse(raw);
-    expect(parsed.version).toBe(1);
-    expect(parsed.entries["a.md"].content).toBe("alpha");
-  });
+describe("legacy persistent cache", () => {
+  function snapshotPath(): string {
+    return path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
+  }
 
-  itPosix("writes snapshots with owner-only permissions", async () => {
-    await write("a.md", "alpha");
-    await readAllCached(vaultDir, ["a.md"]);
-    await flushNow(vaultDir);
-
-    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
-    const stat = await fs.stat(snap);
-    expect(stat.mode & 0o777).toBe(0o600);
-  });
-
-  it("rehydrates from disk on a fresh process (simulated via clearCache)", async () => {
-    await write("a.md", "alpha");
-    await write("b.md", "beta");
-    await readAllCached(vaultDir, ["a.md", "b.md"]);
-    await flushNow(vaultDir);
-    // Drop in-memory cache only — snapshot stays on disk.
-    await clearCache(vaultDir);
-    const result = await readAllCached(vaultDir, ["a.md", "b.md"]);
-    // Both files should hit the rehydrated snapshot since mtime is unchanged.
-    expect(result.cacheHits).toBe(2);
-    expect(result.cacheMisses).toBe(0);
-    expect(result.contents.get("a.md")).toBe("alpha");
-  });
-
-  it("ignores snapshots larger than the persisted cache cap before rehydrating", async () => {
-    setMaxPersistedBytesForTests(256);
-    await write("a.md", "fresh");
-    const fullPath = path.join(vaultDir, "a.md");
+  async function writeLegacySnapshot(relPath: string, content: string): Promise<void> {
+    const fullPath = path.join(vaultDir, relPath);
     const stat = await fs.stat(fullPath);
-    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
+    const snap = snapshotPath();
     await fs.mkdir(path.dirname(snap), { recursive: true });
     await fs.writeFile(
       snap,
@@ -156,90 +120,60 @@ describe("persistent cache", () => {
         version: 1,
         vaultRoot: path.resolve(vaultDir),
         entries: {
-          "a.md": {
+          [relPath]: {
             fullPath,
-            content: "stale".repeat(100),
+            content,
             mtimeMs: stat.mtimeMs,
           },
         },
       }),
       "utf-8",
     );
+  }
 
+  it("does not write note bodies to a disk snapshot", async () => {
+    await write("a.md", "alpha");
+    await readAllCached(vaultDir, ["a.md"]);
+    await flushNow(vaultDir);
+
+    await expect(fs.access(snapshotPath())).rejects.toThrow();
+  });
+
+  it("ignores and removes forged legacy snapshots before reading notes", async () => {
+    await write("a.md", "fresh");
+    await writeLegacySnapshot("a.md", "forged body from cache");
     await clearCache(vaultDir);
+
     const result = await readAllCached(vaultDir, ["a.md"]);
 
     expect(result.cacheHits).toBe(0);
     expect(result.cacheMisses).toBe(1);
     expect(result.contents.get("a.md")).toBe("fresh");
+    await expect(fs.access(snapshotPath())).rejects.toThrow();
   });
 
-  it("invalidates rehydrated entries when mtime changed since the snapshot", async () => {
-    await write("a.md", "v1");
-    await readAllCached(vaultDir, ["a.md"]);
-    await flushNow(vaultDir);
-    await clearCache(vaultDir);
-    // Mutate the file outside the cache's view.
-    await new Promise((r) => setTimeout(r, 10));
-    await write("a.md", "v2");
-    const result = await readAllCached(vaultDir, ["a.md"]);
-    expect(result.contents.get("a.md")).toBe("v2");
-    expect(result.cacheMisses).toBe(1);
-    expect(result.cacheHits).toBe(0);
-  });
-
-  it("ignores a snapshot whose vaultRoot doesn't match the current vault", async () => {
+  it("removes legacy snapshots when clearCache(removeSnapshot: true)", async () => {
     await write("a.md", "alpha");
-    await readAllCached(vaultDir, ["a.md"]);
-    await flushNow(vaultDir);
-    // Tamper with the snapshot to simulate a moved vault.
-    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
-    const raw = await fs.readFile(snap, "utf-8");
-    const parsed = JSON.parse(raw);
-    parsed.vaultRoot = "/some/other/path";
-    await fs.writeFile(snap, JSON.stringify(parsed), "utf-8");
-    await clearCache(vaultDir);
-    const result = await readAllCached(vaultDir, ["a.md"]);
-    // Snapshot was discarded → file is re-read, not served from rehydration.
-    expect(result.cacheMisses).toBe(1);
-  });
+    await writeLegacySnapshot("a.md", "alpha");
 
-  it("respects OBSIDIAN_CACHE_DISABLED=1 (no snapshot written)", async () => {
-    process.env.OBSIDIAN_CACHE_DISABLED = "1";
-    try {
-      await write("a.md", "alpha");
-      await readAllCached(vaultDir, ["a.md"]);
-      await flushNow(vaultDir);
-      const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
-      await expect(fs.access(snap)).rejects.toThrow();
-    } finally {
-      delete process.env.OBSIDIAN_CACHE_DISABLED;
-    }
-  });
-
-  it("removes snapshot when clearCache(removeSnapshot: true)", async () => {
-    await write("a.md", "alpha");
-    await readAllCached(vaultDir, ["a.md"]);
-    await flushNow(vaultDir);
-    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
-    await fs.access(snap); // exists
     await clearCache(vaultDir, { removeSnapshot: true });
-    await expect(fs.access(snap)).rejects.toThrow();
+
+    await expect(fs.access(snapshotPath())).rejects.toThrow();
   });
 
-  it("does not persist through a .obsidian/cache symlink outside the vault", async () => {
+  it("does not follow a .obsidian/cache symlink outside the vault while cleaning up", async () => {
     const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-outside-"));
     try {
       const linked = await linkCacheDirOutside(outsideDir);
       if (!linked) return;
 
+      const outsideSnapshot = path.join(outsideDir, "mcp-pro-index-cache.json");
+      await fs.writeFile(outsideSnapshot, "outside cache", "utf-8");
       await write("a.md", "alpha");
       await readAllCached(vaultDir, ["a.md"]);
       await flushNow(vaultDir);
 
-      await expect(
-        fs.access(path.join(outsideDir, "mcp-pro-index-cache.json")),
-      ).rejects.toThrow();
+      await expect(fs.readFile(outsideSnapshot, "utf-8")).resolves.toBe("outside cache");
     } finally {
       await fs.rm(outsideDir, { recursive: true, force: true });
     }
