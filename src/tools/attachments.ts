@@ -528,10 +528,21 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const limit = maxBytes ?? DEFAULT_GET_ATTACHMENT_LIMIT;
         const fullPath = await resolveVaultPathSafe(vaultPath, relPath);
         await assertNoSymlinkAttachmentPath(vaultPath, fullPath, relPath);
+        const preOpenStat = await fs.stat(fullPath);
+        if (!preOpenStat.isFile()) {
+          return errorResult(
+            `Attachment "${displayAttachmentValue(relPath)}" is not a regular file.`,
+          );
+        }
         const handle = await fs.open(fullPath, "r");
         let bytes: Buffer;
         try {
           const stat = await handle.stat();
+          if (!stat.isFile()) {
+            return errorResult(
+              `Attachment "${displayAttachmentValue(relPath)}" is not a regular file.`,
+            );
+          }
           if (stat.size > limit) {
             return errorResult(
               `Attachment "${displayAttachmentValue(relPath)}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
