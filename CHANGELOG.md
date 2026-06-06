@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Canvas helpers now reject oversized `.canvas` files before reading, parsing, or updating them, and `read_canvas` keeps large summaries bounded while still reporting total node and edge counts.
 - `read_base` and `query_base` now reject oversized `.base` files before reading them, preventing the parser cap from allocating large files or broadening queries through an empty parsed Base.
 - Recoverable `delete_note` now validates each `.trash` parent directory before creating deeper folders, preventing symlinked trash ancestors from creating directories outside the vault.
 - Note read/edit helpers, `get_note`, and `obsidian://note/...` resources now reject non-`.md` vault files, keeping attachments, Canvas files, and Bases on their dedicated tool paths.
