@@ -46,6 +46,17 @@ function lockKey(fullPath: string): string {
   return CASE_INSENSITIVE_FS ? fullPath.toLowerCase() : fullPath;
 }
 
+function rejectWindowsAlternateDataStreams(relativePath: string): void {
+  if (!IS_WIN32) return;
+  const badSegment = relativePath
+    .replace(/\\/g, "/")
+    .split("/")
+    .find((seg) => seg.includes(":"));
+  if (badSegment) {
+    throw new Error(`Invalid path: "${badSegment}" uses Windows alternate data stream syntax`);
+  }
+}
+
 // Synthetic lock key used to serialize vault-wide bulk-write operations
 // (move_note + delete_note with `removeReferences: true`, plus rename_tag
 // which scans every note and applies `updateNote` calls). Distinct from
@@ -244,6 +255,7 @@ export function resolveVaultPath(
       `Invalid path: must be vault-relative, not absolute (${relativePath})`,
     );
   }
+  rejectWindowsAlternateDataStreams(relativePath);
   assertAllowed(relativePath, access);
   const resolved = path.resolve(vaultPath, relativePath);
   const resolvedVault = path.resolve(vaultPath);
@@ -390,6 +402,7 @@ export async function resolveVaultInternalPathSafe(
       `Invalid path: must be vault-relative, not absolute (${relativePath})`,
     );
   }
+  rejectWindowsAlternateDataStreams(relativePath);
   const resolved = path.resolve(vaultPath, relativePath);
   const resolvedVault = path.resolve(vaultPath);
   if (!resolved.startsWith(resolvedVault + path.sep) && resolved !== resolvedVault) {
