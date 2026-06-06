@@ -552,7 +552,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         // plain text instead of as an image embed.
         if (mime === "image/svg+xml") {
           const svgText = bytes.toString("utf-8");
-          const trustLabel = `attachment text: ${relPath}`;
+          const trustLabel = "get_attachment text";
           return {
             content: [
               {
