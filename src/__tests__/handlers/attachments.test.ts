@@ -342,6 +342,19 @@ describe("attachments handlers — get_attachment", () => {
     expect(text).not.toContain(Buffer.from("PNG-hidden-dir").toString("base64"));
   });
 
+  it("rejects directory attachment paths before reading bytes", async () => {
+    await fs.mkdir(path.join(env.vaultDir, "assets", "not-file.bin"));
+
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "assets/not-file.bin" },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('Attachment "assets/not-file.bin" is not a regular file.');
+  });
+
   itSymlink("rejects symlinked attachment files skipped by the inventory", async () => {
     await fs.symlink(
       path.join(env.vaultDir, "assets", "used-image.png"),

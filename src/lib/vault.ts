@@ -1,5 +1,5 @@
 import fs from "fs/promises";
-import { constants as fsConstants } from "fs";
+import { constants as fsConstants, type Stats } from "fs";
 import path from "path";
 import { randomBytes } from "crypto";
 import { StringDecoder } from "string_decoder";
@@ -55,11 +55,26 @@ export function assertNoteFileSize(relativePath: string, size: number): void {
   }
 }
 
+function assertRegularFile(relativePath: string, stats: Stats): void {
+  if (!stats.isFile()) {
+    throw new Error(`Not a regular file: ${relativePath}`);
+  }
+}
+
+async function assertResolvedRegularFile(
+  fullPath: string,
+  relativePath: string,
+): Promise<Stats> {
+  const stats = await fs.stat(fullPath);
+  assertRegularFile(relativePath, stats);
+  return stats;
+}
+
 async function assertResolvedNoteFileSize(
   fullPath: string,
   relativePath: string,
 ): Promise<void> {
-  const stats = await fs.stat(fullPath);
+  const stats = await assertResolvedRegularFile(fullPath, relativePath);
   assertNoteFileSize(relativePath, stats.size);
 }
 
@@ -571,6 +586,7 @@ export async function readNoteLineRange(
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   let handle: fs.FileHandle | undefined;
   try {
+    await assertResolvedRegularFile(fullPath, relativePath);
     handle = await fs.open(fullPath, "r");
     const decoder = new StringDecoder("utf8");
     const buffer = Buffer.allocUnsafe(64 * 1024);
