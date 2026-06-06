@@ -548,7 +548,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           if (r.context) {
             outputLines.push(indentBlock(
               `→ ${formatUntrustedVaultContent(
-                `backlink context: ${r.source}:${r.line}`,
+                "get_backlinks context",
                 displayLinkValue(r.context),
               )}`,
               "  ",
@@ -640,7 +640,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
               `${displayLinkValue(r.resolvedPath ?? "")}${r.isEmbed ? " (embed)" : ""}`,
               "    ",
             ));
-            pushUntrustedLinkTarget(lines, `outlink target: ${resolvedSource}`, r.target, "    ");
+            pushUntrustedLinkTarget(lines, "get_outlinks target", r.target, "    ");
           }
         }
 
@@ -648,7 +648,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           lines.push("\nBroken links:");
           for (const r of broken) {
             lines.push(`  - unresolved${r.isEmbed ? " (embed)" : ""}`);
-            pushUntrustedLinkTarget(lines, `broken outlink target: ${resolvedSource}`, r.target, "    ");
+            pushUntrustedLinkTarget(lines, "get_outlinks broken target", r.target, "    ");
           }
         }
 
@@ -846,7 +846,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
             if (shown >= maxResults) break;
             const lineStr = bl.line > 0 ? ` (line ${bl.line})` : "";
             lines.push(`  - broken link${lineStr}`);
-            pushUntrustedLinkTarget(lines, `broken link target: ${sourcePath}:${bl.line}`, bl.targetLink, "    ");
+            pushUntrustedLinkTarget(lines, "find_broken_links target", bl.targetLink, "    ");
             shown++;
           }
           lines.push("");
