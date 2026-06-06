@@ -63,6 +63,30 @@ const REDACTED_ALIAS_LABEL = "<vault alias>";
 function displayLinkValue(value: string): string {
   return escapeControlChars(value);
 }
+
+function pushUntrustedLinkTarget(
+  lines: string[],
+  label: string,
+  target: string,
+  indent: string,
+): void {
+  lines.push(`${indent}Target:`);
+  lines.push(indentBlock(
+    formatUntrustedVaultContent(label, displayLinkValue(target)),
+    `${indent}  `,
+  ));
+}
+
+function textWithUntrustedMeta(text: string, label: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text,
+      _meta: untrustedVaultContentMeta(label),
+    }],
+  };
+}
+
 const graphCache = new Map<string, CachedGraph>();
 
 // Map iteration order = insertion order; delete+set to refresh recency.
@@ -597,20 +621,20 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         if (valid.length > 0) {
           lines.push("Valid links:");
           for (const r of valid) {
-            const embedPrefix = r.isEmbed ? "📎 " : "";
-            lines.push(`  ${embedPrefix}[[${displayLinkValue(r.target)}]] → ${displayLinkValue(r.resolvedPath ?? "")}`);
+            lines.push(`  - resolved: ${displayLinkValue(r.resolvedPath ?? "")}${r.isEmbed ? " (embed)" : ""}`);
+            pushUntrustedLinkTarget(lines, `outlink target: ${resolvedSource}`, r.target, "    ");
           }
         }
 
         if (broken.length > 0) {
           lines.push("\nBroken links:");
           for (const r of broken) {
-            const embedPrefix = r.isEmbed ? "📎 " : "";
-            lines.push(`  ${embedPrefix}[[${displayLinkValue(r.target)}]] → (not found)`);
+            lines.push(`  - unresolved${r.isEmbed ? " (embed)" : ""}`);
+            pushUntrustedLinkTarget(lines, `broken outlink target: ${resolvedSource}`, r.target, "    ");
           }
         }
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return textWithUntrustedMeta(lines.join("\n"), "get_outlinks targets");
       } catch (err) {
         log.error("get_outlinks failed", { tool: "get_outlinks", err: err as Error });
         return errorResult(`Error getting outlinks: ${sanitizeError(err)}`);
@@ -789,7 +813,8 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           for (const bl of brokenLinks) {
             if (shown >= maxResults) break;
             const lineStr = bl.line > 0 ? ` (line ${bl.line})` : "";
-            lines.push(`  - [[${displayLinkValue(bl.targetLink)}]]${lineStr}`);
+            lines.push(`  - broken link${lineStr}`);
+            pushUntrustedLinkTarget(lines, `broken link target: ${sourcePath}:${bl.line}`, bl.targetLink, "    ");
             shown++;
           }
           lines.push("");
@@ -800,7 +825,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
         lines.push(`Total: ${totalBroken} broken link(s) across ${brokenBySource.size} file(s)`);
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return textWithUntrustedMeta(lines.join("\n"), "find_broken_links targets");
       } catch (err) {
         log.error("find_broken_links failed", { tool: "find_broken_links", err: err as Error });
         return errorResult(`Error finding broken links: ${sanitizeError(err)}`);
