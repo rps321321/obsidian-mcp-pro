@@ -35,6 +35,140 @@ function errorResult(text: string) {
 /** Escape control characters before embedding values in section-tool display text. */
 const displaySectionValue = escapeControlChars;
 
+function isAsciiDigit(ch: string): boolean {
+  return ch >= "0" && ch <= "9";
+}
+
+function regexQuantifierLength(pattern: string, index: number): number {
+  const ch = pattern.charAt(index);
+  if (ch === "*" || ch === "+" || ch === "?") return 1;
+  if (ch !== "{") return 0;
+
+  let i = index + 1;
+  let digits = 0;
+  while (i < pattern.length && isAsciiDigit(pattern.charAt(i))) {
+    i += 1;
+    digits += 1;
+  }
+  if (digits === 0) return 0;
+  if (pattern.charAt(i) === "}") return i - index + 1;
+  if (pattern.charAt(i) !== ",") return 0;
+
+  i += 1;
+  while (i < pattern.length && isAsciiDigit(pattern.charAt(i))) {
+    i += 1;
+  }
+  return pattern.charAt(i) === "}" ? i - index + 1 : 0;
+}
+
+function regexQuantifierIsUnboundedRepeat(pattern: string, index: number): boolean {
+  const ch = pattern.charAt(index);
+  if (ch === "*" || ch === "+") return true;
+  if (ch !== "{") return false;
+
+  let i = index + 1;
+  let digits = 0;
+  while (i < pattern.length && isAsciiDigit(pattern.charAt(i))) {
+    i += 1;
+    digits += 1;
+  }
+  if (digits === 0 || pattern.charAt(i) !== ",") return false;
+
+  i += 1;
+  let maxDigits = 0;
+  while (i < pattern.length && isAsciiDigit(pattern.charAt(i))) {
+    i += 1;
+    maxDigits += 1;
+  }
+  return maxDigits === 0 && pattern.charAt(i) === "}";
+}
+
+function regexCharacterClassEnd(pattern: string, openIndex: number): number {
+  for (let i = openIndex + 1; i < pattern.length; i += 1) {
+    const ch = pattern.charAt(i);
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "]") return i;
+  }
+  return pattern.length - 1;
+}
+
+function isRegexAtomChar(ch: string): boolean {
+  return ch !== "" && !"|^$*+?{}()".includes(ch);
+}
+
+function hasQuantifiedAtom(pattern: string): boolean {
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern.charAt(i);
+    if (ch === "\\") {
+      if (regexQuantifierLength(pattern, i + 2) > 0) return true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      const end = regexCharacterClassEnd(pattern, i);
+      if (regexQuantifierLength(pattern, end + 1) > 0) return true;
+      i = end;
+      continue;
+    }
+    if (ch === ")" && regexQuantifierLength(pattern, i + 1) > 0) {
+      return true;
+    }
+    if (isRegexAtomChar(ch) && regexQuantifierLength(pattern, i + 1) > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function regexGroupBodyStart(pattern: string, openIndex: number): number {
+  if (pattern.charAt(openIndex + 1) !== "?") return openIndex + 1;
+
+  const kind = pattern.charAt(openIndex + 2);
+  if (kind === ":" || kind === "=" || kind === "!") return openIndex + 3;
+  if (kind !== "<") return openIndex + 2;
+
+  const lookbehindKind = pattern.charAt(openIndex + 3);
+  if (lookbehindKind === "=" || lookbehindKind === "!") return openIndex + 4;
+
+  const namedGroupEnd = pattern.indexOf(">", openIndex + 3);
+  return namedGroupEnd === -1 ? openIndex + 2 : namedGroupEnd + 1;
+}
+
+function hasUnsafeNestedQuantifier(pattern: string): boolean {
+  const groups: Array<{ bodyStart: number }> = [];
+
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern.charAt(i);
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      i = regexCharacterClassEnd(pattern, i);
+      continue;
+    }
+    if (ch === "(") {
+      groups.push({ bodyStart: regexGroupBodyStart(pattern, i) });
+      continue;
+    }
+    if (ch !== ")") continue;
+
+    const group = groups.pop();
+    if (
+      group !== undefined &&
+      regexQuantifierIsUnboundedRepeat(pattern, i + 1) &&
+      hasQuantifiedAtom(pattern.slice(group.bodyStart, i))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function splitHeadingPath(section: string): string[] {
   return section.split("/").map((s) => s.trim()).filter(Boolean);
 }
@@ -277,17 +411,15 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
     },
     async ({ path: notePath, find, replace, regex, flags, expectedCount }) => {
       // Defense in depth: arbitrary regex from LLM input is inherently risky.
-      // The validation below caps obvious foot-guns (bad flags, huge patterns,
-      // huge inputs) but true bulletproofing against catastrophic backtracking
-      // requires a linear-time engine (re2) or running the match in a worker
-      // thread we can kill. We do neither here, so callers should still treat
-      // `regex: true` as a privileged operation.
+      // The validation below caps obvious foot-guns, rejects known
+      // backtracking-prone shapes, and keeps `regex: true` a deliberate choice.
       const FIND_MAX_LEN = 4096;
       const INPUT_MAX_LEN = 1_000_000;
       const ALLOWED_FLAGS = new Set(["g", "i", "m", "s", "u", "y"]);
 
       try {
         let pattern: RegExp;
+        let unsafeRegexPattern = false;
         if (regex) {
           if (find.length > FIND_MAX_LEN) {
             return errorResult(
@@ -316,13 +448,16 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
               "Error replacing in note: regex flags must include 'g' for replace_in_note.",
             );
           }
+          let compiledPattern: RegExp;
           try {
-            pattern = new RegExp(find, f);
+            compiledPattern = new RegExp(find, f);
           } catch (syntaxErr) {
             return errorResult(
               `Error replacing in note: invalid regex pattern: ${sanitizeError(syntaxErr)}`,
             );
           }
+          unsafeRegexPattern = hasUnsafeNestedQuantifier(find);
+          pattern = compiledPattern;
         } else {
           const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           pattern = new RegExp(escaped, "g");
@@ -336,6 +471,11 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           if (existing.length > INPUT_MAX_LEN) {
             throw new Error(
               `note is too large for replace_in_note (${existing.length} > ${INPUT_MAX_LEN} chars). Use a more targeted tool.`,
+            );
+          }
+          if (unsafeRegexPattern) {
+            throw new Error(
+              "unsafe regex pattern: nested quantifiers can cause catastrophic backtracking. Use a simpler pattern.",
             );
           }
           const matches = existing.match(pattern);
