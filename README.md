@@ -118,7 +118,7 @@ The server exposes five starter prompts that clients (Claude Desktop, Cursor) su
 - **Folder-scoped permissions**: `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists gate every tool at the path-resolution choke point
 - **In-memory mtime cache** speeds repeated vault scans within a running process without persisting note bodies to disk
 - **Progress notifications** (`notifications/progress`) on `rename_tag`, `find_unused_attachments`, and `index_vault` when the client subscribes via `_meta.progressToken`
-- **Elicitation** prompts the user for typed confirmation on `delete_note(permanent: true)`, `move_note` reference rewrites, and `rename_tag` bulk writes when the client supports it
+- **Hard bulk-write latches** require `confirmPath` for default `move_note` reference rewrites, `confirmTag` for non-dry-run `rename_tag`, and `confirm=true` for permanent deletion; clients with elicitation support also get typed prompts
 
 ---
 
@@ -368,7 +368,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **YAML parser boundaries** — Obsidian properties are parsed only from `---` YAML delimiter lines; non-YAML gray-matter language blocks stay as body text, oversized frontmatter is skipped on reads and refused for metadata updates, and note/Base YAML containing anchors or aliases is not parsed.
 - **Semantic index freshness** — `search_semantic` and `find_similar_notes` re-check current note content hashes before returning stored snippets or source-note embeddings, pruning stale cache entries instead of surfacing old note text.
 - **Semantic indexing confirmation** — `index_vault` refuses to read and embed vault notes unless the call includes `confirm: "send-vault-text-to-embedding-provider"`, making provider-bound note transfer explicit.
-- **Bulk-write confirmations** — clients that support MCP elicitation are asked to re-type the destination path or new tag before `move_note` rewrites references or `rename_tag` writes across the vault. Dry runs and clients without elicitation keep their existing behavior.
+- **Bulk-write confirmations** — `move_note` reference rewrites require `confirmPath` to match the destination path, and non-dry-run `rename_tag` requires `confirmTag` to match the new tag. Clients that support MCP elicitation are also asked to re-type the destination path or new tag before the rewrite runs.
 - **Atomic writes** — every note write (`create_note`, `append`, `prepend`, `update_frontmatter`, canvas mutations) stages content to a sibling temp file then renames onto the target, so a crash or kill mid-write never leaves a truncated file. Combined with per-path locks for the full read-modify-write cycle, concurrent callers can't lose each other's updates. The `install` subcommand uses the same pattern and keeps a backup of the previous config.
 - **Rate limiting + CORS allowlist** — optional `--rate-limit` caps per-IP request volume; `--allow-origin` restricts browser-facing CORS and refuses `*` unless bearer auth is enabled. `/health` and `/version` stay reachable under load for monitoring.
 - **Request timeout** — HTTP POST requests are capped at 2 minutes of wall-clock time. Long-lived SSE GET streams are exempt so idle clients aren't reaped.
@@ -413,7 +413,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 | `prepend_to_note` | Prepend content after frontmatter | `path`, `content` |
 | `update_frontmatter` | Update frontmatter properties on a note | `path`, `properties` |
 | `create_daily_note` | Create today's daily note from template | `date`, `content`, `templatePath` |
-| `move_note` | Move or rename a note; rewrites references across the vault | `oldPath`, `newPath`, `updateLinks` |
+| `move_note` | Move or rename a note; rewrites references across the vault | `oldPath`, `newPath`, `updateLinks`, `confirmPath` |
 | `delete_note` | Delete a note (trash by default); optional elicitation on permanent | `path`, `permanent`, `removeReferences` |
 
 ### Section-level edits
@@ -432,7 +432,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 |------|-------------|----------------|
 | `get_tags` | Get all tags and their usage counts | `sortBy` |
 | `search_by_tag` | Find all notes with a specific tag | `tag`, `includeContent` |
-| `rename_tag` | Rewrite inline + frontmatter occurrences vault-wide; hierarchical | `oldName`, `newName`, `hierarchical`, `dryRun` |
+| `rename_tag` | Rewrite inline + frontmatter occurrences vault-wide; hierarchical | `oldName`, `newName`, `hierarchical`, `dryRun`, `confirmTag` |
 
 ### Links & graph
 
@@ -702,7 +702,7 @@ npm run lint:fix   # auto-fix
 - **Quick wins.** `get_recent_notes`, `get_vault_stats`, `resolve_alias`.
 - **MCP prompts.** `daily-review`, `weekly-rollup`, `find-stale-notes`, `extract-action-items`, `build-moc`.
 - **Progress notifications** on `rename_tag`, `find_unused_attachments`, `index_vault`.
-- **Elicitation** on `delete_note(permanent: true)`, `move_note` reference rewrites, and `rename_tag` bulk writes for clients that support it.
+- **Bulk-write confirmation latches** on `delete_note(permanent: true)`, `move_note` reference rewrites, and non-dry-run `rename_tag`, plus elicitation prompts for clients that support them.
 - **eslint** wired up with typescript-eslint flat config; `npm run lint` and `lint:fix`.
 
 **v1.7.0** — `delete_note` reference handling:
