@@ -137,15 +137,24 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
     lines.push("--- Edges ---");
     const visibleEdges = data.edges.slice(0, CANVAS_SUMMARY_EDGE_LIMIT);
     for (const edge of visibleEdges) {
-      const label = edge.label ? ` [${displayCanvasValue(edge.label)}]` : "";
       const sides = [
         edge.fromSide ? `from-side=${displayCanvasValue(edge.fromSide)}` : "",
         edge.toSide ? `to-side=${displayCanvasValue(edge.toSide)}` : "",
       ].filter(Boolean).join(" ");
       const sideInfo = sides ? ` (${sides})` : "";
       lines.push(
-        `  ${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${label}${sideInfo}`,
+        `  ${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${sideInfo}`,
       );
+      if (edge.label) {
+        lines.push("    label:");
+        lines.push(indentBlock(
+          formatUntrustedVaultContent(
+            `canvas edge label: ${canvasPath}#${edge.id}`,
+            displayCanvasValue(edge.label),
+          ),
+          "      ",
+        ));
+      }
     }
     const omittedEdges = data.edges.length - visibleEdges.length;
     if (omittedEdges > 0) {

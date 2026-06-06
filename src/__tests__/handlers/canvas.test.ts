@@ -41,7 +41,9 @@ describe("canvas handlers — read_canvas", () => {
     expect(text).toContain("Hello canvas");
     expect(text).toContain("[n2] type=file");
     expect(text).toContain("note-a.md");
-    expect(text).toContain("n1 -> n2 [refs]");
+    expect(text).toContain("n1 -> n2");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: boards/test.canvas#e1]");
+    expect(text).toContain("refs");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: boards/test.canvas#n1]");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
@@ -235,7 +237,9 @@ describe("canvas handlers — read_canvas", () => {
     expect(text).toContain("content:");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: dirty.canvas#bad\\nnode]");
     expect(text).toContain("first\\nsecond");
-    expect(text).toContain("bad\\nnode -> clean [label\\nspoof]");
+    expect(text).toContain("bad\\nnode -> clean");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: dirty.canvas#edge-1]");
+    expect(text).toContain("label\\nspoof");
     expect(text).not.toContain("bad\nnode");
     expect(text).not.toContain("label\nspoof");
   });
