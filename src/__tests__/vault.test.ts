@@ -222,6 +222,17 @@ describe("readNote", () => {
     );
   });
 
+  it("rejects markdown directories before reading note content", async () => {
+    await fs.mkdir(path.join(vaultDir, "directory.md"));
+
+    await expect(readNote(vaultDir, "directory.md")).rejects.toThrow(
+      "Not a regular file: directory.md",
+    );
+    await expect(readNoteLineRange(vaultDir, "directory.md", 1, 1)).rejects.toThrow(
+      "Not a regular file: directory.md",
+    );
+  });
+
   it("still streams line fragments from notes over the full-read cap", async () => {
     setMaxNoteFileBytesForTests(10);
     await fs.writeFile(
@@ -344,6 +355,20 @@ describe("writeNote", () => {
     );
     await expect(fs.readFile(path.join(vaultDir, "oversized.md"), "utf-8"))
       .resolves.toBe(oversized);
+  });
+
+  it("refuses to read-modify-write markdown directories", async () => {
+    await fs.mkdir(path.join(vaultDir, "directory.md"));
+
+    await expect(updateNote(vaultDir, "directory.md", () => "small")).rejects.toThrow(
+      "Not a regular file: directory.md",
+    );
+    await expect(appendToNote(vaultDir, "directory.md", "tail")).rejects.toThrow(
+      "Not a regular file: directory.md",
+    );
+    await expect(prependToNote(vaultDir, "directory.md", "head")).rejects.toThrow(
+      "Not a regular file: directory.md",
+    );
   });
 });
 
