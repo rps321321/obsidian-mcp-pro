@@ -80,6 +80,18 @@ describe("resolveVaultPath", () => {
     );
   });
 
+  itWin32("should block trailing dot and space aliases", () => {
+    expect(() => resolveVaultPath(vaultDir, "notes/secret.md.")).toThrow(
+      /space or period/i,
+    );
+    expect(() => resolveVaultPath(vaultDir, "notes/secret.md ")).toThrow(
+      /space or period/i,
+    );
+    expect(() => resolveVaultPath(vaultDir, ".obsidian./config.json")).toThrow(
+      /space or period/i,
+    );
+  });
+
   it("should block sibling directory prefix attack", () => {
     // If vault is /tmp/vault, a path resolving to /tmp/vault-evil should fail
     const siblingDir = vaultDir + "-evil";
