@@ -189,8 +189,8 @@ npx -y obsidian-mcp-pro --transport=http --token=your-secret
 ```
 
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
-If `--host` is set to a non-loopback address, startup requires `--token=<secret>` or
-`MCP_HTTP_TOKEN`.
+If `--host` is set to a non-loopback address or `--allow-origin=*` is configured,
+startup requires `--token=<secret>` or `MCP_HTTP_TOKEN`.
 
 > [!WARNING]
 > **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. The server refuses non-loopback binds without a bearer token, but if you need remote access:
@@ -205,7 +205,7 @@ Additional hardening flags:
 
 | Flag | Purpose |
 |------|---------|
-| `--allow-origin=<csv>` | Restrict CORS to an allowlist (e.g. `https://claude.ai,https://chat.openai.com`). Default is localhost-only. |
+| `--allow-origin=<csv>` | Restrict CORS to an allowlist (e.g. `https://claude.ai,https://chat.openai.com`). Default is localhost-only; `*` requires bearer auth. |
 | `--rate-limit=<n>` | Cap requests per minute per client IP. `/health` and `/version` are exempt. Default is unlimited. |
 
 Operational endpoints (no auth required):
@@ -345,7 +345,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **Note/file boundary** — note read and edit surfaces only target `.md` files; attachments, Canvas files, and Bases stay on their dedicated tools with their own caps and parsers.
 - **Full-note cap** — full `.md` note reads and read-modify-write helpers refuse notes over 5 MiB before materializing them; `get_note` line fragments still stream from large notes for targeted inspection.
 - **Excluded directories** — `.obsidian`, `.git`, and `.trash` are pruned at traversal time and at resolution time, so nested occurrences never leak back to clients.
-- **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time. Malformed request URL or Host data is rejected before routing.
+- **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time. Non-loopback binds and wildcard CORS require bearer auth. Malformed request URL or Host data is rejected before routing.
 - **Attachment safety** — executable extensions are blocked, SVGs are returned as `text/plain`, and active text formats such as HTML/XML/CSS are served with `text/plain` resource metadata.
 - **Canvas link safety** — Canvas link nodes added through the server accept only absolute `http://` and `https://` URLs, preventing local file and application-protocol links from being persisted by tool calls.
 - **Regex edit safety** — `replace_in_note` caps regex pattern/input size and rejects backtracking-prone repeated groups before matching.
@@ -353,7 +353,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **YAML parser boundaries** — Obsidian properties are parsed only from `---` YAML delimiter lines; non-YAML gray-matter language blocks stay as body text, oversized frontmatter is skipped on reads and refused for metadata updates, and note/Base YAML containing anchors or aliases is not parsed.
 - **Bulk-write confirmations** — clients that support MCP elicitation are asked to re-type the destination path or new tag before `move_note` rewrites references or `rename_tag` writes across the vault. Dry runs and clients without elicitation keep their existing behavior.
 - **Atomic writes** — every note write (`create_note`, `append`, `prepend`, `update_frontmatter`, canvas mutations) stages content to a sibling temp file then renames onto the target, so a crash or kill mid-write never leaves a truncated file. Combined with per-path locks for the full read-modify-write cycle, concurrent callers can't lose each other's updates. The `install` subcommand uses the same pattern and keeps a backup of the previous config.
-- **Rate limiting + CORS allowlist** — optional `--rate-limit` caps per-IP request volume; `--allow-origin` restricts browser-facing CORS. `/health` and `/version` stay reachable under load for monitoring.
+- **Rate limiting + CORS allowlist** — optional `--rate-limit` caps per-IP request volume; `--allow-origin` restricts browser-facing CORS and refuses `*` unless bearer auth is enabled. `/health` and `/version` stay reachable under load for monitoring.
 - **Request timeout** — HTTP POST requests are capped at 2 minutes of wall-clock time. Long-lived SSE GET streams are exempt so idle clients aren't reaped.
 - **Process supervision** — `uncaughtException` exits cleanly so systemd/Docker/npx supervisors can restart; `unhandledRejection` logs but doesn't kill the process.
 

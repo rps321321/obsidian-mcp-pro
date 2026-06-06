@@ -489,6 +489,30 @@ describe("regression: HTTP bearer token must not be empty", () => {
     await expect(startOnEphemeral({ bearerToken: "   " })).rejects.toThrow(/token.*empty/i);
   });
 
+  it("rejects wildcard CORS without bearer auth", async () => {
+    await expect(startOnEphemeral({ allowedOrigins: ["*"] })).rejects.toThrow(
+      /bearer token.*CORS.*all origins/i,
+    );
+  });
+
+  it("allows wildcard CORS when bearer auth is configured", async () => {
+    const handle = await startOnEphemeral({
+      allowedOrigins: ["*"],
+      bearerToken: "secret",
+    });
+    handles.push(handle);
+
+    const res = await rawRequest(handle.port, {
+      method: "OPTIONS",
+      path: "/mcp",
+      host: `127.0.0.1:${handle.port}`,
+      headers: { Origin: "https://attacker.example" },
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+
   it("rejects non-loopback binds without bearer auth", async () => {
     let leaked: HttpServerHandle | undefined;
     let err: unknown;
