@@ -412,6 +412,19 @@ export function setNoteChunks(
   state.dirty = true;
 }
 
+export function dropNoteChunks(vaultPath: string, notePath: string): boolean {
+  const state = stateFor(vaultPath);
+  const owned = state.byNote.get(notePath);
+  const hadHash = state.noteHashes.delete(notePath);
+  if (!owned && !hadHash) return false;
+  if (owned) {
+    for (const k of owned) state.byKey.delete(k);
+  }
+  state.byNote.delete(notePath);
+  state.dirty = true;
+  return true;
+}
+
 /** Drop chunks for notes that no longer exist in the vault. Called at the
  *  end of an index pass. */
 export function pruneMissingNotes(vaultPath: string, currentNotes: Iterable<string>): number {
@@ -420,15 +433,8 @@ export function pruneMissingNotes(vaultPath: string, currentNotes: Iterable<stri
   let pruned = 0;
   for (const note of Array.from(state.byNote.keys())) {
     if (live.has(note)) continue;
-    const owned = state.byNote.get(note);
-    if (owned) {
-      for (const k of owned) state.byKey.delete(k);
-    }
-    state.byNote.delete(note);
-    state.noteHashes.delete(note);
-    pruned++;
+    if (dropNoteChunks(vaultPath, note)) pruned++;
   }
-  if (pruned > 0) state.dirty = true;
   return pruned;
 }
 

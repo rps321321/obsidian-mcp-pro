@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes, resolveVaultPath, vaultRewriteLockKey, withFileLock } from "../lib/vault.js";
+import { listNotes, readNote, resolveVaultPath, vaultRewriteLockKey, withFileLock } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { chunkNote } from "../lib/chunker.js";
 import { getActiveProvider } from "../lib/embedding-providers.js";
@@ -10,6 +10,7 @@ import {
   hashText,
   noteIsCurrent,
   setNoteChunks,
+  dropNoteChunks,
   pruneMissingNotes,
   searchEmbeddings,
   getNoteEmbeddings,
@@ -17,6 +18,7 @@ import {
   snapshotForTests,
   invalidateIfIncompatible,
   type ChunkEmbedding,
+  type SearchHit,
 } from "../lib/embedding-store.js";
 import { makeProgressReporter } from "../lib/progress.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
@@ -51,6 +53,69 @@ function canReadStoredEmbeddingNote(vaultPath: string, notePath: string): boolea
   } catch {
     return false;
   }
+}
+
+async function storedNoteIsCurrent(vaultPath: string, notePath: string): Promise<boolean> {
+  try {
+    const content = await readNote(vaultPath, notePath);
+    return noteIsCurrent(vaultPath, notePath, hashText(content));
+  } catch {
+    return false;
+  }
+}
+
+async function pruneStaleStoredNote(vaultPath: string, notePath: string): Promise<boolean> {
+  const current = await storedNoteIsCurrent(vaultPath, notePath);
+  if (current) return false;
+  return dropNoteChunks(vaultPath, notePath);
+}
+
+interface FreshSearchOptions {
+  limit: number;
+  folder?: string;
+  excludeNotes?: ReadonlySet<string>;
+  filterNote?: (notePath: string) => boolean;
+}
+
+async function searchFreshEmbeddings(
+  vaultPath: string,
+  queryVector: number[],
+  options: FreshSearchOptions,
+): Promise<{ hits: SearchHit[]; stalePruned: number }> {
+  const hits: SearchHit[] = [];
+  const accepted = new Set<string>();
+  const stale = new Set<string>();
+  let stalePruned = 0;
+  for (let pass = 0; pass < 10 && hits.length < options.limit; pass++) {
+    const exclude = new Set<string>(options.excludeNotes);
+    for (const notePath of accepted) exclude.add(notePath);
+    for (const notePath of stale) exclude.add(notePath);
+    const batchLimit = Math.min(100, Math.max(options.limit - hits.length, 20));
+    const candidates = searchEmbeddings(vaultPath, queryVector, {
+      limit: batchLimit,
+      ...(options.folder ? { folder: options.folder } : {}),
+      ...(exclude.size > 0 ? { excludeNotes: exclude } : {}),
+      ...(options.filterNote ? { filterNote: options.filterNote } : {}),
+    });
+    if (candidates.length === 0) break;
+    let advanced = false;
+    for (const hit of candidates) {
+      if (accepted.has(hit.notePath)) continue;
+      if (await pruneStaleStoredNote(vaultPath, hit.notePath)) {
+        stale.add(hit.notePath);
+        stalePruned++;
+        advanced = true;
+        continue;
+      }
+      hits.push(hit);
+      accepted.add(hit.notePath);
+      advanced = true;
+      if (hits.length >= options.limit) break;
+    }
+    if (!advanced) break;
+  }
+  if (stalePruned > 0) await saveStore(vaultPath);
+  return { hits, stalePruned };
 }
 
 interface IndexProgress {
@@ -333,7 +398,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         if (!Array.isArray(vector)) {
           return errorResult("Provider did not return a vector for the query.");
         }
-        const hits = searchEmbeddings(vaultPath, vector, {
+        const { hits } = await searchFreshEmbeddings(vaultPath, vector, {
           limit,
           ...(folder ? { folder } : {}),
           filterNote: (notePath) => canReadStoredEmbeddingNote(vaultPath, notePath),
@@ -403,9 +468,15 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             `No embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` first (or check the path is correct).`,
           );
         }
+        if (await pruneStaleStoredNote(vaultPath, notePath)) {
+          await saveStore(vaultPath);
+          return errorResult(
+            `No current embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` to refresh it.`,
+          );
+        }
         const queryVector = buildSimilarNotesQueryVector(ownChunks);
         const exclude = new Set([notePath]);
-        const hits = searchEmbeddings(vaultPath, queryVector, {
+        const { hits } = await searchFreshEmbeddings(vaultPath, queryVector, {
           limit,
           excludeNotes: exclude,
           filterNote: (hitPath) => canReadStoredEmbeddingNote(vaultPath, hitPath),
