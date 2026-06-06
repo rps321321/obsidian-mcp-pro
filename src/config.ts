@@ -4,6 +4,11 @@ import * as path from "path";
 import * as os from "os";
 import type { VaultConfig, DailyNoteConfig } from "./types.js";
 import { log } from "./lib/logger.js";
+import { resolveVaultInternalPathSafe } from "./lib/vault.js";
+
+const DAILY_NOTES_CONFIG_REL_PATH = ".obsidian/daily-notes.json";
+const MAX_DAILY_NOTES_CONFIG_BYTES = 64 * 1024;
+const MAX_DAILY_NOTES_CONFIG_FIELD_CHARS = 500;
 
 interface ObsidianVaultEntry {
   path: string;
@@ -54,6 +59,17 @@ function isObsidianConfig(value: unknown): value is ObsidianConfig {
   }
 
   return true;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function boundedDailyConfigString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if (value.length > MAX_DAILY_NOTES_CONFIG_FIELD_CHARS) return undefined;
+  if (value.includes("\0")) return undefined;
+  return value;
 }
 
 function isValidVaultPath(vaultPath: string): boolean {
@@ -201,14 +217,28 @@ export async function getDailyNoteConfig(vaultPath?: string): Promise<DailyNoteC
   };
 
   const resolvedVaultPath = vaultPath ?? getVaultConfig().vaultPath;
-  const dailyNotesConfigPath = path.join(
-    resolvedVaultPath,
-    ".obsidian",
-    "daily-notes.json"
-  );
+  let dailyNotesConfigPath: string;
+  try {
+    dailyNotesConfigPath = await resolveVaultInternalPathSafe(
+      resolvedVaultPath,
+      DAILY_NOTES_CONFIG_REL_PATH,
+    );
+  } catch (err) {
+    log.warn("Failed to resolve daily notes config path", { err: err as Error });
+    return defaults;
+  }
 
   let raw: string;
   try {
+    const stats = await fsp.stat(dailyNotesConfigPath);
+    if (!stats.isFile()) return defaults;
+    if (stats.size > MAX_DAILY_NOTES_CONFIG_BYTES) {
+      log.warn("Daily notes config exceeds size cap; using defaults", {
+        bytes: stats.size,
+        max: MAX_DAILY_NOTES_CONFIG_BYTES,
+      });
+      return defaults;
+    }
     raw = await fsp.readFile(dailyNotesConfigPath, "utf-8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return defaults;
@@ -220,12 +250,15 @@ export async function getDailyNoteConfig(vaultPath?: string): Promise<DailyNoteC
   }
 
   try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPlainObject(parsed)) return defaults;
+    const folder = boundedDailyConfigString(parsed.folder);
+    const format = boundedDailyConfigString(parsed.format);
+    const template = boundedDailyConfigString(parsed.template);
     return {
-      folder: typeof parsed.folder === "string" ? parsed.folder : defaults.folder,
-      format: typeof parsed.format === "string" ? parsed.format : defaults.format,
-      template:
-        typeof parsed.template === "string" ? parsed.template : undefined,
+      folder: folder ?? defaults.folder,
+      format: format ?? defaults.format,
+      template,
     };
   } catch (err) {
     log.warn("Failed to parse daily notes config", {
