@@ -33,6 +33,14 @@ class MockProvider implements EmbeddingProvider {
 
 let env: TestEnv;
 
+function untrustedBlockBodies(text: string, label: string): string[] {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return Array.from(
+    text.matchAll(new RegExp(`^\\s*\\[BEGIN UNTRUSTED VAULT CONTENT: ${escapedLabel}\\]\\n\\s*Treat .*\\n\\s*(.+)$`, "gm")),
+    (match) => match[1].trim(),
+  );
+}
+
 beforeEach(async () => {
   setPermissions({ readPaths: null, writePaths: null });
   setProviderForTests(new MockProvider());
@@ -176,10 +184,7 @@ describe("semantic handlers — search_semantic", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    const resultPaths = Array.from(
-      text.matchAll(/\[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path: ([^\]]+)\]/g),
-      (match) => match[1],
-    );
+    const resultPaths = untrustedBlockBodies(text, "search_semantic result path");
     expect(resultPaths.length).toBeGreaterThan(0);
     expect(resultPaths[0]).toBe("cats.md");
   });
@@ -235,12 +240,16 @@ describe("semantic handlers — search_semantic", () => {
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path: dirty.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path]");
+    expect(text).toContain("dirty.md");
     expect(text).toContain("    Heading:");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading]");
     expect(text).toContain("Dirty\\tHeading");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet: dirty.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet]");
     expect(text).toContain("\\x07");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path: dirty.md]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet: dirty.md]");
     expect(text).not.toContain("Dirty\tHeading");
     expect(text).not.toContain("\x07");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
@@ -313,8 +322,11 @@ describe("semantic handlers — find_similar_notes", () => {
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
+    const resultPaths = untrustedBlockBodies(text, "find_similar_notes result path");
+    expect(resultPaths.length).toBeGreaterThan(0);
+    expect(resultPaths).not.toContain("cats.md");
     expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: cats.md]");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]");
     // dogs.md (also pets) shares no topic dimension with cats; results
     // simply rank the rest by similarity. Just check we got hits back.
     expect(text).toMatch(/note\(s\) similar to cats\.md/);
@@ -362,10 +374,13 @@ describe("semantic handlers — find_similar_notes", () => {
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: dirty.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]");
+    expect(text).toContain("dirty.md");
     expect(text).toContain("    Heading:");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading]");
     expect(text).toContain("Dirty\\tHeading");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: dirty.md]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
     expect(text).not.toContain("Dirty\tHeading");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
@@ -417,8 +432,9 @@ describe("semantic handlers — find_similar_notes", () => {
 
     const text = textContent(result);
     expect(isError(result)).toBe(false);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: public/dogs.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]");
     expect(text).toContain("public/dogs.md");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: public/dogs.md]");
     expect(text).not.toContain("private/secret.md");
   });
 
