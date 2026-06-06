@@ -233,6 +233,45 @@ describe("canvas handlers — add_canvas_node", () => {
     expect(isError(result)).toBe(false);
   });
 
+  it("rejects dangerous link URL schemes after URL normalization", async () => {
+    const canvasPath = path.join(env.vaultDir, "boards/test.canvas");
+    const before = await fs.readFile(canvasPath, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "add_canvas_node",
+      arguments: {
+        canvasPath: "boards/test.canvas",
+        type: "link",
+        content: "java\nscript:alert(1)",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/invalid url scheme|javascript/i);
+
+    const after = await fs.readFile(canvasPath, "utf-8");
+    expect(after).toBe(before);
+  });
+
+  it("accepts ordinary HTTPS link URLs", async () => {
+    const result = await env.client.callTool({
+      name: "add_canvas_node",
+      arguments: {
+        canvasPath: "boards/test.canvas",
+        type: "link",
+        content: "https://example.com/deep/path?q=1",
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const canvasRaw = await fs.readFile(
+      path.join(env.vaultDir, "boards/test.canvas"),
+      "utf-8",
+    );
+    const canvas = JSON.parse(canvasRaw) as { nodes: Array<{ url?: string }> };
+    expect(canvas.nodes.some((n) => n.url === "https://example.com/deep/path?q=1")).toBe(true);
+  });
+
   it("rejects color values that don't match the palette regex", async () => {
     const result = await env.client.callTool({
       name: "add_canvas_node",
