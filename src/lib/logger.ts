@@ -15,7 +15,7 @@
 // logging never becomes a failure mode of the server.
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { stripPaths, escapeControlChars } from "./errors.js";
+import { stripPaths, escapeControlChars, redactUrlSecrets } from "./errors.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 export type LogFormat = "text" | "json";
@@ -154,7 +154,7 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
   // detail because the operator is reading it on their own machine.
   if (mcpServer && level !== "silent") {
     const mcpLevel = MCP_LEVEL[level];
-    const data: Record<string, unknown> = { msg: escapeControlChars(stripPaths(msg)) };
+    const data: Record<string, unknown> = { msg: sanitizeForwardedString(msg) };
     if (fields && Object.keys(fields).length > 0) {
       Object.assign(data, sanitizeLogData(serialized));
     }
@@ -174,6 +174,10 @@ function sanitizeLogData(input: Record<string, unknown>): Record<string, unknown
     out[k] = sanitizeValue(k, v);
   }
   return out;
+}
+
+function sanitizeForwardedString(value: string): string {
+  return escapeControlChars(stripPaths(redactUrlSecrets(value)));
 }
 
 function isVaultPathField(key: string): boolean {
@@ -204,7 +208,7 @@ function looksLikeVaultPath(value: string): boolean {
 function sanitizeValue(key: string, v: unknown, redactVaultPath = false): unknown {
   const shouldRedactVaultPath = redactVaultPath || isVaultPathField(key);
   if (typeof v === "string") {
-    const stripped = stripPaths(v);
+    const stripped = stripPaths(redactUrlSecrets(v));
     if (stripped !== v) return escapeControlChars(stripped);
     return shouldRedactVaultPath && looksLikeVaultPath(stripped)
       ? "<vault path>"
