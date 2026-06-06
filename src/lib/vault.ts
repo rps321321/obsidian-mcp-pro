@@ -18,6 +18,9 @@ const SEARCH_MATCH_COUNT_WEIGHT = 0.25;
 const SEARCH_REPEATED_SAME_LINE_PENALTY = 0.5;
 const SEARCH_SNIPPET_MAX_CHARS = 240;
 const SEARCH_SNIPPET_OMISSION = "...";
+export const MAX_CANVAS_FILE_BYTES = 1_048_576;
+const MAX_CANVAS_NODES = 10_000;
+const MAX_CANVAS_EDGES = 20_000;
 
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
@@ -1176,11 +1179,52 @@ export async function readBaseFile(
   return fs.readFile(fullPath, "utf-8");
 }
 
+function assertCanvasFileSize(size: number, relativePath: string): void {
+  if (size > MAX_CANVAS_FILE_BYTES) {
+    throw new Error(
+      `Canvas file exceeds size cap (${size} > ${MAX_CANVAS_FILE_BYTES} bytes): ${relativePath}`,
+    );
+  }
+}
+
+function assertCanvasDataCounts(
+  nodes: readonly unknown[],
+  edges: readonly unknown[],
+  relativePath: string,
+): void {
+  if (nodes.length > MAX_CANVAS_NODES) {
+    throw new Error(
+      `Canvas node count exceeds cap (${nodes.length} > ${MAX_CANVAS_NODES}): ${relativePath}`,
+    );
+  }
+  if (edges.length > MAX_CANVAS_EDGES) {
+    throw new Error(
+      `Canvas edge count exceeds cap (${edges.length} > ${MAX_CANVAS_EDGES}): ${relativePath}`,
+    );
+  }
+}
+
+function canvasDataFromObject(data: Record<string, unknown>, relativePath: string): CanvasData {
+  const nodes = Array.isArray(data.nodes) ? (data.nodes as CanvasData["nodes"]) : [];
+  const edges = Array.isArray(data.edges) ? (data.edges as CanvasData["edges"]) : [];
+  assertCanvasDataCounts(nodes, edges, relativePath);
+
+  return { nodes, edges };
+}
+
+function serializeCanvasFile(data: Record<string, unknown>, relativePath: string): string {
+  const serialized = JSON.stringify(data, null, 2);
+  assertCanvasFileSize(Buffer.byteLength(serialized, "utf-8"), relativePath);
+  return serialized;
+}
+
 export async function readCanvasFile(
   vaultPath: string,
   relativePath: string,
 ): Promise<CanvasData> {
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const stats = await fs.stat(fullPath);
+  assertCanvasFileSize(stats.size, relativePath);
   const content = await fs.readFile(fullPath, "utf-8");
   let parsed: unknown;
   try {
@@ -1198,10 +1242,7 @@ export async function readCanvasFile(
   if (!Array.isArray(data.nodes)) {
     return { nodes: [], edges: [] };
   }
-  return {
-    nodes: data.nodes as CanvasData["nodes"],
-    edges: Array.isArray(data.edges) ? data.edges as CanvasData["edges"] : [],
-  };
+  return canvasDataFromObject(data, relativePath);
 }
 
 export async function writeCanvasFile(
@@ -1211,8 +1252,10 @@ export async function writeCanvasFile(
 ): Promise<void> {
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
+    assertCanvasDataCounts(data.nodes, data.edges, relativePath);
+    const serialized = serializeCanvasFile(data as unknown as Record<string, unknown>, relativePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await atomicWriteFile(fullPath, JSON.stringify(data, null, 2));
+    await atomicWriteFile(fullPath, serialized);
   });
 }
 
@@ -1233,6 +1276,8 @@ export async function updateCanvasFile(
 ): Promise<void> {
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
+    const stats = await fs.stat(fullPath);
+    assertCanvasFileSize(stats.size, relativePath);
     const raw = await fs.readFile(fullPath, "utf-8");
     let parsed: unknown;
     try {
@@ -1241,13 +1286,12 @@ export async function updateCanvasFile(
       throw new Error(`Invalid canvas file (malformed JSON): ${relativePath}`);
     }
     const obj = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
-    const current: CanvasData = {
-      nodes: Array.isArray(obj.nodes) ? (obj.nodes as CanvasData["nodes"]) : [],
-      edges: Array.isArray(obj.edges) ? (obj.edges as CanvasData["edges"]) : [],
-    };
+    const current = canvasDataFromObject(obj, relativePath);
     const next = await transform(current);
+    assertCanvasDataCounts(next.nodes, next.edges, relativePath);
     const out = { ...obj, nodes: next.nodes, edges: next.edges };
+    const serialized = serializeCanvasFile(out, relativePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await atomicWriteFile(fullPath, JSON.stringify(out, null, 2));
+    await atomicWriteFile(fullPath, serialized);
   });
 }
