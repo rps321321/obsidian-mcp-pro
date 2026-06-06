@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Active R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs` and ship/kill metric in `docs/rnd/frontmatter-key-quality.md`.
 - R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs` and ship/kill metric in `docs/rnd/search-ranking-quality.md`.
 - R&D experiment for lexical search snippet quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-quality.mjs` and ship/kill metric in `docs/rnd/search-snippet-quality.md`.
 - R&D experiment for lexical search snippet length, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-length.mjs` and ship/kill metric in `docs/rnd/search-snippet-length.md`.
@@ -65,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated the transitive Hono lockfile entry to 4.12.23, clearing the moderate audit advisories in the MCP HTTP dependency path.
 - HTTP server tests now retry OS-assigned ports that Node's `fetch` rejects, avoiding a flaky `bad port` failure during the verify gate.
 - `obsidian://tags` now escapes control characters in generated tag keys and note-path values before returning its JSON index.
 - Empty `get_vault_stats` folder output and missing daily-resource errors now escape control characters in displayed configured paths.
