@@ -103,6 +103,43 @@ describe("semantic handlers — index_vault", () => {
     expect(text).not.toContain("mock\nprovider");
     expect(text).not.toContain("topic\tcounter");
   });
+
+  it("marks failed note paths in index warnings as untrusted", async () => {
+    class FailingProvider implements EmbeddingProvider {
+      readonly id = "mock";
+      readonly model = "failing";
+      embed(): Promise<number[][]> {
+        return Promise.reject(new Error("provider failed"));
+      }
+    }
+
+    const dirtyPath = "dirty\x7fsemantic.md";
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        [dirtyPath]: "# Dirty\n\nCats cats cats.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+    setProviderForTests(new FailingProvider());
+
+    const result = await env.client.callTool({
+      name: "index_vault",
+      arguments: {},
+    });
+
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("Failures:        1");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note: dirty\\x7fsemantic.md]");
+    expect(text).toContain("dirty\\x7fsemantic.md: provider failed");
+    expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("index_vault failed notes");
+  });
 });
 
 describe("semantic handlers — search_semantic", () => {
