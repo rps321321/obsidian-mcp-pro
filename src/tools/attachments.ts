@@ -87,9 +87,14 @@ function safeResourceMimeType(mime: string): string {
   return ACTIVE_TEXT_MIME_TYPES.has(mime.toLowerCase()) ? "text/plain" : mime;
 }
 
-function hiddenAttachmentBasename(relPath: string): string | null {
-  const basename = path.posix.basename(relPath.replace(/\\/g, "/"));
-  return basename.startsWith(".") ? basename : null;
+function hiddenAttachmentSegment(relPath: string): string | null {
+  const segments = relPath.replace(/\\/g, "/").split("/");
+  return segments.find((segment) =>
+    segment !== "" &&
+    segment !== "." &&
+    segment !== ".." &&
+    segment.startsWith(".")
+  ) ?? null;
 }
 
 async function assertNoSymlinkAttachmentPath(
@@ -496,7 +501,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
     },
     async ({ path: relPath, maxBytes }) => {
       try {
-        const hiddenName = hiddenAttachmentBasename(relPath);
+        const hiddenName = hiddenAttachmentSegment(relPath);
         if (hiddenName) {
           return errorResult(
             `Refusing to fetch hidden attachment "${displayAttachmentValue(relPath)}" via get_attachment.`,
