@@ -18,6 +18,7 @@ import {
   listCanvasFiles,
   readCanvasFile,
   MAX_CANVAS_FILE_BYTES,
+  setMaxNoteFileBytesForTests,
   getNoteStats,
   getVaultRootRealPath,
 } from "../lib/vault.js";
@@ -33,6 +34,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  setMaxNoteFileBytesForTests(null);
   setPermissions({ readPaths: null, writePaths: null });
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
@@ -196,6 +198,28 @@ describe("readNote", () => {
       "Not a markdown note: secret.txt",
     );
   });
+
+  it("rejects oversized full-note reads before materializing content", async () => {
+    setMaxNoteFileBytesForTests(10);
+    await fs.writeFile(path.join(vaultDir, "oversized.md"), "x".repeat(11), "utf-8");
+
+    await expect(readNote(vaultDir, "oversized.md")).rejects.toThrow(
+      /Note file exceeds size cap \(11 > 10 bytes\): oversized\.md/,
+    );
+  });
+
+  it("still streams line fragments from notes over the full-read cap", async () => {
+    setMaxNoteFileBytesForTests(10);
+    await fs.writeFile(
+      path.join(vaultDir, "long.md"),
+      ["first", "second", "third"].join("\n"),
+      "utf-8",
+    );
+
+    await expect(readNoteLineRange(vaultDir, "long.md", 2, 2)).resolves.toEqual({
+      text: "second",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -237,6 +261,15 @@ describe("writeNote", () => {
     expect(content).toBe("new");
   });
 
+  it("rejects writes that would exceed the note file cap", async () => {
+    setMaxNoteFileBytesForTests(10);
+
+    await expect(writeNote(vaultDir, "too-big.md", "x".repeat(11))).rejects.toThrow(
+      /Note file exceeds size cap/,
+    );
+    await expect(fs.access(path.join(vaultDir, "too-big.md"))).rejects.toThrow();
+  });
+
   it("should reject non-markdown write targets", async () => {
     await fs.writeFile(path.join(vaultDir, "asset.txt"), "original", "utf-8");
 
@@ -261,6 +294,24 @@ describe("writeNote", () => {
 
     await expect(fs.readFile(path.join(vaultDir, "asset.txt"), "utf-8"))
       .resolves.toBe("original");
+  });
+
+  it("refuses to read-modify-write oversized existing notes", async () => {
+    setMaxNoteFileBytesForTests(10);
+    const oversized = "x".repeat(11);
+    await fs.writeFile(path.join(vaultDir, "oversized.md"), oversized, "utf-8");
+
+    await expect(updateNote(vaultDir, "oversized.md", () => "small")).rejects.toThrow(
+      /Note file exceeds size cap/,
+    );
+    await expect(appendToNote(vaultDir, "oversized.md", "tail")).rejects.toThrow(
+      /Note file exceeds size cap/,
+    );
+    await expect(prependToNote(vaultDir, "oversized.md", "head")).rejects.toThrow(
+      /Note file exceeds size cap/,
+    );
+    await expect(fs.readFile(path.join(vaultDir, "oversized.md"), "utf-8"))
+      .resolves.toBe(oversized);
   });
 });
 
