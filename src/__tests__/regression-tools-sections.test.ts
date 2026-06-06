@@ -114,6 +114,26 @@ describe("regression: replace_in_note ReDoS guards (C3)", () => {
     expect(onDisk).toBe("aaaaaaaaaaaaaaaaab\n");
   });
 
+  it("rejects bounded repeated groups that contain quantified atoms", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "redos-bounded.md"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "redos-bounded.md",
+        find: "^(a+){20}b$",
+        replace: "X",
+        regex: true,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/unsafe regex pattern|nested quantifier/i);
+
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "redos-bounded.md"), "utf-8");
+    expect(onDisk).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n");
+  });
+
   it("rejects invalid regex flags with a clean error mentioning the bad flag", async () => {
     const result = await env.client.callTool({
       name: "replace_in_note",
