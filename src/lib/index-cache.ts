@@ -3,8 +3,8 @@ import path from "path";
 import {
   assertNoteFileSize,
   getVaultRootRealPath,
+  openVaultFileForRead,
   resolveVaultInternalPathSafe,
-  resolveVaultPathSafe,
 } from "./vault.js";
 import { mapConcurrent } from "./concurrency.js";
 import { log } from "./logger.js";
@@ -157,15 +157,19 @@ export async function readAllCached(
   await mapConcurrent(relPaths, READ_CONCURRENCY, async (relPath) => {
     seen.add(relPath);
     let fullPath: string;
+    let opened: Awaited<ReturnType<typeof openVaultFileForRead>> | undefined;
     try {
-      fullPath = await resolveVaultPathSafe(vaultPath, relPath, "read", { realVaultRoot });
+      opened = await openVaultFileForRead(vaultPath, relPath, "read", { realVaultRoot });
+      fullPath = opened.fullPath;
     } catch (err) {
       onError?.(relPath, err as Error);
       return undefined;
     }
+    if (!opened) return undefined;
+    const openedFile = opened;
     let mtimeMs: number;
     try {
-      const stat = await fs.stat(fullPath);
+      const stat = openedFile.stats;
       assertNoteFileSize(relPath, stat.size);
       mtimeMs = stat.mtimeMs;
       mtimes.set(relPath, stat.mtime.getTime());
@@ -175,6 +179,7 @@ export async function readAllCached(
         mtime: stat.mtimeMs,
       });
     } catch (err) {
+      await openedFile.handle.close();
       // ENOENT during stat means the file disappeared between listing and
       // reading — drop the cache entry and skip.
       if (cache.delete(relPath)) state.dirty = true;
@@ -185,15 +190,18 @@ export async function readAllCached(
     if (cached && cached.mtimeMs === mtimeMs && cached.fullPath === fullPath) {
       contents.set(relPath, cached.content);
       cacheHits++;
+      await openedFile.handle.close();
       return undefined;
     }
     let content: string;
     try {
-      content = await fs.readFile(fullPath, "utf-8");
+      content = await openedFile.handle.readFile("utf-8");
     } catch (err) {
       onError?.(relPath, err as Error);
       if (cache.delete(relPath)) state.dirty = true;
       return undefined;
+    } finally {
+      await openedFile.handle.close();
     }
     cache.set(relPath, { fullPath, relPath, content, mtimeMs });
     state.dirty = true;
