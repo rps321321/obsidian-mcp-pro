@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { deleteNote, listNotes, moveNote, readNote, writeNote } from "../lib/vault.js";
+import {
+  deleteNote,
+  listNotes,
+  moveNote,
+  readNote,
+  writeNote,
+  setMaxNoteFileBytesForTests,
+  MAX_CANVAS_FILE_BYTES,
+} from "../lib/vault.js";
 import { planMoveRewrites, planDeleteRewrites, applyRewrites } from "../lib/link-rewriter.js";
 
 let vaultDir: string;
@@ -12,6 +20,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setMaxNoteFileBytesForTests(null);
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
 
@@ -388,6 +397,63 @@ describe("applyRewrites — TOCTOU safety", () => {
     expect(result.failed).toEqual([]);
     expect(result.updated).toEqual(["ref.md"]);
     expect(await readNote(vaultDir, "ref.md")).toBe("See [[archive/idea]] please.");
+  });
+
+  it("fails when a planned markdown referrer grows past the note cap before apply", async () => {
+    await seed("inbox/idea.md", "# Idea");
+    await seed("ref.md", "See [[inbox/idea]].");
+
+    const preMoveNotes = await listNotes(vaultDir);
+    const plan = await planMoveRewrites(
+      vaultDir,
+      "inbox/idea.md",
+      "archive/idea.md",
+      preMoveNotes,
+    );
+
+    const racedContent = `See [[inbox/idea]].\n${"x".repeat(80)}`;
+    setMaxNoteFileBytesForTests(64);
+    await fs.writeFile(path.join(vaultDir, "ref.md"), racedContent, "utf-8");
+
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual([]);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].path).toBe("ref.md");
+    expect(result.failed[0].error).toContain("Note file exceeds size cap");
+    expect(await fs.readFile(path.join(vaultDir, "ref.md"), "utf-8")).toBe(racedContent);
+  });
+
+  it("fails when a planned canvas referrer grows past the canvas cap before apply", async () => {
+    await seed("inbox/idea.md", "# Idea");
+    await seed(
+      "board.canvas",
+      JSON.stringify({
+        nodes: [{ id: "n1", type: "file", file: "inbox/idea.md" }],
+        edges: [],
+      }),
+    );
+
+    const preMoveNotes = await listNotes(vaultDir);
+    const plan = await planMoveRewrites(
+      vaultDir,
+      "inbox/idea.md",
+      "archive/idea.md",
+      preMoveNotes,
+    );
+
+    const oversizedCanvas = `{"nodes":${"x".repeat(MAX_CANVAS_FILE_BYTES + 1)}}`;
+    await fs.writeFile(path.join(vaultDir, "board.canvas"), oversizedCanvas, "utf-8");
+
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual([]);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].path).toBe("board.canvas");
+    expect(result.failed[0].error).toContain("Canvas file exceeds size cap");
+    expect(await fs.readFile(path.join(vaultDir, "board.canvas"), "utf-8")).toBe(
+      oversizedCanvas,
+    );
   });
 });
 
