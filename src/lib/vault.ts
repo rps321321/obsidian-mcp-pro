@@ -19,6 +19,9 @@ const SEARCH_MATCH_COUNT_WEIGHT = 0.25;
 const SEARCH_REPEATED_SAME_LINE_PENALTY = 0.5;
 const SEARCH_SNIPPET_MAX_CHARS = 240;
 const SEARCH_SNIPPET_OMISSION = "...";
+const MAX_NOTE_FILE_BYTES_DEFAULT = 5 * 1024 * 1024;
+let maxNoteFileBytes = MAX_NOTE_FILE_BYTES_DEFAULT;
+export const MAX_NOTE_FILE_BYTES = MAX_NOTE_FILE_BYTES_DEFAULT;
 export const MAX_CANVAS_FILE_BYTES = 1_048_576;
 const MAX_CANVAS_NODES = 10_000;
 const MAX_CANVAS_EDGES = 20_000;
@@ -31,6 +34,30 @@ function assertMarkdownNotePath(relativePath: string): void {
   if (!relativePath.toLowerCase().endsWith(".md")) {
     throw new Error(`Not a markdown note: ${relativePath}`);
   }
+}
+
+export function setMaxNoteFileBytesForTests(bytes: number | null): void {
+  maxNoteFileBytes = bytes === null ? MAX_NOTE_FILE_BYTES_DEFAULT : bytes;
+}
+
+export function assertNoteFileSize(relativePath: string, size: number): void {
+  if (size > maxNoteFileBytes) {
+    throw new Error(
+      `Note file exceeds size cap (${size} > ${maxNoteFileBytes} bytes): ${relativePath}`,
+    );
+  }
+}
+
+async function assertResolvedNoteFileSize(
+  fullPath: string,
+  relativePath: string,
+): Promise<void> {
+  const stats = await fs.stat(fullPath);
+  assertNoteFileSize(relativePath, stats.size);
+}
+
+function assertNoteContentSize(relativePath: string, content: string): void {
+  assertNoteFileSize(relativePath, Buffer.byteLength(content, "utf-8"));
 }
 
 // Legacy DOS device names reserved by the Windows filesystem at any depth.
@@ -473,6 +500,7 @@ export async function readNote(
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   try {
+    await assertResolvedNoteFileSize(fullPath, relativePath);
     return await fs.readFile(fullPath, "utf-8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -565,6 +593,7 @@ export async function writeNote(
 ): Promise<void> {
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
+  assertNoteContentSize(relativePath, content);
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     if (options?.exclusive) {
@@ -637,9 +666,11 @@ export async function updateNote(
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
+    await assertResolvedNoteFileSize(fullPath, relativePath);
     const existing = await fs.readFile(fullPath, "utf-8");
     const next = await transform(existing);
     if (next === existing) return;
+    assertNoteContentSize(relativePath, next);
     await atomicWriteFile(fullPath, next);
   });
 }
@@ -652,9 +683,12 @@ export async function appendToNote(
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
+    await assertResolvedNoteFileSize(fullPath, relativePath);
     const existing = await fs.readFile(fullPath, "utf-8");
     const separator = existing.endsWith("\n") ? "" : "\n";
-    await atomicWriteFile(fullPath, existing + separator + content);
+    const next = existing + separator + content;
+    assertNoteContentSize(relativePath, next);
+    await atomicWriteFile(fullPath, next);
   });
 }
 
@@ -697,6 +731,7 @@ export async function prependToNote(
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
+    await assertResolvedNoteFileSize(fullPath, relativePath);
     const existing = await fs.readFile(fullPath, "utf-8");
 
     // Detect frontmatter by scanning only the first N lines instead of
@@ -714,6 +749,7 @@ export async function prependToNote(
       result = content + "\n" + existing;
     }
 
+    assertNoteContentSize(relativePath, result);
     await atomicWriteFile(fullPath, result);
   });
 }
