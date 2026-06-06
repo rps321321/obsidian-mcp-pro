@@ -809,6 +809,9 @@ export async function moveNote(
   options: MoveNoteOptions = {},
 ): Promise<MoveNoteResult> {
   const updateLinks = options.updateLinks !== false;
+  // Moving preserves the source bytes at a new path, so the source has to pass
+  // both write permission for the rename and read permission for disclosure.
+  await resolveVaultPathSafe(vaultPath, oldPath, "read");
   const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath, "write");
   const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath, "write");
   const doRename = async (): Promise<void> => {
