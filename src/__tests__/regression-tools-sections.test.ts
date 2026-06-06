@@ -7,6 +7,7 @@ import {
   isError,
   type TestEnv,
 } from "./handlers/harness.js";
+import { setPermissions } from "../lib/permissions.js";
 
 /**
  * Regression tests for src/tools/sections.ts.
@@ -23,12 +24,23 @@ import {
 let env: TestEnv;
 
 beforeEach(async () => {
+  setPermissions({ readPaths: null, writePaths: null });
   env = await createTestEnv();
 });
 
 afterEach(async () => {
+  setPermissions({ readPaths: null, writePaths: null });
   await env.cleanup();
 });
+
+async function writePrivateNote(content: string): Promise<string> {
+  const dir = path.join(env.vaultDir, "private");
+  await fs.mkdir(dir, { recursive: true });
+  const fullPath = path.join(dir, "secret.md");
+  await fs.writeFile(fullPath, content, "utf-8");
+  setPermissions({ readPaths: ["public"], writePaths: ["private"] });
+  return fullPath;
+}
 
 describe("regression: replace_in_note ReDoS guards (C3)", () => {
   it("returns an error in under 500ms for a 1MB note with `(a+)+$`", async () => {
@@ -232,6 +244,90 @@ describe("regression: insert_at_section UTF-8 byte count (H11)", () => {
     // Should mention 4 bytes, not 2 (the code-unit count).
     expect(msg).toContain("4 bytes");
     expect(msg).not.toContain("2 bytes");
+  });
+});
+
+describe("regression: surgical edits require read access to inspect note content", () => {
+  it("blocks replace_in_note before it can report match counts for write-only notes", async () => {
+    const original = "# Secret\n\nneedle\n";
+    const fullPath = await writePrivateNote(original);
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "private/secret.md",
+        find: "needle",
+        replace: "redacted",
+        expectedCount: 99,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    const msg = textContent(result);
+    expect(msg).toMatch(/OBSIDIAN_READ_PATHS/);
+    expect(msg).not.toMatch(/Match-count check failed|found 1|Replaced|No matches/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
+  });
+
+  it("blocks update_section before it can reveal or modify a write-only section", async () => {
+    const original = "# Secret\n\nold body\n";
+    const fullPath = await writePrivateNote(original);
+
+    const result = await env.client.callTool({
+      name: "update_section",
+      arguments: {
+        path: "private/secret.md",
+        section: "Secret",
+        newBody: "new body",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    const msg = textContent(result);
+    expect(msg).toMatch(/OBSIDIAN_READ_PATHS/);
+    expect(msg).not.toMatch(/Section not found|Updated section/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
+  });
+
+  it("blocks insert_at_section before it can reveal or modify a write-only section", async () => {
+    const original = "# Secret\n\nold body\n";
+    const fullPath = await writePrivateNote(original);
+
+    const result = await env.client.callTool({
+      name: "insert_at_section",
+      arguments: {
+        path: "private/secret.md",
+        section: "Secret",
+        content: "inserted",
+        position: "append",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    const msg = textContent(result);
+    expect(msg).toMatch(/OBSIDIAN_READ_PATHS/);
+    expect(msg).not.toMatch(/Section not found|Inserted/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
+  });
+
+  it("blocks edit_block before it can reveal or modify a write-only block", async () => {
+    const original = "# Secret\n\nHidden paragraph. ^private-block\n";
+    const fullPath = await writePrivateNote(original);
+
+    const result = await env.client.callTool({
+      name: "edit_block",
+      arguments: {
+        path: "private/secret.md",
+        block: "private-block",
+        newContent: "changed",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    const msg = textContent(result);
+    expect(msg).toMatch(/OBSIDIAN_READ_PATHS/);
+    expect(msg).not.toMatch(/Block not found|Updated block/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
   });
 });
 
