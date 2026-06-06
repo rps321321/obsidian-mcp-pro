@@ -120,6 +120,15 @@ describe("stripPaths", () => {
     expect(text).not.toContain("My Vault");
     expect(text).not.toContain("secret.md");
   });
+
+  it("strips backtick-quoted paths", () => {
+    expect(stripPaths("ENOENT, open `/Users/me/My Vault/secret.md`")).toBe(
+      "ENOENT, open <path>",
+    );
+    expect(stripPaths("ENOENT, open `C:\\Users\\me\\My Vault\\secret.md`")).toBe(
+      "ENOENT, open <path>",
+    );
+  });
 });
 
 describe("redactUrlSecrets", () => {
