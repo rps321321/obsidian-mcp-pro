@@ -64,6 +64,32 @@ describe("base handlers — read_base", () => {
   });
 });
 
+describe("base handlers - list_bases", () => {
+  it("marks listed Base paths as untrusted", async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "boards/roadmap.base": "",
+        "tasks.base": "",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "list_bases",
+      arguments: {},
+    });
+
+    expect(isError(result)).toBe(false);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    const text = textContent(result);
+    expect(text).toContain("Found 2 Base file(s):");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_bases paths]");
+    expect(text).toContain("boards/roadmap.base");
+    expect(text).toContain("tasks.base");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+  });
+});
+
 describe("base handlers — query_base", () => {
   it("rejects oversized Base files without returning readable rows", async () => {
     env = await createTestEnv({
@@ -114,7 +140,12 @@ describe("base handlers — query_base", () => {
     });
 
     expect(isError(result)).toBe(false);
-    expect(textContent(result)).toContain("- note.md");
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: query_base base path]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: query_base result paths]");
+    expect(text).toContain("- note.md");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("escapes control characters in view labels and frontmatter keys", async () => {
@@ -149,7 +180,10 @@ describe("base handlers — query_base", () => {
     expect(isError(result)).toBe(false);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
-    expect(text).toContain("Base: query.base (view: dirty\\nview)");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: query_base base path]");
+    expect(text).toContain("query.base");
+    expect(text).toContain("View: dirty\\nview");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: query_base row path: note.md]");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: base row frontmatter: note.md]");
     expect(text).toContain('    bad\\tkey: "dirty\\nvalue"');
     expect(text).not.toContain("dirty\nview");
@@ -190,6 +224,7 @@ describe("base handlers — query_base", () => {
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     expect(text).toContain("Matched 0 note(s)");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: query_base warnings]");
     expect(text).toContain('View not found: "missing\\nview"; treating query as no-match.');
     expect(text).not.toContain("- note.md");
     expect(text).not.toContain("secret");
@@ -226,6 +261,7 @@ describe("base handlers — query_base", () => {
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     expect(text).toContain("Matched 0 note(s)");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: query_base warnings]");
     expect(text).toContain("Unknown filter function: mysteryFn");
     expect(text).not.toContain("- public.md");
     expect(text).not.toContain("secret");
