@@ -60,6 +60,26 @@ describe("regression: replace_in_note ReDoS guards (C3)", () => {
     expect(onDisk.length).toBe(big.length);
   });
 
+  it("rejects nested quantified regex groups before matching", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "redos-shape.md"), "abc\n", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "redos-shape.md",
+        find: "(a+)+$",
+        replace: "X",
+        regex: true,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/unsafe regex pattern|nested quantifier/i);
+
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "redos-shape.md"), "utf-8");
+    expect(onDisk).toBe("abc\n");
+  });
+
   it("rejects invalid regex flags with a clean error mentioning the bad flag", async () => {
     const result = await env.client.callTool({
       name: "replace_in_note",
@@ -128,6 +148,29 @@ describe("regression: replace_in_note ReDoS guards (C3)", () => {
     const onDisk = await fs.readFile(path.join(env.vaultDir, "note-c.md"), "utf-8");
     expect(onDisk).toContain("REPLACED");
     expect(onDisk).not.toContain("Standalone");
+  });
+
+  it("allows optional grouped regexes that are not repeated", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "optional-url.md"),
+      "https://example.com example.com\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "optional-url.md",
+        find: "(https?:\\/\\/)?example\\.com",
+        replace: "site",
+        regex: true,
+        flags: "g",
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const onDisk = await fs.readFile(path.join(env.vaultDir, "optional-url.md"), "utf-8");
+    expect(onDisk).toBe("site site\n");
   });
 
   it("treats replacement dollar tokens literally when regex=false", async () => {
