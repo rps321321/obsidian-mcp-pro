@@ -337,17 +337,23 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
           "",
         ];
         const summary = summarizeByExtension(filtered);
+        let trustLabel = "list_attachments paths";
         if (summary.size > 1) {
           lines.push("By extension:");
           const entries = Array.from(summary.entries()).sort((a, b) => b[1] - a[1]);
-          for (const [ext, n] of entries) lines.push(`  ${displayAttachmentValue(ext)}  ${n}`);
+          lines.push(untrustedAttachmentBlock(
+            "list_attachments extensions",
+            entries.map(([ext, n]) => `${displayAttachmentValue(ext)}  ${n}`).join("\n"),
+            "  ",
+          ));
           lines.push("");
+          trustLabel = "list_attachments extensions and paths";
         }
         lines.push(untrustedAttachmentBlock(
           "list_attachments paths",
           truncated.map((p) => `- ${displayAttachmentValue(p)}`).join("\n"),
         ));
-        return textResultWithUntrustedMeta(lines.join("\n"), "list_attachments paths");
+        return textResultWithUntrustedMeta(lines.join("\n"), trustLabel);
       } catch (err) {
         log.error("list_attachments failed", { tool: "list_attachments", err: err as Error });
         return errorResult(`Error listing attachments: ${sanitizeError(err)}`);

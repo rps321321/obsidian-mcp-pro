@@ -47,6 +47,7 @@ describe("attachments handlers — list_attachments", () => {
     expect(text).toMatch(/screenshot\.jpg/);
     expect(text).toMatch(/notes\.pdf/);
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_attachments paths]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_attachments extensions]");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     // Markdown notes never appear in attachment listings.
     expect(text).not.toMatch(/embed-host\.md/);
@@ -84,6 +85,30 @@ describe("attachments handlers — list_attachments", () => {
     const text = textContent(result);
     expect(text).toContain('No attachments with extension "mp4\\nnext".');
     expect(text).not.toContain("mp4\nnext");
+  });
+
+  it("marks filename-derived extension summaries as untrusted", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "assets/plain.png": "PNG",
+        "assets/dirty.prompt": "bytes",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "list_attachments",
+      arguments: {},
+    });
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_attachments extensions]");
+    expect(text).toContain(".prompt  1");
+    expect(text).toContain("- assets/dirty.prompt");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 });
 

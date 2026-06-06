@@ -72,7 +72,7 @@ afterEach(async () => {
 describe("attachment display escaping", () => {
   it("escapes control characters in populated attachment listings", async () => {
     const env = await createAttachmentClient({
-      attachments: ["assets/bad\nname.png", "assets/tab\tname.jpg"],
+      attachments: ["assets/bad\nname.png", "assets/tab\tname.jpg", "assets/dirty.safe\next"],
     });
     try {
       const result = await env.client.callTool({
@@ -82,11 +82,16 @@ describe("attachment display escaping", () => {
       expect(isError(result)).toBe(false);
       const text = textContent(result);
       const block = result.content[0] as { _meta?: Record<string, unknown> };
+      expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_attachments extensions]");
       expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_attachments paths]");
+      expect(text).toContain(".safe\\next  1");
       expect(text).toContain("- assets/bad\\nname.png");
       expect(text).toContain("- assets/tab\\tname.jpg");
+      expect(text).toContain("- assets/dirty.safe\\next");
+      expect(text).not.toContain(".safe\next");
       expect(text).not.toContain("assets/bad\nname.png");
       expect(text).not.toContain("assets/tab\tname.jpg");
+      expect(text).not.toContain("assets/dirty.safe\next");
       expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     } finally {
       await env.cleanup();
