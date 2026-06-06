@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error sanitization now fully redacts unquoted Windows absolute paths that contain spaces.
 - Error sanitization now redacts unquoted POSIX file paths that contain spaces while preserving surrounding diagnostics.
 - Error sanitization now redacts double-quoted path strings as well as single-quoted path strings.
+- Error sanitization now redacts backtick-quoted path strings.
 - MCP-forwarded log payloads now escape control characters and Unicode bidi controls recursively after path redaction.
 - MCP-forwarded log payloads now redact secret-bearing URLs recursively.
 - Read-tool inventory outputs now mark listed note paths, recent-note rows, vault-stat most-recent paths, and alias-resolution path groups as untrusted vault content.
