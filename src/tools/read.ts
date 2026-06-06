@@ -109,7 +109,12 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         ];
 
         for (const result of results) {
-          lines.push(`## ${displayReadValue(result.relativePath)}`);
+          lines.push("Result path:");
+          lines.push(untrustedReadBlock(
+            `search_notes result path: ${result.relativePath}`,
+            displayReadValue(result.relativePath),
+            "  ",
+          ));
           for (const match of result.matches) {
             lines.push(`  Line ${match.line}:`);
             lines.push(indentBlock(
@@ -127,7 +132,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           content: [{
             type: "text" as const,
             text: lines.join("\n"),
-            _meta: untrustedVaultContentMeta("search_notes snippets"),
+            _meta: untrustedVaultContentMeta("search_notes paths and snippets"),
           }],
         };
       } catch (err) {
@@ -484,7 +489,12 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         ];
 
         for (const match of matches) {
-          lines.push(`## ${displayReadValue(match.path)}`);
+          lines.push("Result path:");
+          lines.push(untrustedReadBlock(
+            `search_by_frontmatter result path: ${match.path}`,
+            displayReadValue(match.path),
+            "  ",
+          ));
           const frontmatterLines: string[] = [];
           for (const [key, val] of Object.entries(match.frontmatter)) {
             frontmatterLines.push(`${displayReadValue(key)}: ${displayReadValue(JSON.stringify(val) ?? "")}`);
@@ -506,7 +516,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           content: [{
             type: "text" as const,
             text: lines.join("\n"),
-            _meta: untrustedVaultContentMeta("search_by_frontmatter values"),
+            _meta: untrustedVaultContentMeta("search_by_frontmatter paths and values"),
           }],
         };
       } catch (err) {
