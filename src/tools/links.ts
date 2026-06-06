@@ -64,6 +64,21 @@ function displayLinkValue(value: string): string {
   return escapeControlChars(value);
 }
 
+function untrustedLinkBlock(label: string, text: string, indent = ""): string {
+  return indentBlock(formatUntrustedVaultContent(label, text), indent);
+}
+
+function pushUntrustedLinkPathRows(
+  lines: string[],
+  label: string,
+  rows: readonly string[],
+  indent = "",
+): boolean {
+  if (rows.length === 0) return false;
+  lines.push(untrustedLinkBlock(label, rows.map(displayLinkValue).join("\n"), indent));
+  return true;
+}
+
 function pushUntrustedLinkTarget(
   lines: string[],
   label: string,
@@ -71,10 +86,7 @@ function pushUntrustedLinkTarget(
   indent: string,
 ): void {
   lines.push(`${indent}Target:`);
-  lines.push(indentBlock(
-    formatUntrustedVaultContent(label, displayLinkValue(target)),
-    `${indent}  `,
-  ));
+  lines.push(untrustedLinkBlock(label, displayLinkValue(target), `${indent}  `));
 }
 
 function textWithUntrustedMeta(text: string, label: string) {
@@ -467,14 +479,11 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         const backlinkSources = graph.backlinks.get(resolvedTarget);
         if (!backlinkSources || backlinkSources.size === 0) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No backlinks found for: ${displayLinkValue(resolvedTarget)}`,
-              },
-            ],
-          };
+          const text = [
+            "No backlinks found for:",
+            untrustedLinkBlock("get_backlinks target path", displayLinkValue(resolvedTarget), "  "),
+          ].join("\n");
+          return textWithUntrustedMeta(text, "get_backlinks target path");
         }
 
         const results: { source: string; line: number; context: string }[] = [];
@@ -524,12 +533,18 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         });
 
         const outputLines = [
-          `Backlinks to: ${displayLinkValue(resolvedTarget)}`,
+          "Backlinks to:",
+          untrustedLinkBlock("get_backlinks target path", displayLinkValue(resolvedTarget), "  "),
           `Found: ${deduped.length} backlink(s)\n`,
         ];
         for (const r of deduped) {
           const lineStr = r.line > 0 ? `:${r.line}` : "";
-          outputLines.push(`- ${displayLinkValue(r.source)}${lineStr}`);
+          outputLines.push("Source:");
+          outputLines.push(untrustedLinkBlock(
+            "get_backlinks source path",
+            `${displayLinkValue(r.source)}${lineStr}`,
+            "  ",
+          ));
           if (r.context) {
             outputLines.push(indentBlock(
               `→ ${formatUntrustedVaultContent(
@@ -546,7 +561,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           content: [{
             type: "text" as const,
             text: output,
-            _meta: untrustedVaultContentMeta("get_backlinks context"),
+            _meta: untrustedVaultContentMeta("get_backlinks paths and context"),
           }],
         };
       } catch (err) {
@@ -600,28 +615,31 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         const results = graph.outlinkDetails.get(resolvedSource) ?? [];
 
         if (results.length === 0) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No outgoing links found in: ${displayLinkValue(resolvedSource)}`,
-              },
-            ],
-          };
+          const text = [
+            "No outgoing links found in:",
+            untrustedLinkBlock("get_outlinks source path", displayLinkValue(resolvedSource), "  "),
+          ].join("\n");
+          return textWithUntrustedMeta(text, "get_outlinks source path");
         }
 
         const valid = results.filter((r) => r.isValid);
         const broken = results.filter((r) => !r.isValid);
 
         const lines: string[] = [
-          `Outgoing links from: ${displayLinkValue(resolvedSource)}`,
+          "Outgoing links from:",
+          untrustedLinkBlock("get_outlinks source path", displayLinkValue(resolvedSource), "  "),
           `Total: ${results.length} (${valid.length} valid, ${broken.length} broken)\n`,
         ];
 
         if (valid.length > 0) {
           lines.push("Valid links:");
           for (const r of valid) {
-            lines.push(`  - resolved: ${displayLinkValue(r.resolvedPath ?? "")}${r.isEmbed ? " (embed)" : ""}`);
+            lines.push("  Resolved path:");
+            lines.push(untrustedLinkBlock(
+              "get_outlinks resolved path",
+              `${displayLinkValue(r.resolvedPath ?? "")}${r.isEmbed ? " (embed)" : ""}`,
+              "    ",
+            ));
             pushUntrustedLinkTarget(lines, `outlink target: ${resolvedSource}`, r.target, "    ");
           }
         }
@@ -634,7 +652,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           }
         }
 
-        return textWithUntrustedMeta(lines.join("\n"), "get_outlinks targets");
+        return textWithUntrustedMeta(lines.join("\n"), "get_outlinks paths and targets");
       } catch (err) {
         log.error("get_outlinks failed", { tool: "get_outlinks", err: err as Error });
         return errorResult(`Error getting outlinks: ${sanitizeError(err)}`);
@@ -704,27 +722,38 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           `Orphan analysis for vault (${graph.allNotes.length} notes total)\n`,
         ];
 
+        let hasDisplayedPathRows = false;
+
         lines.push(`Fully isolated (no links in or out): ${fullyIsolated.length}`);
-        for (const note of cappedIsolated) {
-          lines.push(`  - ${displayLinkValue(note.path)}`);
-        }
+        hasDisplayedPathRows = pushUntrustedLinkPathRows(
+          lines,
+          "find_orphans fully isolated paths",
+          cappedIsolated.map((note) => `- ${note.path}`),
+          "  ",
+        ) || hasDisplayedPathRows;
         if (cappedIsolated.length < fullyIsolated.length) {
           lines.push(`  ... and ${fullyIsolated.length - cappedIsolated.length} more`);
         }
 
         lines.push(`\nNo backlinks (not linked by any note): ${noBacklinks.length}`);
-        for (const note of cappedNoBacklinks) {
-          lines.push(`  - ${displayLinkValue(note.path)}`);
-        }
+        hasDisplayedPathRows = pushUntrustedLinkPathRows(
+          lines,
+          "find_orphans no-backlink paths",
+          cappedNoBacklinks.map((note) => `- ${note.path}`),
+          "  ",
+        ) || hasDisplayedPathRows;
         if (cappedNoBacklinks.length < noBacklinks.length) {
           lines.push(`  ... and ${noBacklinks.length - cappedNoBacklinks.length} more`);
         }
 
         if (includeOutlinksCheck) {
           lines.push(`\nNo outlinks (links to no other notes): ${noOutlinks.length}`);
-          for (const note of cappedNoOutlinks) {
-            lines.push(`  - ${displayLinkValue(note.path)}`);
-          }
+          hasDisplayedPathRows = pushUntrustedLinkPathRows(
+            lines,
+            "find_orphans no-outlink paths",
+            cappedNoOutlinks.map((note) => `- ${note.path}`),
+            "  ",
+          ) || hasDisplayedPathRows;
           if (cappedNoOutlinks.length < noOutlinks.length) {
             lines.push(`  ... and ${noOutlinks.length - cappedNoOutlinks.length} more`);
           }
@@ -733,7 +762,9 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         const totalOrphans = fullyIsolated.length + noBacklinks.length + (includeOutlinksCheck ? noOutlinks.length : 0);
         lines.push(`\nTotal orphan entries: ${totalOrphans}`);
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return hasDisplayedPathRows
+          ? textWithUntrustedMeta(lines.join("\n"), "find_orphans paths")
+          : { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         log.error("find_orphans failed", { tool: "find_orphans", err: err as Error });
         return errorResult(`Error finding orphans: ${sanitizeError(err)}`);
@@ -809,7 +840,8 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         let shown = 0;
         for (const [sourcePath, brokenLinks] of brokenBySource) {
           if (shown >= maxResults) break;
-          lines.push(`${displayLinkValue(sourcePath)}:`);
+          lines.push("Source:");
+          lines.push(untrustedLinkBlock("find_broken_links source path", displayLinkValue(sourcePath), "  "));
           for (const bl of brokenLinks) {
             if (shown >= maxResults) break;
             const lineStr = bl.line > 0 ? ` (line ${bl.line})` : "";
@@ -825,7 +857,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         }
         lines.push(`Total: ${totalBroken} broken link(s) across ${brokenBySource.size} file(s)`);
 
-        return textWithUntrustedMeta(lines.join("\n"), "find_broken_links targets");
+        return textWithUntrustedMeta(lines.join("\n"), "find_broken_links paths and targets");
       } catch (err) {
         log.error("find_broken_links failed", { tool: "find_broken_links", err: err as Error });
         return errorResult(`Error finding broken links: ${sanitizeError(err)}`);
@@ -971,14 +1003,12 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         visited.delete(resolvedStart);
 
         if (visited.size === 0) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No neighbors found for: ${displayLinkValue(resolvedStart)} (depth: ${depth}, direction: ${direction})`,
-              },
-            ],
-          };
+          const text = [
+            "No neighbors found for:",
+            untrustedLinkBlock("get_graph_neighbors start path", displayLinkValue(resolvedStart), "  "),
+            `(depth: ${depth}, direction: ${direction})`,
+          ].join("\n");
+          return textWithUntrustedMeta(text, "get_graph_neighbors start path");
         }
 
         // Group by depth level for tree-like output
@@ -992,10 +1022,12 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
 
         const truncatedStr = truncated ? " (TRUNCATED)" : "";
         const lines: string[] = [
-          `Graph neighbors of: ${displayLinkValue(resolvedStart)}`,
+          "Graph neighbors of:",
+          untrustedLinkBlock("get_graph_neighbors start path", displayLinkValue(resolvedStart), "  "),
           `Direction: ${direction} | Max depth: ${depth} | Found: ${visited.size} note(s)${truncatedStr}\n`,
-          displayLinkValue(resolvedStart),
+          "Path tree:",
         ];
+        const pathTreeLines = [displayLinkValue(resolvedStart)];
 
         const sortedDepths = [...byDepth.keys()].sort((a, b) => a - b);
         for (const d of sortedDepths) {
@@ -1010,15 +1042,16 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
                 : neighbor.direction === "outbound"
                   ? "→"
                   : "↔";
-            lines.push(`${indent}${arrow} ${displayLinkValue(neighbor.path)} (depth ${d})`);
+            pathTreeLines.push(`${indent}${arrow} ${displayLinkValue(neighbor.path)} (depth ${d})`);
           }
         }
+        lines.push(untrustedLinkBlock("get_graph_neighbors path tree", pathTreeLines.join("\n")));
 
         if (truncated) {
           lines.push(`\nResults truncated at ${maxResults} neighbors. Reduce depth or narrow direction to see the full graph.`);
         }
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return textWithUntrustedMeta(lines.join("\n"), "get_graph_neighbors paths");
       } catch (err) {
         log.error("get_graph_neighbors failed", { tool: "get_graph_neighbors", err: err as Error });
         return errorResult(`Error getting graph neighbors: ${sanitizeError(err)}`);
