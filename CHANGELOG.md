@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Canvas link nodes now reject dangerous URL schemes after URL normalization, catching control-character-obfuscated `javascript:`, `data:`, and `vbscript:` inputs.
 - HTTP transport now refuses non-loopback binds unless bearer auth is configured, preventing accidental unauthenticated LAN exposure.
 - `replace_in_note` now rejects nested-quantifier regex shapes before matching, reducing catastrophic-backtracking risk on smaller notes.
 - `get_attachment` now percent-encodes vault resource URIs for blob/SVG responses, keeping control characters out of MCP resource identifiers while preserving plain paths for ordinary attachment names.
