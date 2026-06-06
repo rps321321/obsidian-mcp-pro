@@ -200,6 +200,26 @@ describe("logger", () => {
     expect(dataStr).not.toContain("secret.md");
   });
 
+  it("escapes controls recursively in forwarded MCP payloads", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    log.warn("line\nbreak", {
+      detail: "name\r\nIGNORE PREVIOUS",
+      nested: { label: "safe\u202ecod.exe" },
+      err: new Error("boom\nnext"),
+    });
+
+    const [params] = sendLoggingMessage.mock.calls[0];
+    expect(params.data.msg).toBe("line\\nbreak");
+    expect(params.data.detail).toBe("name\\r\\nIGNORE PREVIOUS");
+    expect(params.data.nested).toMatchObject({ label: "safe\\u202ecod.exe" });
+    expect(params.data.err.message).toBe("boom\\nnext");
+    expect(params.data.err.stack).not.toContain("\n");
+    expect(params.data.err.stack).toContain("\\n");
+  });
+
   it("swallows sendLoggingMessage rejections (logging must never fail a call)", async () => {
     const sendLoggingMessage = vi.fn().mockRejectedValue(new Error("not connected"));
     const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
