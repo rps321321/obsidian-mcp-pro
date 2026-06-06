@@ -24,6 +24,7 @@ beforeEach(async () => {
         "</svg>",
       ].join("\n"),
       "assets/.env": "TOKEN=hidden",
+      "assets/.private/private-image.png": "PNG-hidden-dir",
       "embed-host.md": "# Embed host\n\n![[used-image.png]]\n\nAlso linked: [doc](assets/notes.pdf)\n",
     },
   });
@@ -53,6 +54,8 @@ describe("attachments handlers — list_attachments", () => {
     expect(text).not.toMatch(/embed-host\.md/);
     // Hidden dotfiles are skipped by the inventory and direct reads.
     expect(text).not.toMatch(/\.env/);
+    // Hidden directories follow the same boundary.
+    expect(text).not.toMatch(/private-image\.png/);
   });
 
   it("filters by extension", async () => {
@@ -326,6 +329,17 @@ describe("attachments handlers — get_attachment", () => {
     const text = textContent(result);
     expect(text).toContain('Refusing to fetch hidden attachment "assets/.env"');
     expect(text).not.toContain("TOKEN=hidden");
+  });
+
+  it("rejects attachments inside hidden directories skipped by the inventory", async () => {
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "assets/.private/private-image.png" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('Refusing to fetch hidden attachment "assets/.private/private-image.png"');
+    expect(text).not.toContain(Buffer.from("PNG-hidden-dir").toString("base64"));
   });
 
   itSymlink("rejects symlinked attachment files skipped by the inventory", async () => {
