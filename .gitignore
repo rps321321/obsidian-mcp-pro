@@ -2,7 +2,6 @@ node_modules/
 build/
 .env
 .env.local
-.npmrc
 *.tgz
 .DS_Store
 
