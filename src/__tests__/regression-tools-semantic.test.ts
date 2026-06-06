@@ -60,6 +60,7 @@ class PartiallyFailingProvider implements EmbeddingProvider {
 
 let env: TestEnv;
 let provider: PartiallyFailingProvider;
+const INDEX_CONFIRM = "send-vault-text-to-embedding-provider";
 
 beforeEach(async () => {
   provider = new PartiallyFailingProvider(3); // every 3rd chunk is invalid
@@ -84,7 +85,7 @@ describe("M8: index_vault chunksEmbedded reflects only successful embeddings", (
   it("reports chunksEmbedded == valid vectors and failures == invalid vectors", async () => {
     const result = await env.client.callTool({
       name: "index_vault",
-      arguments: {},
+      arguments: { confirm: INDEX_CONFIRM },
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);

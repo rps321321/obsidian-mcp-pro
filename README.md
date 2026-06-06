@@ -95,6 +95,7 @@ Give AI assistants deep, structured access to your Obsidian knowledge base. Read
 
 ### Semantic Search (optional, Ollama or OpenAI)
 - `index_vault` chunks each note (heading-aware), embeds via the configured provider, persists vectors to `<vault>/.obsidian/cache/`, and incrementally re-embeds only changed notes
+- Because indexing sends readable note chunks to the configured embedding provider, `index_vault` requires `confirm: "send-vault-text-to-embedding-provider"` on each call
 - `search_semantic` ranks notes by cosine similarity against an embedded query
 - `find_similar_notes` reuses an existing note's embeddings, with source-topic anchoring, to surface neighbors without a live API call
 - Stored snippets are returned only while the current note content hash still matches the indexed text; stale chunks are pruned on search
@@ -336,6 +337,14 @@ The semantic-search tools (`index_vault`, `search_semantic`, `find_similar_notes
 
 For local Ollama: install [Ollama](https://ollama.com/), then `ollama pull nomic-embed-text`. The semantic tools register even when no provider is configured, so they're discoverable; calls return a configuration hint until set up.
 
+`index_vault` sends readable note chunks to that provider. Calls must include:
+
+```json
+{ "confirm": "send-vault-text-to-embedding-provider" }
+```
+
+This latch is per call so scripted index refreshes have to keep the privacy decision visible.
+
 ### Observability
 
 Logs stream to stderr as either plain text (default) or single-line JSON, controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`) and `LOG_FORMAT` (`text`/`json`).
@@ -358,6 +367,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **Untrusted vault text boundaries** — tool outputs that include note bodies, read, search result, semantic result, semantic index failure, write rewrite-warning, link-graph, attachment, Base, and Canvas path summaries, attachment extension summaries, search snippets, semantic snippets and heading paths, tag lists, tag search result paths and previews, tag rename skipped-note rows, frontmatter values, Base data, wikilink targets in link-analysis output, SVG attachment text, section headings, Canvas node identities, colors, previews, edge endpoints, and edge labels, or backlink context wrap those vault-authored portions in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers before they enter an MCP client's model context. Note and daily resources use the same visible boundaries for markdown bodies and carry `_meta["obsidian-mcp-pro/contentTrust"] = "untrusted-vault-content"`.
 - **YAML parser boundaries** — Obsidian properties are parsed only from `---` YAML delimiter lines; non-YAML gray-matter language blocks stay as body text, oversized frontmatter is skipped on reads and refused for metadata updates, and note/Base YAML containing anchors or aliases is not parsed.
 - **Semantic index freshness** — `search_semantic` and `find_similar_notes` re-check current note content hashes before returning stored snippets or source-note embeddings, pruning stale cache entries instead of surfacing old note text.
+- **Semantic indexing confirmation** — `index_vault` refuses to read and embed vault notes unless the call includes `confirm: "send-vault-text-to-embedding-provider"`, making provider-bound note transfer explicit.
 - **Bulk-write confirmations** — clients that support MCP elicitation are asked to re-type the destination path or new tag before `move_note` rewrites references or `rename_tag` writes across the vault. Dry runs and clients without elicitation keep their existing behavior.
 - **Atomic writes** — every note write (`create_note`, `append`, `prepend`, `update_frontmatter`, canvas mutations) stages content to a sibling temp file then renames onto the target, so a crash or kill mid-write never leaves a truncated file. Combined with per-path locks for the full read-modify-write cycle, concurrent callers can't lose each other's updates. The `install` subcommand uses the same pattern and keeps a backup of the previous config.
 - **Rate limiting + CORS allowlist** — optional `--rate-limit` caps per-IP request volume; `--allow-origin` restricts browser-facing CORS and refuses `*` unless bearer auth is enabled. `/health` and `/version` stay reachable under load for monitoring.
@@ -463,7 +473,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `index_vault` | Build / refresh the embedding index (incremental, progress events) | `force`, `folder` |
+| `index_vault` | Build / refresh the embedding index (incremental, progress events) | `force`, `folder`, `confirm` |
 | `search_semantic` | Cosine search the embedding index for a natural-language query | `query`, `limit`, `folder`, `includeSnippet` |
 | `find_similar_notes` | Surface notes most similar to a source note, anchored to its opening topic (no live API call) | `path`, `limit` |
 
