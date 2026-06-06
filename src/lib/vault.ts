@@ -117,6 +117,17 @@ export async function atomicWriteFile(fullPath: string, content: string): Promis
   }
 }
 
+async function removeEmptyExclusivePlaceholder(fullPath: string): Promise<void> {
+  try {
+    const stat = await fs.lstat(fullPath);
+    if (!stat.isFile() || stat.size !== 0) return;
+    await fs.unlink(fullPath);
+  } catch {
+    // Best effort only: preserving an unexpected file is safer than deleting
+    // something that may have changed after the failed exclusive create.
+  }
+}
+
 export async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): Promise<T> {
   const key = lockKey(fullPath);
   const prev = fileLocks.get(key) ?? Promise.resolve();
@@ -597,7 +608,12 @@ export async function writeNote(
         await handle?.close();
       }
     }
-    await atomicWriteFile(fullPath, content);
+    try {
+      await atomicWriteFile(fullPath, content);
+    } catch (err) {
+      if (options?.exclusive) await removeEmptyExclusivePlaceholder(fullPath);
+      throw err;
+    }
   });
 }
 
