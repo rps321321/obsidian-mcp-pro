@@ -113,6 +113,13 @@ describe("stripPaths", () => {
   it("strips quoted paths", () => {
     expect(stripPaths("ENOENT, open '/tmp/foo/bar.md'")).toBe("ENOENT, open <path>");
   });
+
+  it("strips double-quoted paths", () => {
+    const text = stripPaths('ENOENT, open "/Users/me/My Vault/secret.md"');
+    expect(text).toBe("ENOENT, open <path>");
+    expect(text).not.toContain("My Vault");
+    expect(text).not.toContain("secret.md");
+  });
 });
 
 describe("redactUrlSecrets", () => {
