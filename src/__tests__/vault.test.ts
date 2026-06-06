@@ -19,6 +19,7 @@ import {
   readCanvasFile,
   MAX_CANVAS_FILE_BYTES,
   setMaxNoteFileBytesForTests,
+  setMaxNoteLineRangeBytesForTests,
   getNoteStats,
   getVaultRootRealPath,
 } from "../lib/vault.js";
@@ -35,6 +36,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   setMaxNoteFileBytesForTests(null);
+  setMaxNoteLineRangeBytesForTests(null);
   setPermissions({ readPaths: null, writePaths: null });
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
@@ -231,6 +233,24 @@ describe("readNote", () => {
     await expect(readNoteLineRange(vaultDir, "long.md", 2, 2)).resolves.toEqual({
       text: "second",
     });
+  });
+
+  it("rejects a line fragment that exceeds the line-range byte cap", async () => {
+    setMaxNoteLineRangeBytesForTests(10);
+    await fs.writeFile(path.join(vaultDir, "oversized-line.md"), "x".repeat(11), "utf-8");
+
+    await expect(readNoteLineRange(vaultDir, "oversized-line.md", 1, 1)).rejects.toThrow(
+      /Note line fragment exceeds size cap \(11 > 10 bytes\): oversized-line\.md/,
+    );
+  });
+
+  it("rejects line range scans that exceed the line-range byte cap", async () => {
+    setMaxNoteLineRangeBytesForTests(12);
+    await fs.writeFile(path.join(vaultDir, "many-lines.md"), "one\ntwo\nthree\nfour", "utf-8");
+
+    await expect(readNoteLineRange(vaultDir, "many-lines.md", 99, 99)).rejects.toThrow(
+      /Note line fragment exceeds size cap \(13 > 12 bytes\): many-lines\.md/,
+    );
   });
 });
 

@@ -32,6 +32,23 @@ function displayReadValue(value: string): string {
   return escapeControlChars(value);
 }
 
+function parseRequestedLine(value: string): number | null {
+  const line = Number(value);
+  if (!Number.isSafeInteger(line) || line < 0) return null;
+  return Math.max(1, line);
+}
+
+function parseRequestedLineRange(value: string): { start: number; end: number } | null {
+  const m = /^(\d+)(?:-(\d+))?$/.exec(value);
+  if (!m) return null;
+  const [, startText, endText] = m;
+  if (!startText) return null;
+  const start = parseRequestedLine(startText);
+  const requestedEnd = endText ? parseRequestedLine(endText) : start;
+  if (start === null || requestedEnd === null) return null;
+  return { start, end: Math.max(start, requestedEnd) };
+}
+
 function untrustedReadBlock(label: string, text: string, indent = ""): string {
   return indentBlock(formatUntrustedVaultContent(label, text), indent);
 }
@@ -179,18 +196,17 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     async ({ path: notePath, section, block, lines }) => {
       try {
         if (!section && !block && lines) {
-          const m = /^(\d+)(?:-(\d+))?$/.exec(lines);
-          if (m) {
-            const a = Math.max(1, Number(m[1]));
-            const b = m[2] ? Math.max(a, Number(m[2])) : a;
-            const range = await readNoteLineRange(vaultPath, notePath, a, b);
-            if (range.pastEndLine) {
-              return errorResult(`Line ${range.pastEndLine.requested} is past end of file (${range.pastEndLine.total} lines)`);
-            }
-            return {
-              content: [untrustedTextContent("get_note fragment", range.text)],
-            };
+          const parsedRange = parseRequestedLineRange(lines);
+          if (!parsedRange) {
+            return errorResult(`Invalid lines format: "${displayReadValue(lines)}"`);
           }
+          const range = await readNoteLineRange(vaultPath, notePath, parsedRange.start, parsedRange.end);
+          if (range.pastEndLine) {
+            return errorResult(`Line ${range.pastEndLine.requested} is past end of file (${range.pastEndLine.total} lines)`);
+          }
+          return {
+            content: [untrustedTextContent("get_note fragment", range.text)],
+          };
         }
 
         const content = await readNote(vaultPath, notePath);
@@ -221,14 +237,12 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
 
         if (lines) {
           const allLines = content.split("\n");
-          const m = /^(\d+)(?:-(\d+))?$/.exec(lines);
-          if (!m) return errorResult(`Invalid lines format: "${displayReadValue(lines)}"`);
-          const a = Math.max(1, Number(m[1]));
-          const b = m[2] ? Math.max(a, Number(m[2])) : a;
-          if (a > allLines.length) {
-            return errorResult(`Line ${a} is past end of file (${allLines.length} lines)`);
+          const parsedRange = parseRequestedLineRange(lines);
+          if (!parsedRange) return errorResult(`Invalid lines format: "${displayReadValue(lines)}"`);
+          if (parsedRange.start > allLines.length) {
+            return errorResult(`Line ${parsedRange.start} is past end of file (${allLines.length} lines)`);
           }
-          const slice = allLines.slice(a - 1, Math.min(b, allLines.length));
+          const slice = allLines.slice(parsedRange.start - 1, Math.min(parsedRange.end, allLines.length));
           return {
             content: [untrustedTextContent("get_note fragment", slice.join("\n"))],
           };
