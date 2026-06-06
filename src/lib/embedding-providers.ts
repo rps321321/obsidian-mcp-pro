@@ -20,8 +20,6 @@
  * crashing the server.
  */
 
-import { redactUrlSecrets } from "./errors.js";
-
 export interface EmbeddingProvider {
   /** Stable identifier used in the persisted index — switching providers
    *  invalidates cached vectors because dimensions / spaces don't match. */
@@ -36,10 +34,6 @@ export interface EmbeddingProvider {
  *  cold Ollama with a 4 GB model) can legitimately take 10s+, but anything
  *  past 30s is almost certainly a hung connection or a misconfigured URL. */
 const EMBED_REQUEST_TIMEOUT_MS = 30_000;
-/** Cap on the response body interpolated into thrown errors. Prevents
- *  unbounded provider error payloads from blowing the MCP client's context
- *  budget and from leaking unexpectedly verbose backend internals. */
-const ERROR_BODY_MAX = 200;
 
 /** SEC-3: Validate that an embedding URL uses an allowed scheme.
  *  Only https:// and http:// to loopback addresses are permitted.
@@ -102,12 +96,6 @@ function validateModelName(name: string, context: string): string {
     );
   }
   return name;
-}
-
-function truncateBody(body: string): string {
-  const trimmed = redactUrlSecrets(body.trim());
-  if (trimmed.length <= ERROR_BODY_MAX) return trimmed;
-  return trimmed.slice(0, ERROR_BODY_MAX) + "… (truncated)";
 }
 
 class OllamaProvider implements EmbeddingProvider {
@@ -173,7 +161,7 @@ class OllamaProvider implements EmbeddingProvider {
       signal: AbortSignal.timeout(EMBED_REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) {
-      throw new Error(`Ollama /api/embed returned ${res.status}: ${truncateBody(await res.text())}`);
+      throw new Error(`Ollama /api/embed returned HTTP ${res.status}`);
     }
     const data = (await res.json()) as { embeddings?: number[][] };
     if (!Array.isArray(data.embeddings) || data.embeddings.length !== texts.length) {
@@ -192,7 +180,7 @@ class OllamaProvider implements EmbeddingProvider {
         signal: AbortSignal.timeout(EMBED_REQUEST_TIMEOUT_MS),
       });
       if (!res.ok) {
-        throw new Error(`Ollama /api/embeddings returned ${res.status}: ${truncateBody(await res.text())}`);
+        throw new Error(`Ollama /api/embeddings returned HTTP ${res.status}`);
       }
       const data = (await res.json()) as { embedding?: number[] };
       if (!Array.isArray(data.embedding)) {
@@ -233,7 +221,7 @@ class OpenAIProvider implements EmbeddingProvider {
       signal: AbortSignal.timeout(EMBED_REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) {
-      throw new Error(`OpenAI embeddings returned ${res.status}: ${truncateBody(await res.text())}`);
+      throw new Error(`OpenAI embeddings returned HTTP ${res.status}`);
     }
     const data = (await res.json()) as { data?: Array<{ embedding?: number[]; index?: number }> };
     if (!Array.isArray(data.data) || data.data.length !== texts.length) {
