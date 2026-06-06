@@ -32,6 +32,14 @@ class MockProvider implements EmbeddingProvider {
 }
 
 let env: TestEnv;
+const INDEX_CONFIRM = "send-vault-text-to-embedding-provider";
+
+function indexVault(args: Record<string, unknown> = {}) {
+  return env.client.callTool({
+    name: "index_vault",
+    arguments: { confirm: INDEX_CONFIRM, ...args },
+  });
+}
 
 function untrustedBlockBodies(text: string, label: string): string[] {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -64,11 +72,29 @@ afterEach(async () => {
 });
 
 describe("semantic handlers — index_vault", () => {
-  it("indexes all notes via the mock provider", async () => {
+  it("requires explicit confirmation before sending note chunks to the provider", async () => {
+    class CountingProvider extends MockProvider {
+      calls = 0;
+      override embed(texts: string[]): Promise<number[][]> {
+        this.calls += texts.length;
+        return super.embed(texts);
+      }
+    }
+    const provider = new CountingProvider();
+    setProviderForTests(provider);
+
     const result = await env.client.callTool({
       name: "index_vault",
       arguments: {},
     });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toContain("send-vault-text-to-embedding-provider");
+    expect(provider.calls).toBe(0);
+  });
+
+  it("indexes all notes via the mock provider", async () => {
+    const result = await indexVault();
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     expect(text).toMatch(/Indexed/);
@@ -77,19 +103,16 @@ describe("semantic handlers — index_vault", () => {
   });
 
   it("skips unchanged notes on a second pass", async () => {
-    await env.client.callTool({ name: "index_vault", arguments: {} });
-    const second = await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
+    const second = await indexVault();
     const text = textContent(second);
     expect(text).toMatch(/Notes unchanged:\s+4/);
     expect(text).toMatch(/Notes embedded:\s+0/);
   });
 
   it("force=true re-embeds even unchanged notes", async () => {
-    await env.client.callTool({ name: "index_vault", arguments: {} });
-    const forced = await env.client.callTool({
-      name: "index_vault",
-      arguments: { force: true },
-    });
+    await indexVault();
+    const forced = await indexVault({ force: true });
     const text = textContent(forced);
     expect(text).toMatch(/Notes embedded:\s+4/);
   });
@@ -104,7 +127,7 @@ describe("semantic handlers — index_vault", () => {
     const messages: string[] = [];
 
     const result = await env.client.callTool(
-      { name: "index_vault", arguments: { force: true } },
+      { name: "index_vault", arguments: { force: true, confirm: INDEX_CONFIRM } },
       undefined,
       {
         onprogress: (progress) => {
@@ -126,10 +149,7 @@ describe("semantic handlers — index_vault", () => {
     }
     setProviderForTests(new DirtyProvider());
 
-    const result = await env.client.callTool({
-      name: "index_vault",
-      arguments: {},
-    });
+    const result = await indexVault();
 
     const text = textContent(result);
     expect(text).toContain("via mock\\nprovider/topic\\tcounter");
@@ -158,10 +178,7 @@ describe("semantic handlers — index_vault", () => {
     });
     setProviderForTests(new FailingProvider());
 
-    const result = await env.client.callTool({
-      name: "index_vault",
-      arguments: {},
-    });
+    const result = await indexVault();
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
@@ -178,7 +195,7 @@ describe("semantic handlers — index_vault", () => {
 
 describe("semantic handlers — search_semantic", () => {
   it("returns the most semantically relevant note for a query", async () => {
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     const result = await env.client.callTool({
       name: "search_semantic",
       arguments: { query: "I want to learn about kittens and feline behavior", limit: 3 },
@@ -200,7 +217,7 @@ describe("semantic handlers — search_semantic", () => {
   });
 
   it("respects the folder filter", async () => {
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     // Force the search to a folder that contains nothing.
     const result = await env.client.callTool({
       name: "search_semantic",
@@ -210,7 +227,7 @@ describe("semantic handlers — search_semantic", () => {
   });
 
   it("escapes query labels when no matches are found", async () => {
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
 
     const result = await env.client.callTool({
       name: "search_semantic",
@@ -233,7 +250,7 @@ describe("semantic handlers — search_semantic", () => {
       },
     });
 
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     const result = await env.client.callTool({
       name: "search_semantic",
       arguments: { query: "cats", limit: 1 },
@@ -268,7 +285,7 @@ describe("semantic handlers — search_semantic", () => {
       },
     });
 
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     setPermissions({ readPaths: ["public"], writePaths: null });
 
     const result = await env.client.callTool({
@@ -294,7 +311,7 @@ describe("semantic handlers — search_semantic", () => {
       },
     });
 
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     await fs.writeFile(
       path.join(env.vaultDir, "cats.md"),
       "# Dogs\n\nThe current note is only about dogs.",
@@ -354,7 +371,7 @@ describe("semantic handlers — search_semantic", () => {
 
 describe("semantic handlers — find_similar_notes", () => {
   it("returns the most similar notes excluding the source", async () => {
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     const result = await env.client.callTool({
       name: "find_similar_notes",
       arguments: { path: "cats.md", limit: 3 },
@@ -406,7 +423,7 @@ describe("semantic handlers — find_similar_notes", () => {
       },
     });
 
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     const result = await env.client.callTool({
       name: "find_similar_notes",
       arguments: { path: "source.md", limit: 1 },
@@ -437,7 +454,7 @@ describe("semantic handlers — find_similar_notes", () => {
       },
     });
 
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     setPermissions({ readPaths: ["public"], writePaths: null });
 
     const result = await env.client.callTool({
@@ -462,7 +479,7 @@ describe("semantic handlers — find_similar_notes", () => {
       },
     });
 
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     setPermissions({ readPaths: ["public"], writePaths: null });
 
     const result = await env.client.callTool({
@@ -490,7 +507,7 @@ describe("semantic handlers — find_similar_notes", () => {
       },
     });
 
-    await env.client.callTool({ name: "index_vault", arguments: {} });
+    await indexVault();
     await fs.writeFile(
       path.join(env.vaultDir, "source.md"),
       "# Weather\n\nThe current source topic is rain.",
@@ -512,7 +529,7 @@ describe("semantic handlers — find_similar_notes", () => {
 describe("semantic handlers — provider missing", () => {
   it("each tool returns a configuration hint when no provider is set", async () => {
     setProviderForTests(null);
-    const r1 = await env.client.callTool({ name: "index_vault", arguments: {} });
+    const r1 = await indexVault();
     expect(isError(r1)).toBe(true);
     expect(textContent(r1)).toMatch(/OBSIDIAN_EMBEDDING_PROVIDER/);
 
@@ -528,7 +545,7 @@ describe("semantic handlers — provider missing", () => {
       "ftp://user:pa55@example.internal:11434/v1?token=secret#debug";
     process.env.OBSIDIAN_EMBEDDING_MODEL = "test-model";
     try {
-      const result = await env.client.callTool({ name: "index_vault", arguments: {} });
+      const result = await indexVault();
       const text = textContent(result);
       expect(isError(result)).toBe(true);
       expect(text).toContain("OBSIDIAN_EMBEDDING_URL scheme/host not allowed");
@@ -546,3 +563,4 @@ describe("semantic handlers — provider missing", () => {
     }
   });
 });
+

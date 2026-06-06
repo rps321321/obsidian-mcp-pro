@@ -35,6 +35,7 @@ const MISSING_PROVIDER_HINT =
   "Set OBSIDIAN_EMBEDDING_PROVIDER=ollama (default) and run an Ollama server with `ollama pull nomic-embed-text`. " +
   "For OpenAI, set OBSIDIAN_EMBEDDING_PROVIDER=openai and OBSIDIAN_EMBEDDING_API_KEY.";
 
+const INDEX_VAULT_CONFIRMATION = "send-vault-text-to-embedding-provider";
 const EMBED_BATCH_SIZE = 16;
 
 function textResult(text: string) {
@@ -187,7 +188,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
     {
       title: "Index Vault for Semantic Search",
       description:
-        "Build or refresh the embedding index used by `search_semantic` and `find_similar_notes`. Splits each note into heading-aware chunks, embeds them via the configured provider (Ollama by default, OpenAI optional), and persists the index to `<vault>/.obsidian/cache/mcp-pro-embeddings.json`. Incremental: notes whose content hash matches the prior pass are skipped. Use `force: true` to re-embed everything (e.g., after switching models). Emits progress notifications when the client subscribes.",
+        "Build or refresh the embedding index used by `search_semantic` and `find_similar_notes`. Splits readable notes into heading-aware chunks, sends those chunks to the configured embedding provider (Ollama by default, OpenAI optional), and persists the index to `<vault>/.obsidian/cache/mcp-pro-embeddings.json`. Requires `confirm: \"send-vault-text-to-embedding-provider\"` so callers explicitly acknowledge that vault text will leave this tool boundary. Incremental: notes whose content hash matches the prior pass are skipped. Use `force: true` to re-embed everything (e.g., after switching models). Emits progress notifications when the client subscribes.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -205,9 +206,15 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           .max(500)
           .optional()
           .describe("Restrict the indexing pass to this folder. Notes outside the folder are left untouched."),
+        confirm: z
+          .literal(INDEX_VAULT_CONFIRMATION)
+          .optional()
+          .describe(
+            `Required safety latch. Set exactly to "${INDEX_VAULT_CONFIRMATION}" to acknowledge that readable note chunks will be sent to the configured embedding provider.`,
+          ),
       },
     },
-    async ({ force, folder }, extra) => {
+    async ({ force, folder, confirm }, extra) => {
       // Serialize the entire index pass against itself per-vault. Two
       // concurrent index_vault calls would otherwise interleave
       // `setNoteChunks` + `pruneMissingNotes` operations on the same
@@ -222,6 +229,12 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         if (!provider) {
           return errorResult(
             `Semantic search has no embedding provider configured. ${MISSING_PROVIDER_HINT}`,
+          );
+        }
+        if (confirm !== INDEX_VAULT_CONFIRMATION) {
+          return errorResult(
+            `index_vault sends readable note chunks to the configured embedding provider (${displaySemanticValue(provider.id)}/${displaySemanticValue(provider.model)}). ` +
+              `Set confirm to "${INDEX_VAULT_CONFIRMATION}" to proceed.`,
           );
         }
 

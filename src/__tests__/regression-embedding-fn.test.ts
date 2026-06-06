@@ -19,6 +19,8 @@ import {
 import { log } from "../lib/logger.js";
 import { createTestEnv, isError, textContent, type TestEnv } from "./handlers/harness.js";
 
+const INDEX_CONFIRM = "send-vault-text-to-embedding-provider";
+
 // Regression coverage for the second wave of embedding-stack findings:
 //   - FN-H1: OllamaProvider probe used to be followed by a full embedBatched
 //          over the whole input, double-embedding chunk 0 on every cold
@@ -256,8 +258,8 @@ describe("index_vault per-vault serialization (FN-M2)", () => {
     setProviderForTests(new TaggingProvider("A"));
 
     const [r1, r2] = await Promise.all([
-      env.client.callTool({ name: "index_vault", arguments: {} }),
-      env.client.callTool({ name: "index_vault", arguments: {} }),
+      env.client.callTool({ name: "index_vault", arguments: { confirm: INDEX_CONFIRM } }),
+      env.client.callTool({ name: "index_vault", arguments: { confirm: INDEX_CONFIRM } }),
     ]);
 
     expect(isError(r1)).toBe(false);
@@ -314,14 +316,14 @@ describe("index_vault partial-note failures", () => {
 
   it("does not mark a note current unless every chunk embeds successfully", async () => {
     setProviderForTests(new PartialProvider(false));
-    const partial = await env.client.callTool({ name: "index_vault", arguments: {} });
+    const partial = await env.client.callTool({ name: "index_vault", arguments: { confirm: INDEX_CONFIRM } });
     expect(isError(partial)).toBe(false);
     expect(textContent(partial)).toMatch(/Failures:\s+1/);
     expect(snapshotForTests(env.vaultDir).totalChunks).toBe(0);
     expect(snapshotForTests(env.vaultDir).totalNotes).toBe(0);
 
     setProviderForTests(new PartialProvider(true));
-    const complete = await env.client.callTool({ name: "index_vault", arguments: {} });
+    const complete = await env.client.callTool({ name: "index_vault", arguments: { confirm: INDEX_CONFIRM } });
     expect(isError(complete)).toBe(false);
     expect(textContent(complete)).toContain("Notes embedded:  1");
     expect(snapshotForTests(env.vaultDir).totalChunks).toBe(2);
