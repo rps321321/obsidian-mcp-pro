@@ -351,10 +351,26 @@ describe("write handlers — create_daily_note", () => {
 });
 
 describe("write handlers — move_note", () => {
-  it("moves a note and creates missing parent folders", async () => {
+  it("requires confirmPath for default reference rewrites", async () => {
     const result = await env.client.callTool({
       name: "move_note",
       arguments: { oldPath: "note-c.md", newPath: "archive/2026/note-c.md" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toContain('confirmPath="archive/2026/note-c.md"');
+    await expect(fs.access(path.join(env.vaultDir, "note-c.md"))).resolves.toBeUndefined();
+    await expect(fs.access(path.join(env.vaultDir, "archive/2026/note-c.md"))).rejects.toThrow();
+  });
+
+  it("moves a note and creates missing parent folders", async () => {
+    const result = await env.client.callTool({
+      name: "move_note",
+      arguments: {
+        oldPath: "note-c.md",
+        newPath: "archive/2026/note-c.md",
+        confirmPath: "archive/2026/note-c.md",
+      },
     });
     expect(isError(result)).toBe(false);
 
@@ -371,7 +387,11 @@ describe("write handlers — move_note", () => {
 
     const result = await env.client.callTool({
       name: "move_note",
-      arguments: { oldPath: "note-c.md", newPath: "archive/note-c.md" },
+      arguments: {
+        oldPath: "note-c.md",
+        newPath: "archive/note-c.md",
+        confirmPath: "archive/note-c.md",
+      },
     });
 
     expect(isError(result)).toBe(false);
@@ -395,7 +415,11 @@ describe("write handlers — move_note", () => {
 
     const result = await env.client.callTool({
       name: "move_note",
-      arguments: { oldPath: "note-c.md", newPath: "archive/note-c.md" },
+      arguments: {
+        oldPath: "note-c.md",
+        newPath: "archive/note-c.md",
+        confirmPath: "archive/note-c.md",
+      },
     });
 
     expect(isError(result)).toBe(false);
@@ -406,7 +430,7 @@ describe("write handlers — move_note", () => {
   it("refuses to overwrite an existing destination", async () => {
     const result = await env.client.callTool({
       name: "move_note",
-      arguments: { oldPath: "note-a.md", newPath: "note-b.md" },
+      arguments: { oldPath: "note-a.md", newPath: "note-b.md", confirmPath: "note-b.md" },
     });
     expect(isError(result)).toBe(true);
     expect(textContent(result)).toMatch(/already exists/i);
@@ -417,7 +441,11 @@ describe("write handlers — move_note", () => {
     // structured path reference and must follow the move.
     const result = await env.client.callTool({
       name: "move_note",
-      arguments: { oldPath: "note-a.md", newPath: "archive/2026/note-a.md" },
+      arguments: {
+        oldPath: "note-a.md",
+        newPath: "archive/2026/note-a.md",
+        confirmPath: "archive/2026/note-a.md",
+      },
     });
     expect(isError(result)).toBe(false);
     expect(textContent(result)).toMatch(/Updated references in \d+ file\(s\)/);
@@ -488,7 +516,11 @@ describe("write handlers — move_note", () => {
       try {
         return await env.client.callTool({
           name: "move_note",
-          arguments: { oldPath: "note-a.md", newPath: "archive/renamed-a.md" },
+          arguments: {
+            oldPath: "note-a.md",
+            newPath: "archive/renamed-a.md",
+            confirmPath: "archive/renamed-a.md",
+          },
         });
       } finally {
         linkSpy.mockRestore();

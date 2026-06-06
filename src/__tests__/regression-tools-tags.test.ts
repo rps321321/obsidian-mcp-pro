@@ -125,7 +125,7 @@ describe("regression M9: rename_tag hierarchical rebases nested children", () =>
   it("with hierarchical=true (default), renaming 'project' also rewrites 'project/alpha'", async () => {
     const result = await env.client.callTool({
       name: "rename_tag",
-      arguments: { oldName: "project", newName: "client" },
+      arguments: { oldName: "project", newName: "client", confirmTag: "client" },
     });
     expect(isError(result)).toBe(false);
     expect(textContent(result)).toMatch(/Rewrote #project → #client/);
@@ -158,6 +158,7 @@ describe("regression M9: rename_tag hierarchical rebases nested children", () =>
       arguments: {
         oldName: "project",
         newName: "client",
+        confirmTag: "client",
         hierarchical: false,
       },
     });
