@@ -91,26 +91,31 @@ function regexQuantifierLength(pattern: string, index: number): number {
   return pattern.charAt(i) === "}" ? i - index + 1 : 0;
 }
 
-function regexQuantifierIsUnboundedRepeat(pattern: string, index: number): boolean {
+function regexQuantifierCanRepeat(pattern: string, index: number): boolean {
   const ch = pattern.charAt(index);
   if (ch === "*" || ch === "+") return true;
+  if (ch === "?") return false;
   if (ch !== "{") return false;
 
   let i = index + 1;
-  let digits = 0;
+  let minText = "";
   while (i < pattern.length && isAsciiDigit(pattern.charAt(i))) {
+    minText += pattern.charAt(i);
     i += 1;
-    digits += 1;
   }
-  if (digits === 0 || pattern.charAt(i) !== ",") return false;
+  if (minText.length === 0) return false;
+  if (pattern.charAt(i) === "}") return Number(minText) > 1;
+  if (pattern.charAt(i) !== ",") return false;
 
   i += 1;
-  let maxDigits = 0;
+  let maxText = "";
   while (i < pattern.length && isAsciiDigit(pattern.charAt(i))) {
+    maxText += pattern.charAt(i);
     i += 1;
-    maxDigits += 1;
   }
-  return maxDigits === 0 && pattern.charAt(i) === "}";
+  if (pattern.charAt(i) !== "}") return false;
+  if (maxText.length === 0) return true;
+  return Number(maxText) > 1;
 }
 
 function regexCharacterClassEnd(pattern: string, openIndex: number): number {
@@ -319,7 +324,7 @@ function hasUnsafeRepeatedGroup(pattern: string): boolean {
     const body = group === undefined ? "" : pattern.slice(group.bodyStart, i);
     if (
       group !== undefined &&
-      regexQuantifierIsUnboundedRepeat(pattern, i + 1) &&
+      regexQuantifierCanRepeat(pattern, i + 1) &&
       (hasQuantifiedAtom(body) || hasAmbiguousAlternation(body))
     ) {
       return true;

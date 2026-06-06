@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `get_note` line fragments now reject unsafe line numbers and cap line-range scan/output bytes, while still allowing small targeted fragments from notes over the full-read cap.
+- `replace_in_note` now rejects bounded repeated regex groups that contain quantified atoms before matching.
 - Tool outputs that include vault-authored bodies, snippets, previews, frontmatter values, Base data, SVG attachment text, section headings, Canvas node content, or backlink context now mark those portions with explicit untrusted-content boundaries before they enter an MCP client's model context.
 - `search_notes` result path and snippet marker labels are now generic; clients should read the path or snippet from inside the untrusted block body.
 - `search_by_frontmatter` result path and frontmatter marker labels are now generic; clients should read those values from inside the untrusted block body.
