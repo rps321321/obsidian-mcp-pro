@@ -20,6 +20,8 @@
  * crashing the server.
  */
 
+import { redactUrlSecrets } from "./errors.js";
+
 export interface EmbeddingProvider {
   /** Stable identifier used in the persisted index — switching providers
    *  invalidates cached vectors because dimensions / spaces don't match. */
@@ -49,7 +51,7 @@ function validateEmbeddingUrl(raw: string): string {
     parsed = new URL(raw);
   } catch {
     throw new Error(
-      `OBSIDIAN_EMBEDDING_URL is not a valid URL: "${raw}". ` +
+      "OBSIDIAN_EMBEDDING_URL is not a valid URL. " +
         "Provide a full URL like https://api.example.com or http://localhost:11434",
     );
   }
@@ -64,7 +66,7 @@ function validateEmbeddingUrl(raw: string): string {
 
   if (!isHttps && !isLoopback) {
     throw new Error(
-      `OBSIDIAN_EMBEDDING_URL scheme/host not allowed: "${raw}". ` +
+      "OBSIDIAN_EMBEDDING_URL scheme/host not allowed. " +
         "Only https:// URLs and http:// to localhost/127.0.0.1 are permitted.",
     );
   }
@@ -103,7 +105,7 @@ function validateModelName(name: string, context: string): string {
 }
 
 function truncateBody(body: string): string {
-  const trimmed = body.trim();
+  const trimmed = redactUrlSecrets(body.trim());
   if (trimmed.length <= ERROR_BODY_MAX) return trimmed;
   return trimmed.slice(0, ERROR_BODY_MAX) + "… (truncated)";
 }

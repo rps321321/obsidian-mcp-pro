@@ -3,8 +3,9 @@
 // Node's `fs` errors carry absolute host filesystem paths in their `.message`
 // (e.g. `ENOENT: no such file or directory, open '/home/user/vault/note.md'`).
 // Forwarding these to MCP clients leaks vault locations and potentially other
-// host layout information. `sanitizeError` strips the path and returns a
-// short, code-based message suitable for client-facing error payloads.
+// host layout information. Other error paths may also contain secret-bearing
+// URLs. `sanitizeError` strips those sensitive details and returns a short,
+// code-based message suitable for client-facing error payloads.
 
 const FS_ERROR_MESSAGES: Record<string, string> = {
   ENOENT: "File or directory not found",
@@ -26,14 +27,14 @@ interface ErrnoLike {
 
 /**
  * Convert an unknown thrown value into a message safe to return to an MCP
- * client. Strips absolute paths, stack traces, collapses known errno
+ * client. Strips absolute paths and secret-bearing URLs, collapses known errno
  * codes to generic human-readable text, and escapes control characters so
  * an attacker-controlled value (e.g. a filename with `\n` in it embedded
  * in an error message) can't break out of its line and inject text into
  * the LLM context.
  */
 export function sanitizeError(err: unknown): string {
-  if (typeof err === "string") return escapeControlChars(stripPaths(err));
+  if (typeof err === "string") return escapeControlChars(stripPaths(redactUrlSecrets(err)));
   if (!err || typeof err !== "object") return "Unknown error";
 
   const e = err as ErrnoLike;
@@ -41,7 +42,7 @@ export function sanitizeError(err: unknown): string {
   if (code && FS_ERROR_MESSAGES[code]) return FS_ERROR_MESSAGES[code];
 
   const msg = typeof e.message === "string" ? e.message : fallbackErrorMessage(err);
-  return escapeControlChars(stripPaths(msg));
+  return escapeControlChars(stripPaths(redactUrlSecrets(msg)));
 }
 
 function fallbackErrorMessage(err: unknown): string {
@@ -81,6 +82,31 @@ export function escapeControlChars(s: string): string {
     if (c === "\r") return "\\r";
     if (c === "\t") return "\\t";
     return `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`;
+  });
+}
+
+const URL_LIKE_RE = /\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s<>"'`]+/g;
+const TRAILING_URL_PUNCT_RE = /[)\].,;!?]+$/;
+
+/**
+ * Remove credentials and parameter-bearing URL details from client-facing
+ * error text. Plain URLs are left alone so ordinary diagnostics stay useful;
+ * URLs with userinfo, query strings, or fragments are collapsed because those
+ * parts commonly carry API keys, bearer tokens, or internal setup details.
+ */
+export function redactUrlSecrets(s: string): string {
+  return s.replace(URL_LIKE_RE, (candidate) => {
+    const trailing = candidate.match(TRAILING_URL_PUNCT_RE)?.[0] ?? "";
+    const rawUrl = trailing ? candidate.slice(0, -trailing.length) : candidate;
+    try {
+      const parsed = new URL(rawUrl);
+      if (!parsed.username && !parsed.password && !parsed.search && !parsed.hash) {
+        return candidate;
+      }
+      return `${parsed.protocol}//<redacted-url>${trailing}`;
+    } catch {
+      return `<redacted-url>${trailing}`;
+    }
   });
 }
 
