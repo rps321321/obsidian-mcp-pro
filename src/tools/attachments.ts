@@ -26,6 +26,7 @@ import {
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import {
   formatUntrustedVaultContent,
+  indentBlock,
   untrustedVaultContentMeta,
 } from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
@@ -50,12 +51,26 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function textResultWithUntrustedMeta(text: string, label: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text,
+      _meta: untrustedVaultContentMeta(label),
+    }],
+  };
+}
+
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
 
 /** Escape control characters in a value before embedding it in a display string. */
 const displayAttachmentValue = escapeControlChars;
+
+function untrustedAttachmentBlock(label: string, text: string, indent = ""): string {
+  return indentBlock(formatUntrustedVaultContent(label, text), indent);
+}
 
 function vaultResourceUri(relPath: string): string {
   return `vault://${relPath.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/")}`;
@@ -328,8 +343,11 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
           for (const [ext, n] of entries) lines.push(`  ${displayAttachmentValue(ext)}  ${n}`);
           lines.push("");
         }
-        for (const p of truncated) lines.push(`- ${displayAttachmentValue(p)}`);
-        return textResult(lines.join("\n"));
+        lines.push(untrustedAttachmentBlock(
+          "list_attachments paths",
+          truncated.map((p) => `- ${displayAttachmentValue(p)}`).join("\n"),
+        ));
+        return textResultWithUntrustedMeta(lines.join("\n"), "list_attachments paths");
       } catch (err) {
         log.error("list_attachments failed", { tool: "list_attachments", err: err as Error });
         return errorResult(`Error listing attachments: ${sanitizeError(err)}`);
@@ -419,16 +437,21 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
           }
           lines.push(`Total reclaimable: ${totalBytes.toLocaleString()} bytes (across all ${unused.length} unused attachment(s))`);
           lines.push("");
+          const rowLines: string[] = [];
           for (const p of truncated) {
             const sz = sizes.get(p);
             const displayedPath = displayAttachmentValue(p);
-            lines.push(sz !== undefined ? `- ${displayedPath}  (${sz.toLocaleString()} bytes)` : `- ${displayedPath}`);
+            rowLines.push(sz !== undefined ? `- ${displayedPath}  (${sz.toLocaleString()} bytes)` : `- ${displayedPath}`);
           }
+          lines.push(untrustedAttachmentBlock("find_unused_attachments paths", rowLines.join("\n")));
         } else {
-          for (const p of truncated) lines.push(`- ${displayAttachmentValue(p)}`);
+          lines.push(untrustedAttachmentBlock(
+            "find_unused_attachments paths",
+            truncated.map((p) => `- ${displayAttachmentValue(p)}`).join("\n"),
+          ));
         }
 
-        return textResult(lines.join("\n"));
+        return textResultWithUntrustedMeta(lines.join("\n"), "find_unused_attachments paths");
       } catch (err) {
         log.error("find_unused_attachments failed", {
           tool: "find_unused_attachments",
