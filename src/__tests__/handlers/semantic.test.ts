@@ -169,10 +169,13 @@ describe("semantic handlers — search_semantic", () => {
     });
 
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toContain("Dirty\\tHeading");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet: dirty.md]");
     expect(text).toContain("\\x07");
     expect(text).not.toContain("Dirty\tHeading");
     expect(text).not.toContain("\x07");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("filters persisted embedding hits through the current read allowlist", async () => {

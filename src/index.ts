@@ -13,6 +13,7 @@ import { flushAllCachesAsync, readAllCached } from "./lib/index-cache.js";
 import { extractTags } from "./lib/markdown.js";
 import { log, configureLogger } from "./lib/logger.js";
 import { escapeControlChars, sanitizeError } from "./lib/errors.js";
+import { untrustedVaultContentMeta } from "./lib/tool-output.js";
 import { formatMomentDate } from "./lib/dates.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
@@ -234,6 +235,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
               uri: uri.href,
               mimeType: "text/markdown",
               text: content,
+              _meta: untrustedVaultContentMeta(`note resource: ${notePath}`),
             },
           ],
         };
@@ -271,6 +273,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
           uri: uri.href,
           mimeType: "application/json",
           text: JSON.stringify(tagIndex, null, 2),
+          _meta: untrustedVaultContentMeta("tag resource"),
         },
       ],
     };
@@ -296,6 +299,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
             uri: uri.href,
             mimeType: "text/markdown",
             text: content,
+            _meta: untrustedVaultContentMeta(`daily note resource: ${notePath}`),
           },
         ],
       };
