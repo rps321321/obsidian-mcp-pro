@@ -20,9 +20,12 @@ describe("canvas handlers — list_canvases", () => {
       name: "list_canvases",
       arguments: {},
     });
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_canvases paths]");
     expect(text).toContain("boards/test.canvas");
     expect(text).toMatch(/Found 1 canvas/);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 });
 
@@ -35,7 +38,9 @@ describe("canvas handlers — read_canvas", () => {
     expect(isError(result)).toBe(false);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
-    expect(text).toContain("Canvas: boards/test.canvas");
+    expect(text).toContain("Canvas:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas path]");
+    expect(text).toContain("boards/test.canvas");
     expect(text).toMatch(/Nodes: 2 \| Edges: 1/);
     expect(text).toContain("[n1] type=text");
     expect(text).toContain("Hello canvas");

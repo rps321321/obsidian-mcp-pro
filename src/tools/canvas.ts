@@ -34,6 +34,20 @@ function displayCanvasValue(value: string): string {
   return escapeControlChars(value);
 }
 
+function untrustedCanvasTextResult(label: string, text: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text,
+      _meta: untrustedVaultContentMeta(label),
+    }],
+  };
+}
+
+function untrustedCanvasBlock(label: string, text: string, indent = ""): string {
+  return indentBlock(formatUntrustedVaultContent(label, text), indent);
+}
+
 const ALLOWED_CANVAS_LINK_PROTOCOLS = new Set(["http:", "https:"]);
 
 function validateCanvasLinkUrl(value: string): string | null {
@@ -85,7 +99,8 @@ async function getCanvasReadSignature(
 function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
   const lines: string[] = [];
 
-  lines.push(`Canvas: ${displayCanvasValue(canvasPath)}`);
+  lines.push("Canvas:");
+  lines.push(untrustedCanvasBlock("read_canvas path", displayCanvasValue(canvasPath), "  "));
   lines.push(`Nodes: ${data.nodes.length} | Edges: ${data.edges.length}`);
   lines.push("");
 
@@ -218,9 +233,10 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
         }
 
         const formatted = files.map((f, i) => `${i + 1}. ${displayCanvasValue(f)}`).join("\n");
-        return {
-          content: [{ type: "text" as const, text: `Found ${files.length} canvas file(s):\n\n${formatted}` }],
-        };
+        return untrustedCanvasTextResult(
+          "list_canvases paths",
+          `Found ${files.length} canvas file(s):\n\n${untrustedCanvasBlock("list_canvases paths", formatted)}`,
+        );
       } catch (err) {
         log.error("list_canvases failed", { tool: "list_canvases", err: err as Error });
         return errorResult(`Error listing canvas files: ${sanitizeError(err)}`);
