@@ -8,6 +8,7 @@ import {
   hashText,
   noteIsCurrent,
   setNoteChunks,
+  dropNoteChunks,
   pruneMissingNotes,
   searchEmbeddings,
   cosineSimilarity,
@@ -244,6 +245,18 @@ describe("noteIsCurrent / pruneMissingNotes", () => {
     expect(pruned).toBe(1);
     const snap = snapshotForTests(vaultDir);
     expect(snap.totalNotes).toBe(1);
+  });
+
+  it("dropNoteChunks removes stored chunks and note hashes", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(vaultDir, "stale.md", "old-hash", [
+      { notePath: "stale.md", chunkIndex: 1, headingPath: [], text: "old", hash: "th", vector: [1] },
+    ], "test", "m");
+
+    expect(dropNoteChunks(vaultDir, "stale.md")).toBe(true);
+    expect(dropNoteChunks(vaultDir, "stale.md")).toBe(false);
+    expect(noteIsCurrent(vaultDir, "stale.md", "old-hash")).toBe(false);
+    expect(searchEmbeddings(vaultDir, [1], { limit: 5 })).toEqual([]);
   });
 });
 
