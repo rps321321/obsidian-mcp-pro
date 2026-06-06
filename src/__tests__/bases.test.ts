@@ -26,6 +26,33 @@ describe("parseBaseFile", () => {
     const { warnings } = parseBaseFile(":\n  - broken\n");
     expect(warnings.length).toBeGreaterThan(0);
   });
+
+  it("refuses YAML anchors and aliases", () => {
+    const raw = [
+      "shared: &shared",
+      "  filters:",
+      '    - file.hasTag("project")',
+      "filters: *shared",
+    ].join("\n");
+
+    const { doc, warnings } = parseBaseFile(raw);
+    expect(doc).toEqual({});
+    expect(warnings.some((w) => /anchors or aliases/i.test(w))).toBe(true);
+  });
+
+  it("allows ampersands and stars inside scalar text", () => {
+    const raw = [
+      "properties:",
+      "  display:",
+      '    displayName: "R&D * literal"',
+      'filters: [file.name.contains("A*B & C")]',
+    ].join("\n");
+
+    const { doc, warnings } = parseBaseFile(raw);
+    expect(warnings).toEqual([]);
+    expect(doc.properties?.display?.displayName).toBe("R&D * literal");
+    expect(doc.filters).toEqual(['file.name.contains("A*B & C")']);
+  });
 });
 
 describe("evaluateFilter / queryBase", () => {
