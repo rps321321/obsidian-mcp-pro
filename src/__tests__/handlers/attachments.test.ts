@@ -41,10 +41,13 @@ describe("attachments handlers — list_attachments", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toMatch(/used-image\.png/);
     expect(text).toMatch(/orphan-image\.png/);
     expect(text).toMatch(/screenshot\.jpg/);
     expect(text).toMatch(/notes\.pdf/);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_attachments paths]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     // Markdown notes never appear in attachment listings.
     expect(text).not.toMatch(/embed-host\.md/);
     // Hidden dotfiles are skipped by the inventory and direct reads.
@@ -92,12 +95,15 @@ describe("attachments handlers — find_unused_attachments", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     // used-image.png is embedded; notes.pdf is linked. Both should be safe.
     expect(text).not.toMatch(/used-image\.png/);
     expect(text).not.toMatch(/notes\.pdf/);
     // orphan-image.png and screenshot.jpg have no references at all.
     expect(text).toMatch(/orphan-image\.png/);
     expect(text).toMatch(/screenshot\.jpg/);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_unused_attachments paths]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("serves repeated unused scans without changing output", async () => {
