@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatFailedPath, formatUntrustedVaultContent } from "../lib/tool-output.js";
+import {
+  formatFailedPath,
+  formatUntrustedFailedPath,
+  formatUntrustedVaultContent,
+} from "../lib/tool-output.js";
 
 describe("tool output helpers", () => {
   it("escapes control characters in failure paths and sanitizes errors", () => {
@@ -10,6 +14,19 @@ describe("tool output helpers", () => {
     );
 
     expect(line).toBe("    - notes/bad\\nname.md: failed while reading <path>");
+  });
+
+  it("wraps failure paths in untrusted-content markers", () => {
+    const text = formatUntrustedFailedPath(
+      "move_note failed referrer: notes/bad\nname.md",
+      "notes/bad\nname.md",
+      new Error("failed while reading /tmp/private-vault/secret.md"),
+      "    ",
+    );
+
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: move_note failed referrer: notes/bad\\nname.md]");
+    expect(text).toContain("    - notes/bad\\nname.md: failed while reading <path>");
+    expect(text).toContain("[END UNTRUSTED VAULT CONTENT: move_note failed referrer: notes/bad\\nname.md]");
   });
 });
 
