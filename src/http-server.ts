@@ -54,26 +54,40 @@ class BodyTooLargeError extends Error {
   }
 }
 
+function declaredBodyTooLarge(req: IncomingMessage): boolean {
+  const contentLength = req.headers["content-length"];
+  if (typeof contentLength !== "string" || !/^\d+$/.test(contentLength)) return false;
+  return BigInt(contentLength) > BigInt(MAX_BODY_BYTES);
+}
+
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let size = 0;
-    let exceeded = false;
+    let settled = false;
     const chunks: Buffer[] = [];
+
+    const fail = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      chunks.length = 0;
+      reject(err);
+    };
+
     req.on("data", (chunk: Buffer) => {
-      if (exceeded) return;
+      if (settled) return;
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        // Stop buffering but keep reading + discarding so the request stream
-        // drains cleanly. Destroying the socket here races with the 413
-        // response write and produces noisy `write after end` errors.
-        exceeded = true;
-        chunks.length = 0;
+        // Stop buffering and let the caller return 413 immediately; keep the
+        // request stream flowing so the socket can drain without a hard reset.
+        fail(new BodyTooLargeError());
+        req.resume();
       } else {
         chunks.push(chunk);
       }
     });
     req.on("end", () => {
-      if (exceeded) return reject(new BodyTooLargeError());
+      if (settled) return;
+      settled = true;
       const raw = Buffer.concat(chunks).toString("utf-8");
       if (!raw) return resolve(undefined);
       try {
@@ -82,7 +96,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
         reject(err instanceof Error ? err : new Error("Invalid JSON body"));
       }
     });
-    req.on("error", reject);
+    req.on("error", (err) => fail(err));
   });
 }
 
@@ -430,6 +444,11 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         const contentType = req.headers["content-type"] ?? "";
         if (!contentType.toLowerCase().includes("application/json")) {
           sendJson(res, 415, { error: "Unsupported Media Type: expected application/json" });
+          return;
+        }
+        if (declaredBodyTooLarge(req)) {
+          req.resume();
+          sendJson(res, 413, { error: "Request body too large" });
           return;
         }
         let body: unknown;
