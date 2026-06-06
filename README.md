@@ -341,7 +341,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 
 ## Security
 
-- **Vault boundary** — every tool and resource routes through a single path resolver that rejects `..` traversal, null-byte injection, and symlinks pointing outside the vault (ancestor-realpath check).
+- **Vault boundary** — every tool and resource routes through a single path resolver that rejects `..` traversal, null-byte injection, and symlinks pointing outside the vault (ancestor-realpath check). On Windows it also rejects reserved device names and alternate data stream syntax.
 - **Excluded directories** — `.obsidian`, `.git`, and `.trash` are pruned at traversal time and at resolution time, so nested occurrences never leak back to clients.
 - **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time.
 - **Error sanitization** — filesystem error messages are stripped of absolute host paths before being returned to MCP clients. Uncaught HTTP errors respond with a generic `Internal server error` body; full detail stays in the server log.

@@ -66,6 +66,15 @@ describe("resolveVaultPath", () => {
     );
   });
 
+  itWin32("should block alternate data stream syntax", () => {
+    expect(() => resolveVaultPath(vaultDir, "note.md:hidden.png")).toThrow(
+      /alternate data stream/i,
+    );
+    expect(() => resolveVaultPath(vaultDir, "folder/note.md:hidden.txt")).toThrow(
+      /alternate data stream/i,
+    );
+  });
+
   it("should block sibling directory prefix attack", () => {
     // If vault is /tmp/vault, a path resolving to /tmp/vault-evil should fail
     const siblingDir = vaultDir + "-evil";
