@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Token-based npm release helper in `scripts/publish-npm-from-env.mjs`, plus release docs for using `NPM_TOKEN` without committing npm credentials.
 - Active R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs` and ship/kill metric in `docs/rnd/frontmatter-key-quality.md`.
 - R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs` and ship/kill metric in `docs/rnd/search-ranking-quality.md`.
 - R&D experiment for lexical search snippet quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-quality.mjs` and ship/kill metric in `docs/rnd/search-snippet-quality.md`.
