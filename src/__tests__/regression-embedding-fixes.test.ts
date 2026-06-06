@@ -217,6 +217,36 @@ describe("live embedding vector validation", () => {
     expect(hits[0]!.notePath).toBe("a.md");
   });
 
+  it("does not include note paths in vector validation errors", async () => {
+    await loadStore(vaultDir);
+    const dirtyPath = "dirty\nembedding.md";
+
+    expect(() =>
+      setNoteChunks(
+        vaultDir,
+        dirtyPath,
+        "bad",
+        [{ notePath: dirtyPath, chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [Number.NaN, 0, 0] }],
+        "test",
+        "m",
+      ),
+    ).toThrow(/Invalid embedding vector at chunk 1: vector contains a non-finite value/);
+
+    try {
+      setNoteChunks(
+        vaultDir,
+        dirtyPath,
+        "bad",
+        [{ notePath: dirtyPath, chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [Number.NaN, 0, 0] }],
+        "test",
+        "m",
+      );
+    } catch (err) {
+      expect((err as Error).message).not.toContain("dirty");
+      expect((err as Error).message).not.toContain("embedding.md");
+    }
+  });
+
   it("rejects mixed dimensions before mutating existing note chunks", async () => {
     await loadStore(vaultDir);
     setNoteChunks(

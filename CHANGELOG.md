@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Canvas summary marker labels and trust metadata are now generic; clients should read Canvas paths, node ids, node previews, colors, endpoints, and edge labels from inside the untrusted block body.
 - Section heading marker labels and trust metadata are now generic; clients should read listed and resolved heading text from inside the untrusted block body.
 - SVG attachment text marker labels and trust metadata are now generic; clients should read attachment text from inside the untrusted block body.
+- Embedding vector validation errors no longer include note paths; failed note paths remain reported through the existing untrusted failed-note blocks.
 - Read-tool inventory outputs now mark listed note paths, recent-note rows, vault-stat most-recent paths, and alias-resolution path groups as untrusted vault content.
 - Search outputs now mark matching note path headings from `search_notes` and `search_by_frontmatter` as untrusted vault content.
 - Semantic outputs now mark ranked note result paths from `search_semantic` and `find_similar_notes`, plus failed note rows from `index_vault`, as untrusted vault content.
