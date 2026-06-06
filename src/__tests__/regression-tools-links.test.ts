@@ -172,9 +172,10 @@ describe("M11: get_outlinks resolves alias references via the link graph", () =>
     // the aliasMap.
     expect(text).toMatch(/2 valid, 0 broken/);
     expect(text).toContain("aliased.md");
-    // The valid-links section must contain the alias text the user wrote,
-    // not the resolved filename, so they can find it in the source note.
-    expect(text).toContain("[[My Project]]");
+    // The valid-links section must retain the target text the user wrote,
+    // but it is note-authored text, so it belongs inside an untrusted block.
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: outlink target: linker.md]");
+    expect(text).toContain("My Project");
   });
 
   it("agrees with get_backlinks on the source -> target mapping for an alias", async () => {

@@ -131,7 +131,8 @@ describe("link handlers — get_outlinks", () => {
     const text = textContent(result);
     expect(isError(result)).toBe(false);
     expect(text).toContain("Outgoing links from: warm-new-source.md");
-    expect(text).toContain("[[note-a]]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: outlink target: warm-new-source.md]");
+    expect(text).toContain("note-a");
     expect(text).toContain("note-a.md");
   });
 
@@ -154,7 +155,7 @@ describe("link handlers — get_outlinks", () => {
     expect(text).not.toContain("missing\nnote");
   });
 
-  it("escapes control characters in displayed broken link targets", async () => {
+  it("marks displayed broken link targets as untrusted", async () => {
     const created = await env.client.callTool({
       name: "create_note",
       arguments: {
@@ -169,8 +170,11 @@ describe("link handlers — get_outlinks", () => {
       arguments: { path: "tab-outlink.md" },
     });
     const text = textContent(result);
-    expect(text).toContain("[[bad\\ttarget]]");
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: broken outlink target: tab-outlink.md]");
+    expect(text).toContain("bad\\ttarget");
     expect(text).not.toContain("bad\ttarget");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 });
 
@@ -218,7 +222,7 @@ describe("link handlers — find_broken_links", () => {
     expect(textContent(result)).toMatch(/No broken links/i);
   });
 
-  it("escapes control characters in broken link targets", async () => {
+  it("marks broken link report targets as untrusted", async () => {
     const created = await env.client.callTool({
       name: "create_note",
       arguments: {
@@ -233,8 +237,11 @@ describe("link handlers — find_broken_links", () => {
       arguments: {},
     });
     const text = textContent(result);
-    expect(text).toContain("[[bad\\ttarget]]");
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: broken link target: tab-broken-report.md:");
+    expect(text).toContain("bad\\ttarget");
     expect(text).not.toContain("bad\ttarget");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 });
 
