@@ -4,11 +4,13 @@ import path from "path";
 import os from "os";
 import {
   resolveVaultPathSafe,
+  readNote,
   writeNote,
   moveNote,
   deleteNote,
 } from "../lib/vault.js";
 import { sanitizeError } from "../lib/errors.js";
+import { setPermissions } from "../lib/permissions.js";
 
 const SYMLINKS_SUPPORTED = process.platform !== "win32" || process.env.CI_SYMLINKS === "1";
 const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
@@ -22,9 +24,14 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setPermissions({ readPaths: null, writePaths: null });
   await fs.rm(vaultDir, { recursive: true, force: true });
   await fs.rm(outsideDir, { recursive: true, force: true });
 });
+
+async function symlinkDirectory(target: string, link: string): Promise<void> {
+  await fs.symlink(target, link, process.platform === "win32" ? "junction" : "dir");
+}
 
 // ---------------------------------------------------------------------------
 // Symlink escape (regression guard for C1/H1 from the audit)
@@ -61,6 +68,32 @@ describe.skipIf(!SYMLINKS_SUPPORTED)("resolveVaultPathSafe — symlink boundary"
     await expect(deleteNote(vaultDir, "note.md")).rejects.toThrow(
       /symlink/i,
     );
+  });
+});
+
+describe.skipIf(!SYMLINKS_SUPPORTED)("resolveVaultPathSafe — canonical permission boundary", () => {
+  it("rejects reads through an allowed symlink into a read-denied folder", async () => {
+    await fs.mkdir(path.join(vaultDir, "public"), { recursive: true });
+    await fs.mkdir(path.join(vaultDir, "private"), { recursive: true });
+    await fs.writeFile(path.join(vaultDir, "private", "secret.md"), "secret", "utf-8");
+    await symlinkDirectory(path.join(vaultDir, "private"), path.join(vaultDir, "public", "alias"));
+    setPermissions({ readPaths: ["public"], writePaths: null });
+
+    await expect(readNote(vaultDir, "public/alias/secret.md")).rejects.toThrow(
+      /OBSIDIAN_READ_PATHS/,
+    );
+  });
+
+  it("rejects writes through an allowed symlink into a write-denied folder", async () => {
+    await fs.mkdir(path.join(vaultDir, "public"), { recursive: true });
+    await fs.mkdir(path.join(vaultDir, "private"), { recursive: true });
+    await symlinkDirectory(path.join(vaultDir, "private"), path.join(vaultDir, "public", "alias"));
+    setPermissions({ readPaths: null, writePaths: ["public"] });
+
+    await expect(
+      writeNote(vaultDir, "public/alias/created.md", "hidden"),
+    ).rejects.toThrow(/OBSIDIAN_WRITE_PATHS/);
+    await expect(fs.access(path.join(vaultDir, "private", "created.md"))).rejects.toThrow();
   });
 });
 
