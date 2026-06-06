@@ -154,7 +154,7 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
   // detail because the operator is reading it on their own machine.
   if (mcpServer && level !== "silent") {
     const mcpLevel = MCP_LEVEL[level];
-    const data: Record<string, unknown> = { msg: stripPaths(msg) };
+    const data: Record<string, unknown> = { msg: escapeControlChars(stripPaths(msg)) };
     if (fields && Object.keys(fields).length > 0) {
       Object.assign(data, sanitizeLogData(serialized));
     }
@@ -164,10 +164,10 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
   }
 }
 
-// Recursively strip absolute paths from log payload values before forwarding
-// to an MCP client. Applies to strings and to the `.message`/`.stack` of
-// already-serialized Error objects (where stack traces embed host paths).
-// Non-string leaf values pass through unchanged.
+// Recursively strip absolute paths and escape control characters from log
+// payload values before forwarding to an MCP client. Applies to strings and
+// to the `.message`/`.stack` of already-serialized Error objects (where stack
+// traces embed host paths). Non-string leaf values pass through unchanged.
 function sanitizeLogData(input: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input)) {
@@ -205,8 +205,10 @@ function sanitizeValue(key: string, v: unknown, redactVaultPath = false): unknow
   const shouldRedactVaultPath = redactVaultPath || isVaultPathField(key);
   if (typeof v === "string") {
     const stripped = stripPaths(v);
-    if (stripped !== v) return stripped;
-    return shouldRedactVaultPath && looksLikeVaultPath(stripped) ? "<vault path>" : stripped;
+    if (stripped !== v) return escapeControlChars(stripped);
+    return shouldRedactVaultPath && looksLikeVaultPath(stripped)
+      ? "<vault path>"
+      : escapeControlChars(stripped);
   }
   if (Array.isArray(v)) {
     return v.map((inner) => sanitizeValue(key, inner, shouldRedactVaultPath));
