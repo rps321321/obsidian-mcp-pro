@@ -97,6 +97,19 @@ describe("stripPaths", () => {
     expect(text).not.toContain("secret.md");
   });
 
+  it("strips unquoted POSIX file paths containing spaces", () => {
+    const text = stripPaths("can't open /Users/me/My Vault/secret.md: permission denied");
+    expect(text).toBe("can't open <path>: permission denied");
+    expect(text).not.toContain("My Vault");
+    expect(text).not.toContain("secret.md");
+  });
+
+  it("keeps diagnostic text after URL-path-like values", () => {
+    expect(stripPaths("Ollama /api/embed returned HTTP 500")).toBe(
+      "Ollama <path> returned HTTP 500",
+    );
+  });
+
   it("strips quoted paths", () => {
     expect(stripPaths("ENOENT, open '/tmp/foo/bar.md'")).toBe("ENOENT, open <path>");
   });
