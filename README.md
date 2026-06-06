@@ -186,17 +186,16 @@ MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http --port=3333
 Endpoint: `http://127.0.0.1:3333/mcp` (Streamable HTTP). HTTP transport requires a bearer token:
 
 ```bash
-npx -y obsidian-mcp-pro --transport=http --token=your-secret
-# or: MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http
+MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http
 ```
 
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
-Startup always requires `--token=<secret>` or `MCP_HTTP_TOKEN`, including loopback-only local servers.
+Startup always requires `MCP_HTTP_TOKEN`, including loopback-only local servers. The old `--token` flag was removed because command-line secrets can be exposed through OS process listings.
 
 > [!WARNING]
 > **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. The server refuses HTTP startup without a bearer token, but if you need remote access:
 > - Put the server behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS, **and**
-> - Require `--token=<secret>` (or `MCP_HTTP_TOKEN`), **and**
+> - Set `MCP_HTTP_TOKEN`, **and**
 > - Restrict `--allow-origin` to the specific origins you trust, **and**
 > - Set `--rate-limit` to cap request volume per IP.
 >
@@ -206,7 +205,6 @@ Additional hardening flags:
 
 | Flag | Purpose |
 |------|---------|
-| `--token=<secret>` | Required bearer token for `/mcp` requests. Prefer `MCP_HTTP_TOKEN` so the secret is not passed on the command line. |
 | `--allow-origin=<csv>` | Restrict CORS to an allowlist (e.g. `https://claude.ai,https://chat.openai.com`). Default is localhost-only; `*` requires bearer auth. |
 | `--rate-limit=<n>` | Cap requests per minute per client IP. `/health` and `/version` are exempt. Default is unlimited. |
 
@@ -513,7 +511,7 @@ All tool paths must be **vault-relative** (e.g. `notes/hello.md`), never absolut
 
 ### HTTP Transport Returns `401 Unauthorized`
 
-The server was started with `--token=<secret>` (or `MCP_HTTP_TOKEN` is set in the environment) but the client isn't sending a matching `Authorization: Bearer <secret>` header. Verify the token value and that the header is present — comparison is case-sensitive and constant-time.
+The server was started with `MCP_HTTP_TOKEN` but the client isn't sending a matching `Authorization: Bearer <secret>` header. Verify the token value and that the header is present — comparison is case-sensitive and constant-time.
 
 ### HTTP Transport Returns `429 Too Many Requests`
 
