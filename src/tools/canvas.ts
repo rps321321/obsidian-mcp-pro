@@ -124,9 +124,13 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
         preview = `Group: ${node.label}`;
       }
 
-      lines.push(
-        `  [${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)} pos=${pos} size=${size}`,
-      );
+      lines.push("  Node:");
+      lines.push(untrustedCanvasBlock(
+        `canvas node identity: ${canvasPath}#${node.id}`,
+        `[${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)}`,
+        "    ",
+      ));
+      lines.push(`    pos=${pos} size=${size}`);
       if (preview) {
         lines.push("    content:");
         lines.push(indentBlock(
@@ -138,7 +142,12 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
         ));
       }
       if (node.color) {
-        lines.push(`    color: ${displayCanvasValue(node.color)}`);
+        lines.push("    color:");
+        lines.push(untrustedCanvasBlock(
+          `canvas node color: ${canvasPath}#${node.id}`,
+          displayCanvasValue(node.color),
+          "      ",
+        ));
       }
     }
     const omittedNodes = data.nodes.length - visibleNodes.length;
@@ -157,9 +166,12 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
         edge.toSide ? `to-side=${displayCanvasValue(edge.toSide)}` : "",
       ].filter(Boolean).join(" ");
       const sideInfo = sides ? ` (${sides})` : "";
-      lines.push(
-        `  ${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${sideInfo}`,
-      );
+      lines.push("  Edge:");
+      lines.push(untrustedCanvasBlock(
+        `canvas edge endpoints: ${canvasPath}#${edge.id}`,
+        `${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${sideInfo}`,
+        "    ",
+      ));
       if (edge.label) {
         lines.push("    label:");
         lines.push(indentBlock(
