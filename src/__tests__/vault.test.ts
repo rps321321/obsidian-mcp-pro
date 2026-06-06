@@ -18,6 +18,7 @@ import {
   getNoteStats,
   getVaultRootRealPath,
 } from "../lib/vault.js";
+import { setPermissions } from "../lib/permissions.js";
 
 let vaultDir: string;
 const itWin32 = process.platform === "win32" ? it : it.skip;
@@ -29,6 +30,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  setPermissions({ readPaths: null, writePaths: null });
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
 
@@ -375,6 +377,20 @@ describe("moveNote", () => {
     await expect(moveNote(vaultDir, "a.md", "b.md")).rejects.toThrow(
       "Destination already exists: b.md",
     );
+  });
+
+  it("requires read access to the source note before moving it", async () => {
+    await fs.mkdir(path.join(vaultDir, "private"), { recursive: true });
+    await fs.mkdir(path.join(vaultDir, "public"), { recursive: true });
+    await fs.writeFile(path.join(vaultDir, "private", "secret.md"), "secret", "utf-8");
+    setPermissions({ readPaths: ["public"], writePaths: ["private", "public"] });
+
+    await expect(
+      moveNote(vaultDir, "private/secret.md", "public/secret.md", { updateLinks: false }),
+    ).rejects.toThrow(/OBSIDIAN_READ_PATHS/);
+
+    await expect(fs.access(path.join(vaultDir, "private", "secret.md"))).resolves.toBeUndefined();
+    await expect(fs.access(path.join(vaultDir, "public", "secret.md"))).rejects.toThrow();
   });
 
   itWin32("retries transient Windows rename failures while moving notes", async () => {
