@@ -33,9 +33,10 @@ Or set it for future PowerShell sessions:
 [Environment]::SetEnvironmentVariable("NPM_TOKEN", "npm_xxx", "User")
 ```
 
-Restart the terminal after setting a user-level variable. Never paste the token
-into `.npmrc`, `.env`, shell history comments, GitHub comments, issues, PRs, or
-agent-visible notes.
+The publish helper reads this Windows user-level value directly when its process
+environment does not include `NPM_TOKEN`, so Codex can publish later without a
+restart after the variable is set. Never paste the token into `.npmrc`, `.env`,
+shell history comments, GitHub comments, issues, PRs, or agent-visible notes.
 
 `NODE_AUTH_TOKEN` is accepted as a fallback name, but `NPM_TOKEN` is the primary
 one used by this repository.
@@ -77,4 +78,10 @@ not needed:
 
 ```powershell
 Remove-Item Env:NPM_TOKEN
+```
+
+To remove the persistent Windows user-level token:
+
+```powershell
+[Environment]::SetEnvironmentVariable("NPM_TOKEN", $null, "User")
 ```

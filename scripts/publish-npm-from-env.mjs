@@ -52,6 +52,36 @@ function runQuiet(command, commandArgs) {
   return run(command, commandArgs, { encoding: "utf-8", stdio: "pipe" }).stdout.trim();
 }
 
+function readWindowsUserEnv(name) {
+  if (process.platform !== "win32") return "";
+  const result = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `[Environment]::GetEnvironmentVariable('${name}', 'User')`,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf-8",
+      stdio: "pipe",
+    },
+  );
+  if (result.status !== 0 || result.error) return "";
+  return result.stdout.trim();
+}
+
+function readToken() {
+  return (
+    process.env.NPM_TOKEN ||
+    process.env.NODE_AUTH_TOKEN ||
+    readWindowsUserEnv("NPM_TOKEN") ||
+    readWindowsUserEnv("NODE_AUTH_TOKEN")
+  );
+}
+
 function npmArgs(commandArgs) {
   if (process.platform !== "win32") {
     return { command: "npm", args: commandArgs };
@@ -85,7 +115,7 @@ for (const arg of args) {
 
 const dryRun = args.includes("--dry-run");
 const distTag = readOption("--tag");
-const token = process.env.NPM_TOKEN || process.env.NODE_AUTH_TOKEN;
+const token = readToken();
 
 if (!token) {
   fail("Set NPM_TOKEN or NODE_AUTH_TOKEN before publishing.");

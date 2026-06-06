@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Token-based npm release helper can now read `NPM_TOKEN` from the Windows user environment, so Codex can publish after the owner stores the token once.
 - Token-based npm release helper now invokes npm through PowerShell on Windows, avoiding direct `npm.cmd` spawn failures.
 - Updated the transitive Hono lockfile entry to 4.12.23, clearing the moderate audit advisories in the MCP HTTP dependency path.
 - HTTP server tests now retry OS-assigned ports that Node's `fetch` rejects, avoiding a flaky `bad port` failure during the verify gate.
