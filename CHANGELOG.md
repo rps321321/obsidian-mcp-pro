@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP transport now returns `400` for malformed request URL or Host data before auth and routing, preventing those requests from escaping the normal response path.
 - `get_attachment` now returns HTML, XML, and CSS attachments with `text/plain` resource metadata, preventing active vault-controlled text from being advertised as renderable content.
 - `query_base` now treats unsupported filters, missing requested views, and unevaluable link filters as no-match with warnings, preventing Base queries from broadening result sets beyond the visible filter intent.
+- Duplicate-alias graph warnings now redact the note-derived alias text before logging, while still reporting the colliding note paths through the existing path-redaction flow.
 - Windows vault paths containing alternate data stream syntax are now rejected at the shared resolver, preventing tools such as `get_attachment` from addressing hidden streams through path suffixes.
 - Surgical note edit tools now require read access to the target before inspecting section, block, or replacement matches, preventing write-only notes from leaking structure or match counts.
 - `move_note` now requires read access to the source note as well as write access to the source and destination, preventing write-only folders from being used to disclose notes by moving them into readable paths.

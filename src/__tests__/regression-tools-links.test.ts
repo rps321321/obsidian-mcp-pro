@@ -2,6 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createTestEnv, textContent, isError, type TestEnv } from "./handlers/harness.js";
+import { configureLogger } from "../lib/logger.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Regression coverage for three link-tool findings:
 //
@@ -26,6 +28,7 @@ let env: TestEnv;
 
 afterEach(async () => {
   if (env) await env.cleanup();
+  configureLogger({ level: "info", format: "text", mcpServer: null });
 });
 
 // --------------------------------------------------------------------------
@@ -192,5 +195,43 @@ describe("M11: get_outlinks resolves alias references via the link graph", () =>
     // target, backlinks reports the source.
     expect(textContent(outlinks)).toContain("aliased.md");
     expect(textContent(backlinks)).toContain("linker.md");
+  });
+});
+
+describe("DSS-R01-C004: duplicate alias logs redact note-derived aliases", () => {
+  it("does not forward raw duplicate alias text through MCP logging", async () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "first.md": `---
+aliases:
+  - Payroll Secret
+---
+# First
+`,
+        "second.md": `---
+aliases:
+  - Payroll Secret
+---
+# Second
+`,
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "find_broken_links",
+      arguments: {},
+    });
+
+    expect(isError(result)).toBe(false);
+    expect(sendLoggingMessage).toHaveBeenCalled();
+    const payload = JSON.stringify(sendLoggingMessage.mock.calls.map(([params]) => params.data));
+    expect(payload).not.toContain("Payroll Secret");
+    expect(payload).toContain("<vault alias>");
+    expect(payload).toContain("<vault path>");
   });
 });
