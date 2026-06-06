@@ -86,7 +86,8 @@ describe("link handlers — get_backlinks", () => {
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toContain("Links to [[note-a]]\\twith tab.");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_backlinks source path]");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: backlink context: tab-backlink.md:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_backlinks context]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: backlink context: tab-backlink.md:");
     expect(text).not.toContain("note-a]]\twith tab");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
@@ -139,7 +140,8 @@ describe("link handlers — get_outlinks", () => {
     expect(isError(result)).toBe(false);
     expect(text).toContain("Outgoing links from:");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks source path]");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: outlink target: warm-new-source.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks target]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: outlink target: warm-new-source.md]");
     expect(text).toContain("note-a");
     expect(text).toContain("note-a.md");
   });
@@ -179,8 +181,9 @@ describe("link handlers — get_outlinks", () => {
     });
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: broken outlink target: tab-outlink.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks broken target]");
     expect(text).toContain("bad\\ttarget");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: broken outlink target: tab-outlink.md]");
     expect(text).not.toContain("bad\ttarget");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
@@ -276,8 +279,9 @@ describe("link handlers — find_broken_links", () => {
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_broken_links source path]");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: broken link target: tab-broken-report.md:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_broken_links target]");
     expect(text).toContain("bad\\ttarget");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: broken link target: tab-broken-report.md:");
     expect(text).not.toContain("bad\ttarget");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
