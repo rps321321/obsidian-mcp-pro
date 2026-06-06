@@ -68,6 +68,11 @@ function safeResourceMimeType(mime: string): string {
   return ACTIVE_TEXT_MIME_TYPES.has(mime.toLowerCase()) ? "text/plain" : mime;
 }
 
+function hiddenAttachmentBasename(relPath: string): string | null {
+  const basename = path.posix.basename(relPath.replace(/\\/g, "/"));
+  return basename.startsWith(".") ? basename : null;
+}
+
 /** Group attachments by their lower-cased extension for the summary line. */
 function summarizeByExtension(paths: readonly string[]): Map<string, number> {
   const out = new Map<string, number>();
@@ -436,6 +441,13 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
     },
     async ({ path: relPath, maxBytes }) => {
       try {
+        const hiddenName = hiddenAttachmentBasename(relPath);
+        if (hiddenName) {
+          return errorResult(
+            `Refusing to fetch hidden attachment "${displayAttachmentValue(relPath)}" via get_attachment.`,
+          );
+        }
+
         // Reject text-format files so the wrong tool isn't used on them.
         const lowerPath = relPath.toLowerCase();
         if (lowerPath.endsWith(".md") || lowerPath.endsWith(".canvas") || lowerPath.endsWith(".base")) {
