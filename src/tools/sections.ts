@@ -35,6 +35,10 @@ function errorResult(text: string) {
 /** Escape control characters before embedding values in section-tool display text. */
 const displaySectionValue = escapeControlChars;
 
+async function assertReadableEditTarget(vaultPath: string, notePath: string): Promise<void> {
+  await resolveVaultPathSafe(vaultPath, notePath, "read");
+}
+
 function isAsciiDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
 }
@@ -275,6 +279,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
 
         let resolvedHeading = "";
         let bodyBytes = 0;
+        await assertReadableEditTarget(vaultPath, notePath);
         await updateNote(vaultPath, notePath, (existing) => {
           const found = findSection(existing, headingPath);
           if (!found) {
@@ -327,6 +332,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         if (headingPath.length === 0) return errorResult("section must not be empty");
 
         let resolvedHeading = "";
+        await assertReadableEditTarget(vaultPath, notePath);
         await updateNote(vaultPath, notePath, (existing) => {
           const found = findSection(existing, headingPath);
           if (!found) {
@@ -464,6 +470,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         }
 
         let count = 0;
+        await assertReadableEditTarget(vaultPath, notePath);
         await updateNote(vaultPath, notePath, (existing) => {
           // Cap the input size we apply the regex to — refusing the work is
           // far better than holding the per-file write lock while the engine
@@ -531,6 +538,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
     },
     async ({ path: notePath, block, newContent }) => {
       try {
+        await assertReadableEditTarget(vaultPath, notePath);
         await updateNote(vaultPath, notePath, (existing) => {
           const found = findBlockById(existing, block);
           if (!found) throw new Error(`Block not found: "^${block}"`);
