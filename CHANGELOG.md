@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `move_note` now creates the destination with no-replace semantics, preventing an external writer from racing the move into overwriting a newly created note.
 - Semantic embedding provider errors now redact secret-bearing URLs before returning them to MCP clients.
 - Section edit tools now bound replacement, insertion, block, and find/replace payloads before writing notes, preventing oversized MCP requests from being persisted through surgical edits.
 - Canvas helpers now reject oversized `.canvas` files before reading, parsing, or updating them, and `read_canvas` keeps large summaries bounded while still reporting total node and edge counts.
