@@ -6,7 +6,12 @@ import { isValidTagName, rewriteAllTags } from "../lib/tag-rewriter.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { makeProgressReporter } from "../lib/progress.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
-import { formatFailedPath } from "../lib/tool-output.js";
+import {
+  formatFailedPath,
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 import { elicitTextConfirmation } from "../lib/confirmation.js";
 import { log } from "../lib/logger.js";
@@ -246,13 +251,21 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         for (const note of matchingNotes) {
           lines.push(`- ${displayTagValue(note.path)}`);
           if (note.preview) {
-            lines.push(`  ${displayTagValue(note.preview)}`);
+            lines.push("  Preview:");
+            lines.push(indentBlock(
+              formatUntrustedVaultContent(`tag preview: ${note.path}`, displayTagValue(note.preview)),
+              "    ",
+            ));
             lines.push("");
           }
         }
 
         return {
-          content: [{ type: "text" as const, text: lines.join("\n") }],
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            ...(includeContent ? { _meta: untrustedVaultContentMeta("search_by_tag previews") } : {}),
+          }],
         };
       } catch (err) {
         log.error("search_by_tag failed", { tool: "search_by_tag", err: err as Error });

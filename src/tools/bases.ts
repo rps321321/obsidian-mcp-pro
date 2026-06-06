@@ -5,10 +5,25 @@ import { parseBaseFile, queryBase, buildRow } from "../lib/bases.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { extractWikilinks } from "../lib/markdown.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
+import {
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
+}
+
+function untrustedTextResult(label: string, text: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text,
+      _meta: untrustedVaultContentMeta(label),
+    }],
+  };
 }
 
 function errorResult(text: string) {
@@ -93,7 +108,10 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
             lines.push(`  - ${displayBaseValue(nm)} [type: ${displayBaseValue(v.type)}]`);
           }
         }
-        return textResult(lines.join("\n"));
+        return untrustedTextResult(
+          `base: ${basePath}`,
+          formatUntrustedVaultContent(`base: ${basePath}`, lines.join("\n")),
+        );
       } catch (err) {
         log.error("read_base failed", { tool: "read_base", err: err as Error });
         return errorResult(`Error reading base: ${sanitizeError(err)}`);
@@ -195,12 +213,19 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         for (const row of truncated) {
           lines.push(`- ${displayBaseValue(row.path)}`);
           if (includeFrontmatter && Object.keys(row.frontmatter).length > 0) {
+            const frontmatterLines: string[] = [];
             for (const [k, v] of Object.entries(row.frontmatter)) {
-              lines.push(`    ${displayBaseValue(k)}: ${JSON.stringify(v)}`);
+              frontmatterLines.push(`${displayBaseValue(k)}: ${JSON.stringify(v)}`);
             }
+            lines.push(indentBlock(
+              formatUntrustedVaultContent(`base row frontmatter: ${row.path}`, frontmatterLines.join("\n")),
+              "    ",
+            ));
           }
         }
-        return textResult(lines.join("\n"));
+        return includeFrontmatter
+          ? untrustedTextResult("query_base frontmatter", lines.join("\n"))
+          : textResult(lines.join("\n"));
       } catch (err) {
         log.error("query_base failed", { tool: "query_base", err: err as Error });
         return errorResult(`Error querying base: ${sanitizeError(err)}`);

@@ -118,11 +118,16 @@ describe("read handlers — search_notes", () => {
       arguments: { query: "alpha", maxResults: 1 },
     });
 
-    const lineRows = textContent(result).split("\n").filter((line) => line.includes("Line "));
-    expect(lineRows).toEqual([
-      "  Line 1: alpha alpha alpha",
-      "  Line 2: beta alpha",
+    const text = textContent(result);
+    const lineRows = text.split("\n").filter((line) => line.includes("Line "));
+    const snippetMarkers = text.split("\n").filter((line) => line.includes("[BEGIN UNTRUSTED VAULT CONTENT: search snippet:"));
+    expect(lineRows).toEqual(["  Line 1:", "  Line 2:"]);
+    expect(snippetMarkers).toEqual([
+      "    [BEGIN UNTRUSTED VAULT CONTENT: search snippet: repeat.md:1]",
+      "    [BEGIN UNTRUSTED VAULT CONTENT: search snippet: repeat.md:2]",
     ]);
+    expect(text).toContain("alpha alpha alpha");
+    expect(text).toContain("beta alpha");
   });
 
   it("renders long matching lines as query-centered snippets", async () => {
@@ -135,11 +140,17 @@ describe("read handlers — search_notes", () => {
       arguments: { query: "alpha", maxResults: 1 },
     });
 
-    const lineRow = textContent(result).split("\n").find((line) => line.includes("Line 1:"));
+    const text = textContent(result);
+    const lineRow = text.split("\n").find((line) => line.includes("Line 1:"));
+    const contentRow = text.split("\n").find((line) =>
+      line.trim().startsWith("...") && line.includes("alpha"),
+    );
     expect(lineRow).toBeDefined();
-    expect(lineRow!.length).toBeLessThanOrEqual("  Line 1: ".length + 240);
-    expect(lineRow).toContain("alpha");
-    expect(lineRow).toContain("...");
+    expect(contentRow).toBeDefined();
+    expect(contentRow!.trim().length).toBeLessThanOrEqual(240);
+    expect(contentRow).toContain("alpha");
+    expect(contentRow).toContain("...");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search snippet: long.md:1]");
   });
 
   it("restricts scan to a folder when folder= is set", async () => {
@@ -180,7 +191,9 @@ describe("read handlers — search_notes", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("Line 1: needle\\tvalue");
+    expect(text).toContain("Line 1:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search snippet: dirty.md:1]");
+    expect(text).toContain("needle\\tvalue");
     expect(text).not.toContain("needle\tvalue");
   });
 
@@ -201,11 +214,14 @@ describe("read handlers — get_note", () => {
       arguments: { path: "note-a.md" },
     });
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toContain("--- Frontmatter ---");
     expect(text).toContain(`status: "active"`);
     expect(text).toContain("Tags:");
     expect(text).toContain("draft");
     expect(text).toContain("Links to");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note: note-a.md]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("escapes generated frontmatter and tag labels", async () => {
@@ -281,7 +297,9 @@ describe("read handlers — get_note", () => {
     });
 
     expect(isError(result)).toBe(false);
-    expect(textContent(result)).toBe("second");
+    const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: long.md lines 2-2]");
+    expect(text).toContain("\nsecond\n");
   });
 
   it("rejects non-markdown vault files", async () => {
@@ -356,7 +374,8 @@ describe("read handlers — get_note", () => {
 
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toBe("two\nthree");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: line-fragment.md lines 5-6]");
+    expect(text).toContain("\ntwo\nthree\n");
     expect(text).not.toContain("Frontmatter");
     expect(text).not.toContain("Tags:");
   });
@@ -381,7 +400,7 @@ describe("read handlers — get_note", () => {
       name: "get_note",
       arguments: { path: "fresh-lines.md", lines: "2" },
     });
-    expect(textContent(before)).toBe("old");
+    expect(textContent(before)).toContain("\nold\n");
 
     await fs.writeFile(fullPath, "first\nnew\nthird", "utf-8");
     const after = await env.client.callTool({
@@ -390,7 +409,9 @@ describe("read handlers — get_note", () => {
     });
 
     expect(isError(after)).toBe(false);
-    expect(textContent(after)).toBe("new");
+    const text = textContent(after);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: note fragment: fresh-lines.md lines 2-2]");
+    expect(text).toContain("\nnew\n");
   });
 });
 

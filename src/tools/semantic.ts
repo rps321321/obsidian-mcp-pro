@@ -22,7 +22,12 @@ import {
 } from "../lib/embedding-store.js";
 import { makeProgressReporter } from "../lib/progress.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
-import { formatFailedPath } from "../lib/tool-output.js";
+import {
+  formatFailedPath,
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 import { mapConcurrent } from "../lib/concurrency.js";
 
@@ -413,10 +418,20 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           lines.push(`- ${displaySemanticValue(hit.notePath)}${heading}  [score: ${hit.score.toFixed(3)}]`);
           if (includeSnippet) {
             const snippet = hit.text.replace(/\s+/g, " ").trim().slice(0, 200);
-            lines.push(`    ${displaySemanticValue(snippet)}${hit.text.length > 200 ? "…" : ""}`);
+            const clipped = `${displaySemanticValue(snippet)}${hit.text.length > 200 ? "..." : ""}`;
+            lines.push(indentBlock(
+              formatUntrustedVaultContent(`semantic snippet: ${hit.notePath}`, clipped),
+              "    ",
+            ));
           }
         }
-        return textResult(lines.join("\n"));
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            _meta: untrustedVaultContentMeta("search_semantic snippets"),
+          }],
+        };
       } catch (err) {
         log.error("search_semantic failed", { tool: "search_semantic", err: err as Error });
         return errorResult(`Error during semantic search: ${sanitizeError(err)}`);

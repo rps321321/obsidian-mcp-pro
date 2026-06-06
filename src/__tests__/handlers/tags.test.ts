@@ -132,13 +132,16 @@ describe("tag handlers — search_by_tag", () => {
       arguments: { tag: "review", includeContent: true },
     });
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     // The body of note-b starts with its frontmatter delimiter in a preview.
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
     // Frontmatter is now stripped from previews, so verify body content appears instead.
     expect(text).toMatch(/Note A|Note B/);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: tag preview: note-a.md]");
     expect(text).toContain("# Note A\\n\\nLinks to [[note-b]]");
     expect(text).not.toContain("# Note A\n\nLinks to [[note-b]]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("honors maxResults cap", async () => {
