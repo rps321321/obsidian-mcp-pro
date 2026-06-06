@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
+import { setMaxNoteFileBytesForTests } from "../../lib/vault.js";
 
 let env: TestEnv;
 
@@ -10,6 +11,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setMaxNoteFileBytesForTests(null);
   await env.cleanup();
 });
 
@@ -23,6 +25,26 @@ describe("read handlers — search_notes", () => {
     expect(isError(result)).toBe(false);
     expect(text).toContain("note-b.md");
     expect(text).toContain("note-c.md");
+  });
+
+  it("skips oversized notes before vault-wide content search", async () => {
+    setMaxNoteFileBytesForTests(200);
+    await fs.writeFile(
+      path.join(env.vaultDir, "oversized.md"),
+      "secret needle ".repeat(20),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "search_notes",
+      arguments: { query: "secret" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain('No results found for "secret"');
+    expect(text).not.toContain("oversized.md");
+    expect(text).not.toContain("secret needle");
   });
 
   it("respects case sensitivity when asked", async () => {
@@ -224,6 +246,42 @@ describe("read handlers — get_note", () => {
     // No absolute paths, no OS error codes leaked.
     expect(text).not.toMatch(/[A-Z]:\\/);
     expect(text).not.toMatch(/^\/[a-z]/);
+  });
+
+  it("rejects oversized full-note reads without returning body text", async () => {
+    setMaxNoteFileBytesForTests(10);
+    await fs.writeFile(
+      path.join(env.vaultDir, "oversized.md"),
+      "private note body",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "oversized.md" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(true);
+    expect(text).toMatch(/note file exceeds size cap/i);
+    expect(text).not.toContain("private note body");
+  });
+
+  it("still returns line fragments from notes over the full-read cap", async () => {
+    setMaxNoteFileBytesForTests(10);
+    await fs.writeFile(
+      path.join(env.vaultDir, "long.md"),
+      ["first", "second", "third"].join("\n"),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "long.md", lines: "2" },
+    });
+
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toBe("second");
   });
 
   it("rejects non-markdown vault files", async () => {
