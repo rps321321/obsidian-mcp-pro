@@ -1,5 +1,6 @@
 import yaml from "js-yaml";
 import { parseFrontmatter, extractTags } from "./markdown.js";
+import { hasYamlAnchorOrAliasToken } from "./yaml.js";
 
 /**
  * Obsidian Bases (`.base` file) support.
@@ -60,10 +61,9 @@ export interface ParsedBase {
 
 /**
  * Hard cap on `.base` file size we'll attempt to parse. Real Bases are
- * a few hundred bytes to a few KB; anything past 1 MB is either generated
- * garbage or a YAML alias-bomb ("billion laughs") aimed at the parser.
- * Reject before handing bytes to js-yaml so we can't be coerced into a
- * large allocation.
+ * a few hundred bytes to a few KB; anything past 1 MB is generated garbage
+ * or a likely parser-amplification attempt. Reject before handing bytes to
+ * js-yaml so we can't be coerced into a large allocation.
  */
 export const MAX_BASE_FILE_BYTES = 1_048_576;
 
@@ -85,11 +85,17 @@ export function parseBaseFile(raw: string): ParsedBase {
     );
     return { doc, warnings };
   }
+  if (hasYamlAnchorOrAliasToken(raw)) {
+    pushWarning(
+      warnings,
+      "Base file contains YAML anchors or aliases; refusing to parse to avoid alias graph expansion. Treating as empty Base.",
+    );
+    return { doc, warnings };
+  }
   try {
     // JSON_SCHEMA is the most restrictive schema js-yaml ships: it disables
-    // every non-JSON type (timestamps, !!binary, custom tags, etc.). Combined
-    // with the size cap above, this neutralises the worst alias / merge-key
-    // expansions a malicious .base file could use.
+    // every non-JSON type (timestamps, !!binary, custom tags, etc.). Anchors
+    // and aliases are syntax-level features, so those are refused above.
     const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       doc = parsed as BaseDocument;

@@ -8,10 +8,10 @@ import { parseBaseFile } from "../lib/bases.js";
  * Regression coverage for the FN-cluster security findings:
  *
  *   FN-H6: parseBaseFile must not be vulnerable to YAML alias bombs.
- *          We pass the JSON_SCHEMA to js-yaml (disabling non-JSON types)
- *          and cap raw input at 1 MB before handing it to the parser, so
- *          a "billion laughs" / quadratic-blowup payload can no longer
- *          drive unbounded memory or CPU.
+ *          It rejects YAML anchors/aliases before js-yaml, uses JSON_SCHEMA
+ *          for the remaining parse, and caps raw input at 1 MB before handing
+ *          it to the parser, so a "billion laughs" / quadratic-blowup payload
+ *          can no longer drive unbounded memory or CPU.
  *
  *   FN-H7: delete_note's elicitation capability gate previously checked
  *          caps.elicitation.form (a TypeScript-SDK extension). Clients
@@ -29,9 +29,9 @@ const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 describe("FN-H6: parseBaseFile resists YAML alias bombs", () => {
   it("completes quickly on a 20-level alias bomb (no exponential blowup)", () => {
     // Classic "billion laughs" shape adapted for YAML: each level doubles
-    // the references to the level below. With the default schema and no
-    // size cap, a naive parser would materialise 2^20 references. With
-    // JSON_SCHEMA + bounded input, this stays well under a 100 ms budget.
+    // the references to the level below. A naive parser would materialise
+    // 2^20 references; this parser rejects aliases before handing the raw
+    // text to js-yaml.
     const lines: string[] = [];
     lines.push("a0: &a0 [1, 2]");
     for (let i = 1; i <= 20; i++) {
@@ -41,17 +41,12 @@ describe("FN-H6: parseBaseFile resists YAML alias bombs", () => {
     const raw = lines.join("\n");
 
     const start = Date.now();
-    const { warnings } = parseBaseFile(raw);
+    const { doc, warnings } = parseBaseFile(raw);
     const elapsed = Date.now() - start;
 
-    // Hard bound: should never take anywhere near 100 ms on a healthy
-    // machine. We give it some slack for CI noise but the key claim is
-    // "bounded", not "fast".
     expect(elapsed).toBeLessThan(1000);
-    // Either the parser succeeded (no warnings) or it tripped the size
-    // cap, but it must not throw and must not hang. Both branches are
-    // acceptable per the fix spec.
-    expect(Array.isArray(warnings)).toBe(true);
+    expect(doc).toEqual({});
+    expect(warnings.some((w) => /anchors or aliases/i.test(w))).toBe(true);
   });
 
   it("rejects raw input over 1 MB with a clear warning and an empty doc", () => {
