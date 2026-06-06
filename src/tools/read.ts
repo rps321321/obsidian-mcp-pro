@@ -491,7 +491,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         for (const match of matches) {
           lines.push("Result path:");
           lines.push(untrustedReadBlock(
-            `search_by_frontmatter result path: ${match.path}`,
+            "search_by_frontmatter result path",
             displayReadValue(match.path),
             "  ",
           ));
@@ -501,7 +501,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           }
           if (frontmatterLines.length > 0) {
             lines.push(indentBlock(
-              formatUntrustedVaultContent(`frontmatter: ${match.path}`, frontmatterLines.join("\n")),
+              formatUntrustedVaultContent("search_by_frontmatter values", frontmatterLines.join("\n")),
               "  ",
             ));
           }
