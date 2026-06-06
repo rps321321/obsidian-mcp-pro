@@ -220,6 +220,30 @@ describe("logger", () => {
     expect(params.data.err.stack).toContain("\\n");
   });
 
+  it("redacts secret-bearing URLs from forwarded MCP payloads", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
+
+    log.warn("provider rejected https://alice:pa55@example.internal/v1?token=abc#debug", {
+      endpoint: "https://api.example.internal/v1?api_key=secret",
+      plainUrl: "https://status.example.test/health",
+      nested: { callback: "https://callback.example.test/path?sig=hidden" },
+      err: new Error("bad https://bob:pw@host.test/path#frag"),
+    });
+
+    const [params] = sendLoggingMessage.mock.calls[0];
+    const dataStr = JSON.stringify(params.data);
+    expect(dataStr).not.toContain("alice");
+    expect(dataStr).not.toContain("pa55");
+    expect(dataStr).not.toContain("api_key");
+    expect(dataStr).not.toContain("bob");
+    expect(dataStr).not.toContain("host.test");
+    expect(dataStr).not.toContain("sig=hidden");
+    expect(dataStr).toContain("https://<redacted-url>");
+    expect(params.data.plainUrl).toBe("https://status.example.test/health");
+  });
+
   it("swallows sendLoggingMessage rejections (logging must never fail a call)", async () => {
     const sendLoggingMessage = vi.fn().mockRejectedValue(new Error("not connected"));
     const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
