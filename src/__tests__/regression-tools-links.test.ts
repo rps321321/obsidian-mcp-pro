@@ -147,7 +147,8 @@ describe("H6: get_backlinks resolves alias references with line + context", () =
     // resolves to null, relevantLinks is empty, and the source is rendered
     // as `- linker.md` with no `:N → context` suffix.
     expect(text).toMatch(/linker\.md:\d+/);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: backlink context: linker.md:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_backlinks context]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: backlink context: linker.md:");
     expect(text).toContain("I reference [[My Project]]");
   });
 });
@@ -174,7 +175,8 @@ describe("M11: get_outlinks resolves alias references via the link graph", () =>
     expect(text).toContain("aliased.md");
     // The valid-links section must retain the target text the user wrote,
     // but it is note-authored text, so it belongs inside an untrusted block.
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: outlink target: linker.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks target]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: outlink target: linker.md]");
     expect(text).toContain("My Project");
   });
 
