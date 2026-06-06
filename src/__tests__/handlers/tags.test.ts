@@ -85,9 +85,13 @@ describe("tag handlers — search_by_tag", () => {
       arguments: { tag: "review" },
     });
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-b.md]");
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
     expect(text).not.toContain("orphan.md");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("accepts tags with or without a leading '#'", async () => {
@@ -140,6 +144,7 @@ describe("tag handlers — search_by_tag", () => {
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     // The body of note-b starts with its frontmatter delimiter in a preview.
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
     // Frontmatter is now stripped from previews, so verify body content appears instead.
@@ -176,7 +181,9 @@ describe("tag handlers — search_by_tag", () => {
     });
 
     expect(isError(result)).toBe(false);
-    expect(textContent(result)).toContain("fresh-tag.md");
+    const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: fresh-tag.md]");
+    expect(text).toContain("fresh-tag.md");
   });
 });
 

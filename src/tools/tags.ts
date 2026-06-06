@@ -42,6 +42,10 @@ function displayTagValue(value: string): string {
   return escapeControlChars(value);
 }
 
+function untrustedTagBlock(label: string, text: string, indent = ""): string {
+  return indentBlock(formatUntrustedVaultContent(label, text), indent);
+}
+
 function tagIndexFingerprint(
   notes: readonly string[],
   contents: ReadonlyMap<string, string>,
@@ -257,7 +261,12 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         lines.push("");
 
         for (const note of matchingNotes) {
-          lines.push(`- ${displayTagValue(note.path)}`);
+          lines.push("Path:");
+          lines.push(untrustedTagBlock(
+            `search_by_tag result path: ${note.path}`,
+            displayTagValue(note.path),
+            "  ",
+          ));
           if (note.preview) {
             lines.push("  Preview:");
             lines.push(indentBlock(
@@ -272,7 +281,9 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           content: [{
             type: "text" as const,
             text: lines.join("\n"),
-            ...(includeContent ? { _meta: untrustedVaultContentMeta("search_by_tag previews") } : {}),
+            _meta: untrustedVaultContentMeta(
+              includeContent ? "search_by_tag paths and previews" : "search_by_tag paths",
+            ),
           }],
         };
       } catch (err) {
