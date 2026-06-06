@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "fs/promises";
+import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
+import { setMaxNoteFileBytesForTests } from "../../lib/vault.js";
 
 let env: TestEnv;
 
@@ -8,6 +11,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setMaxNoteFileBytesForTests(null);
   await env.cleanup();
 });
 
@@ -220,6 +224,36 @@ describe("tag handlers — rename_tag", () => {
       arguments: { tag: "draft" },
     });
     expect(textContent(search)).toContain("note-a.md");
+  });
+
+  it("marks skipped note paths in rename warnings as untrusted", async () => {
+    const dirtyPath = "dirty\x7ffailed.md";
+    await env.cleanup();
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "ok.md": "#draft\n",
+        [dirtyPath]: `${"x".repeat(64)}\n#draft\n`,
+      },
+    });
+    setMaxNoteFileBytesForTests(20);
+
+    const result = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "draft", newName: "wip", dryRun: true },
+    });
+
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("Skipped due to errors: 1");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note: dirty\\x7ffailed.md]");
+    expect(text).toContain("dirty\\x7ffailed.md: Note file exceeds size cap");
+    expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("rename_tag failed notes");
+
+    await expect(fs.readFile(path.join(env.vaultDir, "ok.md"), "utf-8")).resolves.toBe("#draft\n");
   });
 
   it("aborts rename_tag when elicitation confirms the wrong tag", async () => {
