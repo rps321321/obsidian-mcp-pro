@@ -38,7 +38,12 @@ const CACHE_FILE_VERSION = 1;
 const CACHE_REL_PATH = ".obsidian/cache/mcp-pro-index-cache.json";
 const CACHE_FILE_MODE = 0o600;
 const FLUSH_DEBOUNCE_MS = 5_000;
-const MAX_PERSISTED_BYTES = 64 * 1024 * 1024; // 64 MB safety cap
+const MAX_PERSISTED_BYTES_DEFAULT = 64 * 1024 * 1024; // 64 MB safety cap
+let maxPersistedBytes = MAX_PERSISTED_BYTES_DEFAULT;
+
+export function setMaxPersistedBytesForTests(bytes: number | null): void {
+  maxPersistedBytes = bytes === null ? MAX_PERSISTED_BYTES_DEFAULT : bytes;
+}
 
 interface CacheEntry {
   /** Absolute path used as the cache key. */
@@ -120,6 +125,16 @@ async function loadFromDisk(vaultPath: string, state: VaultCacheState): Promise<
   }
   let raw: string;
   try {
+    const stat = await fs.stat(file);
+    if (stat.size > maxPersistedBytes) {
+      state.loaded = true;
+      log.warn("index-cache: snapshot exceeds MAX_PERSISTED_BYTES; ignoring", {
+        file,
+        bytes: stat.size,
+        max: maxPersistedBytes,
+      });
+      return;
+    }
     raw = await fs.readFile(file, "utf-8");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
@@ -250,7 +265,7 @@ async function doFlush(vaultPath: string, state: VaultCacheState): Promise<void>
   );
   for (const [rel, entry] of sorted) {
     total += entry.content.length;
-    if (total > MAX_PERSISTED_BYTES) break;
+    if (total > maxPersistedBytes) break;
     snapshot.entries[rel] = {
       fullPath: entry.fullPath,
       content: entry.content,

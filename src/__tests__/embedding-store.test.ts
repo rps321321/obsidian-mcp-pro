@@ -16,6 +16,7 @@ import {
   clearStore,
   snapshotForTests,
   invalidateIfIncompatible,
+  setMaxEmbeddingBytesForTests,
 } from "../lib/embedding-store.js";
 
 let vaultDir: string;
@@ -25,6 +26,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setMaxEmbeddingBytesForTests(null);
   await clearStore(vaultDir, { removeSnapshot: true });
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
@@ -259,6 +261,38 @@ describe("snapshot persistence", () => {
     expect(hits).toHaveLength(1);
     expect(hits[0].notePath).toBe("a.md");
     expect(hits[0].headingPath).toEqual(["A"]);
+  });
+
+  it("ignores snapshots larger than the embedding persistence cap before rehydrating", async () => {
+    setMaxEmbeddingBytesForTests(256);
+    const file = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-embeddings.json");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        vaultRoot: path.resolve(vaultDir),
+        providerId: "test",
+        model: "m",
+        dimension: 3,
+        noteHashes: { "a.md": "h" },
+        embeddings: [
+          {
+            notePath: "a.md",
+            chunkIndex: 1,
+            headingPath: [],
+            text: "stale".repeat(100),
+            hash: "h",
+            vector: [1, 2, 3],
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    await loadStore(vaultDir);
+
+    expect(snapshotForTests(vaultDir).totalChunks).toBe(0);
   });
 
   it("invalidateIfIncompatible clears entries when provider/model differ", async () => {

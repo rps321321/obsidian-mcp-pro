@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { readAllCached, clearCache, cacheSize, flushNow } from "../lib/index-cache.js";
+import {
+  readAllCached,
+  clearCache,
+  cacheSize,
+  flushNow,
+  setMaxPersistedBytesForTests,
+} from "../lib/index-cache.js";
 
 let vaultDir: string;
 const itPosix = process.platform === "win32" ? it.skip : it;
@@ -12,6 +18,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setMaxPersistedBytesForTests(null);
   await clearCache(vaultDir);
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
@@ -134,6 +141,37 @@ describe("persistent cache", () => {
     expect(result.cacheHits).toBe(2);
     expect(result.cacheMisses).toBe(0);
     expect(result.contents.get("a.md")).toBe("alpha");
+  });
+
+  it("ignores snapshots larger than the persisted cache cap before rehydrating", async () => {
+    setMaxPersistedBytesForTests(256);
+    await write("a.md", "fresh");
+    const fullPath = path.join(vaultDir, "a.md");
+    const stat = await fs.stat(fullPath);
+    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
+    await fs.mkdir(path.dirname(snap), { recursive: true });
+    await fs.writeFile(
+      snap,
+      JSON.stringify({
+        version: 1,
+        vaultRoot: path.resolve(vaultDir),
+        entries: {
+          "a.md": {
+            fullPath,
+            content: "stale".repeat(100),
+            mtimeMs: stat.mtimeMs,
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    await clearCache(vaultDir);
+    const result = await readAllCached(vaultDir, ["a.md"]);
+
+    expect(result.cacheHits).toBe(0);
+    expect(result.cacheMisses).toBe(1);
+    expect(result.contents.get("a.md")).toBe("fresh");
   });
 
   it("invalidates rehydrated entries when mtime changed since the snapshot", async () => {
