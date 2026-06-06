@@ -576,6 +576,24 @@ describe("moveNote", () => {
     await expect(fs.access(path.join(vaultDir, "old.md"))).rejects.toThrow();
     await expect(fs.access(path.join(vaultDir, "new.md"))).resolves.toBeUndefined();
   });
+
+  it.skipIf(!SYMLINKS_SUPPORTED)("rejects relative symlink moves that would retarget the link", async () => {
+    await fs.mkdir(path.join(vaultDir, "links"), { recursive: true });
+    await fs.writeFile(path.join(vaultDir, "links", "target.md"), "target", "utf-8");
+    await fs.symlink("target.md", path.join(vaultDir, "links", "source.md"));
+
+    await expect(
+      moveNote(vaultDir, "links/source.md", "archive/source.md", { updateLinks: false }),
+    ).rejects.toThrow("Refusing to move symlink");
+
+    const sourceStat = await fs.lstat(path.join(vaultDir, "links", "source.md"));
+    expect(sourceStat.isSymbolicLink()).toBe(true);
+    await expect(fs.readlink(path.join(vaultDir, "links", "source.md"))).resolves.toBe(
+      "target.md",
+    );
+    await expect(fs.lstat(path.join(vaultDir, "archive", "source.md"))).rejects.toThrow();
+    await expect(readNote(vaultDir, "links/source.md")).resolves.toBe("target");
+  });
 });
 
 // ---------------------------------------------------------------------------
