@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Embedding vector validation errors no longer include note paths; failed note paths remain reported through the existing untrusted failed-note blocks.
 - Embedding provider HTTP errors no longer include provider response bodies; clients receive the provider endpoint family and HTTP status only.
 - Error sanitization now fully redacts unquoted Windows absolute paths that contain spaces.
+- Error sanitization now redacts unquoted POSIX file paths that contain spaces while preserving surrounding diagnostics.
 - Read-tool inventory outputs now mark listed note paths, recent-note rows, vault-stat most-recent paths, and alias-resolution path groups as untrusted vault content.
 - Search outputs now mark matching note path headings from `search_notes` and `search_by_frontmatter` as untrusted vault content.
 - Semantic outputs now mark ranked note result paths from `search_semantic` and `find_similar_notes`, plus failed note rows from `index_vault`, as untrusted vault content.
