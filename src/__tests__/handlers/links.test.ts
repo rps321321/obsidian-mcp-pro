@@ -21,7 +21,11 @@ describe("link handlers — get_backlinks", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toContain("nested/note-d.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_backlinks target path]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_backlinks source path]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("reports 'No backlinks' for a note nothing links to", async () => {
@@ -81,6 +85,7 @@ describe("link handlers — get_backlinks", () => {
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toContain("Links to [[note-a]]\\twith tab.");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_backlinks source path]");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: backlink context: tab-backlink.md:");
     expect(text).not.toContain("note-a]]\twith tab");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
@@ -106,6 +111,8 @@ describe("link handlers — get_outlinks", () => {
     const text = textContent(result);
     expect(text).toMatch(/1 valid, 0 broken/);
     expect(text).toContain("note-b.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks source path]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks resolved path]");
   });
 
   it("refreshes a warm graph before resolving a new source note", async () => {
@@ -130,7 +137,8 @@ describe("link handlers — get_outlinks", () => {
     });
     const text = textContent(result);
     expect(isError(result)).toBe(false);
-    expect(text).toContain("Outgoing links from: warm-new-source.md");
+    expect(text).toContain("Outgoing links from:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks source path]");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: outlink target: warm-new-source.md]");
     expect(text).toContain("note-a");
     expect(text).toContain("note-a.md");
@@ -190,6 +198,10 @@ describe("link handlers — find_orphans", () => {
     expect(text).toContain("orphan.md");
     // note-c has backlinks (from note-b) but no outlinks → no-outlinks bucket.
     expect(text).toContain("note-c.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_orphans fully isolated paths]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_orphans no-outlink paths]");
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("hides the no-outlinks bucket when includeOutlinksCheck=false", async () => {
@@ -200,6 +212,30 @@ describe("link handlers — find_orphans", () => {
     const text = textContent(result);
     expect(text).not.toMatch(/No outlinks.*links to no other notes/);
   });
+
+  it("escapes and marks orphan note paths as untrusted", async () => {
+    const dirtyPath = "orphan\x7fpath.md";
+    const created = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: dirtyPath,
+        content: "# Dirty orphan path\n\nNo links here.",
+      },
+    });
+    expect(isError(created)).toBe(false);
+
+    const result = await env.client.callTool({
+      name: "find_orphans",
+      arguments: { maxResults: 1000 },
+    });
+
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_orphans fully isolated paths]");
+    expect(text).toContain("orphan\\x7fpath.md");
+    expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+  });
 });
 
 describe("link handlers — find_broken_links", () => {
@@ -209,7 +245,8 @@ describe("link handlers — find_broken_links", () => {
       arguments: {},
     });
     const text = textContent(result);
-    expect(text).toContain("broken.md:");
+    expect(text).toContain("broken.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_broken_links source path]");
     expect(text).toContain("does-not-exist");
     expect(text).toMatch(/Total: 1 broken/);
   });
@@ -238,6 +275,7 @@ describe("link handlers — find_broken_links", () => {
     });
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_broken_links source path]");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: broken link target: tab-broken-report.md:");
     expect(text).toContain("bad\\ttarget");
     expect(text).not.toContain("bad\ttarget");
@@ -252,6 +290,10 @@ describe("link handlers — get_graph_neighbors", () => {
       arguments: { path: "note-a.md", depth: 1 },
     });
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_graph_neighbors start path]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_graph_neighbors path tree]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     // note-a links to note-b (outbound) and is linked from note-d (inbound).
     expect(text).toContain("note-b.md");
     expect(text).toContain("nested/note-d.md");
@@ -296,5 +338,29 @@ describe("link handlers — get_graph_neighbors", () => {
     const text = textContent(result);
     expect(text).toContain("No note found matching path: missing\\nstart");
     expect(text).not.toContain("missing\nstart");
+  });
+
+  it("escapes and marks neighbor note paths as untrusted", async () => {
+    const dirtyPath = "dirty\x7fneighbor.md";
+    const created = await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: dirtyPath,
+        content: "# Dirty neighbor\n\nLinks to [[note-a]].",
+      },
+    });
+    expect(isError(created)).toBe(false);
+
+    const result = await env.client.callTool({
+      name: "get_graph_neighbors",
+      arguments: { path: "note-a.md", depth: 1, direction: "inbound" },
+    });
+
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_graph_neighbors path tree]");
+    expect(text).toContain("dirty\\x7fneighbor.md");
+    expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 });
