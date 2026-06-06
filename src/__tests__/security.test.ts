@@ -69,6 +69,33 @@ describe.skipIf(!SYMLINKS_SUPPORTED)("resolveVaultPathSafe — symlink boundary"
       /symlink/i,
     );
   });
+
+  it("does not create nested parents through a symlinked trash root", async () => {
+    await writeNote(vaultDir, "nested/note.md", "hi");
+    const outsideTrash = path.join(outsideDir, "fake-trash");
+    await fs.mkdir(outsideTrash, { recursive: true });
+    await fs.symlink(outsideTrash, path.join(vaultDir, ".trash"));
+
+    await expect(deleteNote(vaultDir, "nested/note.md")).rejects.toThrow(
+      /symlink/i,
+    );
+    await expect(fs.access(path.join(outsideTrash, "nested"))).rejects.toThrow();
+    await expect(readNote(vaultDir, "nested/note.md")).resolves.toBe("hi");
+  });
+
+  it("does not create deeper parents through a symlinked trash ancestor", async () => {
+    await writeNote(vaultDir, "projects/active/plan.md", "details");
+    const outsideTrash = path.join(outsideDir, "fake-trash");
+    await fs.mkdir(outsideTrash, { recursive: true });
+    await fs.mkdir(path.join(vaultDir, ".trash"), { recursive: true });
+    await symlinkDirectory(outsideTrash, path.join(vaultDir, ".trash", "projects"));
+
+    await expect(deleteNote(vaultDir, "projects/active/plan.md")).rejects.toThrow(
+      /symlink/i,
+    );
+    await expect(fs.access(path.join(outsideTrash, "active"))).rejects.toThrow();
+    await expect(readNote(vaultDir, "projects/active/plan.md")).resolves.toBe("details");
+  });
 });
 
 describe.skipIf(!SYMLINKS_SUPPORTED)("resolveVaultPathSafe — canonical permission boundary", () => {
