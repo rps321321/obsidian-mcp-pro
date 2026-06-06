@@ -8,6 +8,7 @@ import { makeProgressReporter } from "../lib/progress.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { formatFailedPath } from "../lib/tool-output.js";
 import { mapConcurrent } from "../lib/concurrency.js";
+import { elicitTextConfirmation } from "../lib/confirmation.js";
 import { log } from "../lib/logger.js";
 
 import type { TagInfo } from "../types.js";
@@ -300,6 +301,32 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
     async ({ oldName, newName, hierarchical, dryRun }, extra) => {
       try {
         if (oldName === newName) return errorResult("oldName and newName must differ");
+        if (!dryRun) {
+          const confirmation = await elicitTextConfirmation(server, {
+            tool: "rename_tag",
+            message:
+              `Rename #${displayTagValue(oldName)} to #${displayTagValue(newName)} across the vault? ` +
+              "This can rewrite many notes. Type the new tag name to confirm.",
+            fieldName: "confirmTag",
+            fieldDescription: "Re-type the new tag name to confirm vault-wide tag rewriting.",
+            expectedValue: newName,
+          });
+          if (confirmation.status === "cancelled") {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Rename of #${displayTagValue(oldName)} to #${displayTagValue(newName)} cancelled.`,
+                },
+              ],
+            };
+          }
+          if (confirmation.status === "mismatch") {
+            return errorResult(
+              `Confirmation tag did not match #${displayTagValue(newName)}; rename aborted.`,
+            );
+          }
+        }
         const notes = await listNotes(vaultPath);
         const opts = { oldName, newName, hierarchical };
         const reportProgress = makeProgressReporter(extra);
