@@ -26,7 +26,10 @@ import path from "path";
  *
  * Path matching is case-insensitive on Windows and macOS to align with the
  * vault's filesystem semantics, and case-sensitive on Linux. Paths are
- * normalized to forward slashes and stripped of leading/trailing separators.
+ * normalized to forward slashes on Windows and stripped of leading/trailing
+ * separators. On POSIX, literal backslashes are kept as filename characters
+ * so a root-level file named `public\secret.md` does not match an allowlist
+ * entry for the `public/` folder.
  *
  * Critically: `..` segments are collapsed BEFORE the prefix check. v1.8.0
  * called `assertAllowed` on the raw user-supplied path, then later let
@@ -37,6 +40,7 @@ import path from "path";
  */
 
 const CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin";
+const BACKSLASH_IS_SEPARATOR = process.platform === "win32";
 
 export type AccessKind = "read" | "write";
 
@@ -59,7 +63,7 @@ function parseList(raw: string | undefined): string[] | null {
 }
 
 function normalizeFolder(folder: string): string {
-  let f = folder.replace(/\\/g, "/").trim();
+  let f = normalizePermissionSeparators(folder).trim();
   while (f.startsWith("/")) f = f.slice(1);
   while (f.endsWith("/")) f = f.slice(0, -1);
   if (f === "." || f === "") return "";
@@ -90,6 +94,10 @@ function eq(a: string, b: string): boolean {
   return CASE_INSENSITIVE ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
+function normalizePermissionSeparators(input: string): string {
+  return BACKSLASH_IS_SEPARATOR ? input.replace(/\\/g, "/") : input;
+}
+
 /**
  * Convert a user-supplied path to a vault-relative form with `..` segments
  * syntactically collapsed. Returns `null` when the input tries to climb
@@ -97,7 +105,7 @@ function eq(a: string, b: string): boolean {
  * as a hard-deny.
  */
 function normalizeRel(input: string): string | null {
-  const slashed = input.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const slashed = normalizePermissionSeparators(input).replace(/^\/+|\/+$/g, "");
   if (slashed === "") return "";
   const normalized = path.posix.normalize(slashed);
   // After normalization: `..` or `../...` means the input climbed above the
@@ -109,7 +117,7 @@ function normalizeRel(input: string): string | null {
 }
 
 function isUnder(rel: string, folder: string): boolean {
-  const r = rel.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const r = normalizePermissionSeparators(rel).replace(/^\/+|\/+$/g, "");
   if (folder === "") return true;
   if (eq(r, folder)) return true;
   const prefix = folder + "/";
