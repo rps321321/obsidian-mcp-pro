@@ -77,19 +77,8 @@ export function parseArgs(argv: string[]): CliOptions {
       opts.host = argv[++i]!;
     } else if (a.startsWith("--host=")) {
       opts.host = a.slice("--host=".length);
-    } else if (a === "--token" && argv[i + 1]) {
-      opts.bearerToken = argv[++i]!;
-      // Redact the secret from process.argv so it doesn't leak via `ps`,
-      // /proc/<pid>/cmdline, or crash dumps. Mutate both the local argv copy
-      // and process.argv (which a caller may pass a slice of).
-      argv[i] = "***";
-      const pIdx = process.argv.indexOf(opts.bearerToken);
-      if (pIdx !== -1) process.argv[pIdx] = "***";
-    } else if (a.startsWith("--token=")) {
-      opts.bearerToken = a.slice("--token=".length);
-      argv[i] = "--token=***";
-      const pIdx = process.argv.indexOf(a);
-      if (pIdx !== -1) process.argv[pIdx] = "--token=***";
+    } else if (a === "--token" || a.startsWith("--token=")) {
+      throw new Error("--token was removed because command-line secrets can leak. Set MCP_HTTP_TOKEN instead.");
     } else if (a === "--allow-origin" && argv[i + 1]) {
       opts.allowedOrigins = argv[++i]!.split(",").map((s) => s.trim()).filter(Boolean);
     } else if (a.startsWith("--allow-origin=")) {
@@ -129,11 +118,11 @@ export function parseArgs(argv: string[]): CliOptions {
   if (opts.bearerToken !== undefined) {
     opts.bearerToken = opts.bearerToken.trim();
     if (!opts.bearerToken) {
-      throw new Error("--token / MCP_HTTP_TOKEN cannot be empty");
+      throw new Error("MCP_HTTP_TOKEN cannot be empty");
     }
   }
   if (opts.transport === "http" && opts.bearerToken === undefined) {
-    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN or pass --token.");
+    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN.");
   }
   if (!Number.isFinite(opts.port) || opts.port < 1 || opts.port > 65535) {
     throw new Error(`Invalid port: ${opts.port}`);
@@ -160,7 +149,6 @@ Serve options:
   --transport=<stdio|http>                  Transport to use (default: stdio)
   --host=<addr>                             HTTP bind host (default: 127.0.0.1)
   --port=<n>                                HTTP port (default: 3333)
-  --token=<secret>                          Bearer token for HTTP transport (prefer env MCP_HTTP_TOKEN to avoid leaking via ps/cmdline)
   --allow-origin=<origins>                  Comma-separated CORS/Origin allowlist (default: localhost-only)
   --rate-limit=<n>                          Max requests per minute per IP (default: unlimited)
 
@@ -175,7 +163,7 @@ Env vars:
   OBSIDIAN_VAULT_NAME     Select a named vault when multiple exist
   OBSIDIAN_READ_PATHS     Comma/colon list of folders read tools may access
   OBSIDIAN_WRITE_PATHS    Comma/colon list of folders write tools may modify
-  MCP_HTTP_TOKEN          Default bearer token for --transport=http
+  MCP_HTTP_TOKEN          Required bearer token for --transport=http
   LOG_LEVEL               debug|info|warn|error|silent (default: info)
   LOG_FORMAT              text|json (default: text)
 `);
@@ -392,7 +380,7 @@ async function main(): Promise<void> {
   if (opts.transport === "http") {
     const bearerToken = opts.bearerToken;
     if (!bearerToken) {
-      throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN or pass --token.");
+      throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN.");
     }
     // Single McpServer instance shared across sessions — the canonical SDK
     // pattern (one server, one transport per session, transports share the
