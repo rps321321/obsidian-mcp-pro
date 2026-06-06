@@ -16,6 +16,7 @@ beforeEach(async () => {
       "assets/page.html": "<script>alert(1)</script>",
       "assets/feed.xml": "<?xml version=\"1.0\"?><feed />",
       "assets/theme.css": "body { background: red; }",
+      "assets/.env": "TOKEN=hidden",
       "embed-host.md": "# Embed host\n\n![[used-image.png]]\n\nAlso linked: [doc](assets/notes.pdf)\n",
     },
   });
@@ -39,6 +40,8 @@ describe("attachments handlers — list_attachments", () => {
     expect(text).toMatch(/notes\.pdf/);
     // Markdown notes never appear in attachment listings.
     expect(text).not.toMatch(/embed-host\.md/);
+    // Hidden dotfiles are skipped by the inventory and direct reads.
+    expect(text).not.toMatch(/\.env/);
   });
 
   it("filters by extension", async () => {
@@ -233,6 +236,17 @@ describe("attachments handlers — get_attachment", () => {
     const text = textContent(result);
     expect(text).toContain('"tools/bad\\tthing.exe"');
     expect(text).not.toContain("tools/bad\tthing.exe");
+  });
+
+  it("rejects hidden dotfile attachments skipped by the inventory", async () => {
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "assets/.env" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain('Refusing to fetch hidden attachment "assets/.env"');
+    expect(text).not.toContain("TOKEN=hidden");
   });
 
   itWin32("rejects Windows alternate data stream attachment paths", async () => {
