@@ -365,4 +365,37 @@ describe("regression: HTTP bearer token must not be empty", () => {
   it("rejects whitespace-only programmatic tokens", async () => {
     await expect(startOnEphemeral({ bearerToken: "   " })).rejects.toThrow(/token.*empty/i);
   });
+
+  it("rejects non-loopback binds without bearer auth", async () => {
+    let leaked: HttpServerHandle | undefined;
+    let err: unknown;
+    try {
+      leaked = await startHttpServer({
+        host: "0.0.0.0",
+        port: 0,
+        buildMcpServer: buildNoopServer,
+        installSignalHandlers: false,
+      });
+    } catch (caught) {
+      err = caught;
+    } finally {
+      if (leaked) await leaked.stop();
+    }
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/bearer token.*non-loopback/i);
+  });
+
+  it("allows non-loopback binds when bearer auth is configured", async () => {
+    const handle = await startHttpServer({
+      host: "0.0.0.0",
+      port: 0,
+      bearerToken: "secret",
+      buildMcpServer: buildNoopServer,
+      installSignalHandlers: false,
+    });
+    handles.push(handle);
+
+    expect(handle.host).toBe("0.0.0.0");
+  });
 });

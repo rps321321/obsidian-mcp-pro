@@ -189,9 +189,11 @@ npx -y obsidian-mcp-pro --transport=http --token=your-secret
 ```
 
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
+If `--host` is set to a non-loopback address, startup requires `--token=<secret>` or
+`MCP_HTTP_TOKEN`.
 
 > [!WARNING]
-> **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. If you need remote access:
+> **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. The server refuses non-loopback binds without a bearer token, but if you need remote access:
 > - Put the server behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS, **and**
 > - Require `--token=<secret>` (or `MCP_HTTP_TOKEN`), **and**
 > - Restrict `--allow-origin` to the specific origins you trust, **and**
@@ -203,7 +205,7 @@ Additional hardening flags:
 
 | Flag | Purpose |
 |------|---------|
-| `--allow-origin=<csv>` | Restrict CORS to an allowlist (e.g. `https://claude.ai,https://chat.openai.com`). Default is `*`. |
+| `--allow-origin=<csv>` | Restrict CORS to an allowlist (e.g. `https://claude.ai,https://chat.openai.com`). Default is localhost-only. |
 | `--rate-limit=<n>` | Cap requests per minute per client IP. `/health` and `/version` are exempt. Default is unlimited. |
 
 Operational endpoints (no auth required):
