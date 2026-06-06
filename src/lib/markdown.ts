@@ -8,7 +8,7 @@ const YAML_MATTER_OPTIONS = { language: "yaml" };
 type FrontmatterScan =
   | { kind: "none" }
   | { kind: "oversized"; bytes?: number }
-  | { kind: "found"; bytes: number };
+  | { kind: "found"; bytes: number; yaml: string };
 
 export interface ParsedFrontmatter {
   data: Record<string, unknown>;
@@ -42,14 +42,15 @@ function scanYamlFrontmatter(content: string): FrontmatterScan {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 
     if (line === "---") {
+      const yaml = content.slice(yamlStart, lineStart);
       const bytes = Buffer.byteLength(
-        content.slice(yamlStart, lineStart),
+        yaml,
         "utf8",
       );
       if (bytes > MAX_FRONTMATTER_BYTES) {
         return { kind: "oversized", bytes };
       }
-      return { kind: "found", bytes };
+      return { kind: "found", bytes, yaml };
     }
 
     if (lineEnd === -1) return { kind: "none" };
@@ -57,6 +58,76 @@ function scanYamlFrontmatter(content: string): FrontmatterScan {
   }
 
   return { kind: "none" };
+}
+
+function hasYamlAnchorOrAliasToken(yaml: string): boolean {
+  let inSingle = false;
+  let inDouble = false;
+
+  for (const rawLine of yaml.split(/\n/)) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    let nodeStart = 0;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line.charAt(i);
+      const prev = i === 0 ? "" : line.charAt(i - 1);
+      const next = line.charAt(i + 1);
+
+      if (inSingle) {
+        if (ch === "'" && line[i + 1] === "'") {
+          i += 1;
+        } else if (ch === "'") {
+          inSingle = false;
+        }
+        continue;
+      }
+
+      if (inDouble) {
+        if (ch === "\\") {
+          i += 1;
+        } else if (ch === "\"") {
+          inDouble = false;
+        }
+        continue;
+      }
+
+      if (ch === "#") {
+        if (i === 0 || /\s/.test(prev)) break;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = true;
+        continue;
+      }
+      if (ch === "\"") {
+        inDouble = true;
+        continue;
+      }
+      if (ch === "[" || ch === "{" || ch === ",") {
+        nodeStart = i + 1;
+        continue;
+      }
+      if (ch === ":" && (next === "" || /[\s\]},]/.test(next))) {
+        nodeStart = i + 1;
+        continue;
+      }
+      if (ch !== "&" && ch !== "*") continue;
+
+      if (!/[A-Za-z0-9_-]/.test(next)) continue;
+
+      const prefix = line.slice(nodeStart, i).trim();
+      if (
+        prefix === "" ||
+        prefix === "-" ||
+        prefix === "?" ||
+        /^!\S+$/.test(prefix) ||
+        /^[-?]\s+!\S+$/.test(prefix)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function asFrontmatterObject(value: unknown): Record<string, unknown> {
@@ -83,6 +154,16 @@ export function parseStrictYamlFrontmatter(content: string): ParsedFrontmatter {
       content,
       hasFrontmatter: true,
       oversized: true,
+      bytes: scan.bytes,
+    };
+  }
+
+  if (hasYamlAnchorOrAliasToken(scan.yaml)) {
+    return {
+      data: {},
+      content,
+      hasFrontmatter: true,
+      error: new Error("YAML frontmatter anchors and aliases are not supported."),
       bytes: scan.bytes,
     };
   }
