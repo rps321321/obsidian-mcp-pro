@@ -16,11 +16,14 @@ describe("tag handlers — list_tags", () => {
     const result = await env.client.callTool({ name: "list_tags", arguments: {} });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     // Fixture tags (normalized lowercase): draft, review, lonely, nested/archive
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_tags values]");
     expect(text).toMatch(/#draft/);
     expect(text).toMatch(/#review/);
     expect(text).toMatch(/#lonely/);
     expect(text).toMatch(/#nested\/archive/);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("escapes frontmatter tag labels in list output", async () => {
@@ -40,9 +43,12 @@ describe("tag handlers — list_tags", () => {
     });
 
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_tags values]");
     expect(text).toContain("#dirty\\x7ftag (1 note)");
     expect(text).not.toContain(dirtyTag);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("sorts by count desc by default (review appears in 2 notes)", async () => {

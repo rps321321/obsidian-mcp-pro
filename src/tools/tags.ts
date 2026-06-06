@@ -159,12 +159,20 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         lines.push(`Total unique tags: ${tagInfos.length}`);
         lines.push("");
 
+        const tagLines: string[] = [];
         for (const info of tagInfos) {
-          lines.push(`#${displayTagValue(info.tag)} (${info.count} ${info.count === 1 ? "note" : "notes"})`);
+          tagLines.push(`#${displayTagValue(info.tag)} (${info.count} ${info.count === 1 ? "note" : "notes"})`);
+        }
+        if (tagLines.length > 0) {
+          lines.push(formatUntrustedVaultContent("list_tags values", tagLines.join("\n")));
         }
 
         return {
-          content: [{ type: "text" as const, text: lines.join("\n") }],
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            ...(tagLines.length > 0 ? { _meta: untrustedVaultContentMeta("list_tags values") } : {}),
+          }],
         };
       } catch (err) {
         log.error("list_tags failed", { tool: "list_tags", err: err as Error });
