@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
-- `get_note`, `get_daily_note`, `search_notes`, `search_by_frontmatter`, `list_notes`, `get_recent_notes`, `get_vault_stats`, `resolve_alias`, `list_tags`, `search_by_tag includeContent`, `search_semantic` result paths and snippets, semantic heading paths, `find_similar_notes` result paths, `get_backlinks`, `get_outlinks`, `find_orphans`, `find_broken_links`, `get_graph_neighbors`, `list_attachments`, `find_unused_attachments`, `list_bases`, `list_canvases`, `read_canvas` paths, node previews, and edge labels, `read_base`, `query_base`, SVG attachment text, section-heading output, and backlink context output now wrap vault-authored text or path summaries in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers. Clients that parsed raw note fragments, path rows, search result headings, tag values, headings, link targets, canvas labels, or snippets should extract the text between those markers. Raw markdown resources still return the original note text, but now carry `_meta["obsidian-mcp-pro/contentTrust"] = "untrusted-vault-content"`.
+- `get_note`, `get_daily_note`, `search_notes`, `search_by_frontmatter`, `list_notes`, `get_recent_notes`, `get_vault_stats`, `resolve_alias`, `list_tags`, `search_by_tag` result paths and previews, `search_semantic` result paths and snippets, semantic heading paths, `find_similar_notes` result paths, `get_backlinks`, `get_outlinks`, `find_orphans`, `find_broken_links`, `get_graph_neighbors`, `list_attachments`, `find_unused_attachments`, `list_bases`, `list_canvases`, `read_canvas` paths, node previews, and edge labels, `read_base`, `query_base`, SVG attachment text, section-heading output, and backlink context output now wrap vault-authored text or path summaries in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers. Clients that parsed raw note fragments, path rows, search result headings, tag values, headings, link targets, canvas labels, or snippets should extract the text between those markers. Raw markdown resources still return the original note text, but now carry `_meta["obsidian-mcp-pro/contentTrust"] = "untrusted-vault-content"`.
 
 ### Added
 
@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Read-tool inventory outputs now mark listed note paths, recent-note rows, vault-stat most-recent paths, and alias-resolution path groups as untrusted vault content.
 - Search outputs now mark matching note path headings from `search_notes` and `search_by_frontmatter` as untrusted vault content.
 - Semantic search outputs now mark ranked note result paths from `search_semantic` and `find_similar_notes` as untrusted vault content.
+- Tag search outputs now mark matching note paths from `search_by_tag` as untrusted vault content.
 - Link graph outputs now mark backlink source paths, outlink resolved paths, orphan path rows, broken-link source paths, and graph-neighbor path trees as untrusted vault content.
 - Attachment inventory outputs now mark listed and unused attachment path rows as untrusted vault content.
 - Base inventory and query outputs now mark listed Base paths, query Base paths, warnings, result note paths, and row frontmatter as untrusted vault content.
