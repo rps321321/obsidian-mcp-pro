@@ -23,7 +23,7 @@ import {
 import { makeProgressReporter } from "../lib/progress.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import {
-  formatFailedPath,
+  formatUntrustedFailedPath,
   formatUntrustedVaultContent,
   indentBlock,
   untrustedVaultContentMeta,
@@ -353,10 +353,19 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         if (stats.notesPruned > 0) lines.push(`  Notes pruned:    ${stats.notesPruned}`);
         if (stats.failed.length > 0) {
           lines.push(`  Failures:        ${stats.failed.length}`);
-          for (const f of stats.failed.slice(0, 5)) lines.push(formatFailedPath(f.path, f.error, "    "));
+          for (const f of stats.failed.slice(0, 5)) {
+            lines.push(formatUntrustedFailedPath(
+              `index_vault failed note: ${f.path}`,
+              f.path,
+              f.error,
+              "    ",
+            ));
+          }
           if (stats.failed.length > 5) lines.push(`    ...and ${stats.failed.length - 5} more`);
         }
-        return textResult(lines.join("\n"));
+        return stats.failed.length > 0
+          ? untrustedVaultTextResult(lines.join("\n"), "index_vault failed notes")
+          : textResult(lines.join("\n"));
       } catch (err) {
         log.error("index_vault failed", { tool: "index_vault", err: err as Error });
         return errorResult(`Error indexing vault: ${sanitizeError(err)}`);
