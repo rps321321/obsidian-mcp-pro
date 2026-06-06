@@ -7,7 +7,7 @@ import { readAllCached } from "../lib/index-cache.js";
 import { makeProgressReporter } from "../lib/progress.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import {
-  formatFailedPath,
+  formatUntrustedFailedPath,
   formatUntrustedVaultContent,
   indentBlock,
   untrustedVaultContentMeta,
@@ -441,10 +441,23 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         ];
         if (failed.length > 0) {
           lines.push(`  Skipped due to errors: ${failed.length}`);
-          for (const f of failed.slice(0, 5)) lines.push(formatFailedPath(f.path, f.error, "    "));
+          for (const f of failed.slice(0, 5)) {
+            lines.push(formatUntrustedFailedPath(
+              `rename_tag failed note: ${f.path}`,
+              f.path,
+              f.error,
+              "    ",
+            ));
+          }
           if (failed.length > 5) lines.push(`    ...and ${failed.length - 5} more`);
         }
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            ...(failed.length > 0 ? { _meta: untrustedVaultContentMeta("rename_tag failed notes") } : {}),
+          }],
+        };
       } catch (err) {
         log.error("rename_tag failed", { tool: "rename_tag", err: err as Error });
         return errorResult(`Error renaming tag: ${sanitizeError(err)}`);
