@@ -122,7 +122,7 @@ export function redactUrlSecrets(s: string): string {
 //   - POSIX: starts with `/` followed by a non-space char, including
 //     unquoted file-like paths with spaces
 //   - Windows: `C:\…` or `C:/…`, including unquoted paths with spaces
-//   - Quoted paths in fs error messages: `'…'`
+//   - Quoted paths in fs error messages: `'…'` or `"…"`
 //
 // Exported (alongside `sanitizeError`) so the logger can apply the same
 // stripping to structured log payloads before forwarding them to MCP
@@ -130,6 +130,7 @@ export function redactUrlSecrets(s: string): string {
 export function stripPaths(s: string): string {
   return s
     .replace(/'[^']*[\\/][^']*'/g, "<path>")
+    .replace(/"[^"]*[\\/][^"]*"/g, "<path>")
     .replace(/\b[a-zA-Z]:[\\/][^\r\n'"]+/g, "<path>")
     .replace(/(^|\s)\/[^'"\r\n]*?\.[A-Za-z0-9][A-Za-z0-9_-]{0,31}(?=$|[\s'",:;)\]])/g, "$1<path>")
     .replace(/(^|\s)\/[^\s'"]+/g, "$1<path>");
