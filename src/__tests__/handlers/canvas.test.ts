@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
+import { MAX_CANVAS_FILE_BYTES } from "../../lib/vault.js";
 
 let env: TestEnv;
 
@@ -129,6 +130,62 @@ describe("canvas handlers — read_canvas", () => {
     expect(textContent(result)).toMatch(/malformed JSON/i);
   });
 
+  it("rejects oversized canvas files before parsing JSON", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "huge.canvas"),
+      "x".repeat(MAX_CANVAS_FILE_BYTES + 1),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "huge.canvas" },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/Canvas file exceeds size cap/i);
+    expect(text).not.toMatch(/malformed JSON/i);
+  });
+
+  it("keeps crowded canvas summaries bounded while reporting totals", async () => {
+    const nodes = Array.from({ length: 205 }, (_, i) => ({
+      id: `n${i}`,
+      type: "text",
+      x: i,
+      y: i,
+      width: 120,
+      height: 80,
+      text: `Node ${i}`,
+    }));
+    const edges = Array.from({ length: 205 }, (_, i) => ({
+      id: `e${i}`,
+      fromNode: `n${i % nodes.length}`,
+      toNode: `n${(i + 1) % nodes.length}`,
+      label: `edge ${i}`,
+    }));
+    await fs.writeFile(
+      path.join(env.vaultDir, "crowded.canvas"),
+      JSON.stringify({ nodes, edges }),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "read_canvas",
+      arguments: { path: "crowded.canvas" },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toMatch(/Nodes: 205 \| Edges: 205/);
+    expect(text).toContain("[n199] type=text");
+    expect(text).toContain("edge 199");
+    expect(text).toContain("5 more node(s) omitted by read_canvas output cap");
+    expect(text).toContain("5 more edge(s) omitted by read_canvas output cap");
+    expect(text).not.toContain("[n204] type=text");
+    expect(text).not.toContain("edge 204");
+  });
+
   it("escapes control characters in vault-authored canvas output", async () => {
     await fs.writeFile(
       path.join(env.vaultDir, "dirty.canvas"),
@@ -206,6 +263,25 @@ describe("canvas handlers — add_canvas_node", () => {
     expect(canvas.nodes).toHaveLength(3);
     const added = canvas.nodes.find((n) => n.id === idMatch![1]);
     expect(added?.text).toBe("A new thought");
+  });
+
+  it("rejects oversized existing canvas files before mutation", async () => {
+    const fullPath = path.join(env.vaultDir, "huge.canvas");
+    const before = "x".repeat(MAX_CANVAS_FILE_BYTES + 1);
+    await fs.writeFile(fullPath, before, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "add_canvas_node",
+      arguments: {
+        canvasPath: "huge.canvas",
+        type: "text",
+        content: "should not write",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/Canvas file exceeds size cap/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(before);
   });
 
   it("validates file-type references stay inside the vault", async () => {

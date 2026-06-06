@@ -9,6 +9,8 @@ import { log } from "../lib/logger.js";
 import type { CanvasNode, CanvasData } from "../types.js";
 
 const CANVAS_READ_CACHE_LIMIT = 16;
+const CANVAS_SUMMARY_NODE_LIMIT = 200;
+const CANVAS_SUMMARY_EDGE_LIMIT = 200;
 
 interface CanvasReadCacheEntry {
   fullPath: string;
@@ -79,7 +81,8 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
 
   if (data.nodes.length > 0) {
     lines.push("--- Nodes ---");
-    for (const node of data.nodes) {
+    const visibleNodes = data.nodes.slice(0, CANVAS_SUMMARY_NODE_LIMIT);
+    for (const node of visibleNodes) {
       const pos = `(${node.x}, ${node.y})`;
       const size = `${node.width}x${node.height}`;
       let preview = "";
@@ -106,12 +109,17 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
         lines.push(`    color: ${displayCanvasValue(node.color)}`);
       }
     }
+    const omittedNodes = data.nodes.length - visibleNodes.length;
+    if (omittedNodes > 0) {
+      lines.push(`  ... ${omittedNodes} more node(s) omitted by read_canvas output cap.`);
+    }
     lines.push("");
   }
 
   if (data.edges.length > 0) {
     lines.push("--- Edges ---");
-    for (const edge of data.edges) {
+    const visibleEdges = data.edges.slice(0, CANVAS_SUMMARY_EDGE_LIMIT);
+    for (const edge of visibleEdges) {
       const label = edge.label ? ` [${displayCanvasValue(edge.label)}]` : "";
       const sides = [
         edge.fromSide ? `from-side=${displayCanvasValue(edge.fromSide)}` : "",
@@ -121,6 +129,10 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
       lines.push(
         `  ${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${label}${sideInfo}`,
       );
+    }
+    const omittedEdges = data.edges.length - visibleEdges.length;
+    if (omittedEdges > 0) {
+      lines.push(`  ... ${omittedEdges} more edge(s) omitted by read_canvas output cap.`);
     }
   }
 
@@ -195,7 +207,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     {
       title: "Read Canvas",
       description:
-        "Read an Obsidian canvas file (.canvas, JSON format) and return a human-readable summary of its structure: every node with id, type, position, size, and content preview, plus every edge with source/target node ids and optional label. Use to inspect or navigate a canvas before calling add_canvas_node or add_canvas_edge.",
+        "Read an Obsidian canvas file (.canvas, JSON format) and return a bounded human-readable summary of its structure: total node/edge counts, up to 200 nodes with id/type/position/size/content preview, and up to 200 edges with source/target node ids plus optional label. Use to inspect or navigate a canvas before calling add_canvas_node or add_canvas_edge.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,

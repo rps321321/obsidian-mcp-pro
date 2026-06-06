@@ -430,7 +430,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `list_canvases` | List all `.canvas` files in the vault | (none) |
-| `read_canvas` | Read a `.canvas` file's nodes and edges | `path` |
+| `read_canvas` | Read a bounded `.canvas` node/edge summary | `path` |
 | `add_canvas_node` | Add a node to a canvas | `canvasPath`, `type`, `content`, `x`, `y` |
 | `add_canvas_edge` | Add an edge between two canvas nodes | `canvasPath`, `fromNode`, `toNode` |
 
