@@ -968,14 +968,32 @@ async function linkOrCopyFileNoReplace(fullOldPath: string, fullNewPath: string)
   await fs.copyFile(fullOldPath, fullNewPath, fsConstants.COPYFILE_EXCL);
 }
 
-async function createDestinationNoReplace(fullOldPath: string, fullNewPath: string): Promise<void> {
+async function createDestinationNoReplace(
+  vaultPath: string,
+  fullOldPath: string,
+  fullNewPath: string,
+): Promise<void> {
   const sourceStat = await fs.lstat(fullOldPath);
   if (sourceStat.isSymbolicLink()) {
+    const sourceCanonical = await assertRealPathWithinVault(fullOldPath, vaultPath);
     const linkTarget = await fs.readlink(fullOldPath);
-    if (IS_WIN32) {
-      await fs.symlink(linkTarget, fullNewPath, "file");
-    } else {
-      await fs.symlink(linkTarget, fullNewPath);
+    let createdSymlink = false;
+    try {
+      if (IS_WIN32) {
+        await fs.symlink(linkTarget, fullNewPath, "file");
+      } else {
+        await fs.symlink(linkTarget, fullNewPath);
+      }
+      createdSymlink = true;
+      const destCanonical = await assertRealPathWithinVault(fullNewPath, vaultPath);
+      if (destCanonical.realPath !== sourceCanonical.realPath) {
+        throw new Error("Refusing to move symlink because the destination would point somewhere else");
+      }
+    } catch (err) {
+      if (createdSymlink) {
+        try { await fs.unlink(fullNewPath); } catch { /* ignore cleanup failure */ }
+      }
+      throw err;
     }
     return;
   }
@@ -983,13 +1001,14 @@ async function createDestinationNoReplace(fullOldPath: string, fullNewPath: stri
 }
 
 async function movePathNoReplace(
+  vaultPath: string,
   fullOldPath: string,
   fullNewPath: string,
   displayNewPath: string,
 ): Promise<void> {
   let createdDestination = false;
   try {
-    await createDestinationNoReplace(fullOldPath, fullNewPath);
+    await createDestinationNoReplace(vaultPath, fullOldPath, fullNewPath);
     createdDestination = true;
     await unlinkWithRetry(fullOldPath);
   } catch (err) {
@@ -1048,7 +1067,7 @@ export async function moveNote(
       return;
     }
     await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
-    await movePathNoReplace(fullOldPath, fullNewPath, newPath);
+    await movePathNoReplace(vaultPath, fullOldPath, fullNewPath, newPath);
   };
 
   const performMove = async (): Promise<MoveNoteResult> => {
