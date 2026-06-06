@@ -114,8 +114,8 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
           }
         }
         return untrustedTextResult(
-          `base: ${basePath}`,
-          formatUntrustedVaultContent(`base: ${basePath}`, lines.join("\n")),
+          "read_base document",
+          formatUntrustedVaultContent("read_base document", lines.join("\n")),
         );
       } catch (err) {
         log.error("read_base failed", { tool: "read_base", err: err as Error });
@@ -224,7 +224,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         if (includeFrontmatter) {
           for (const row of truncated) {
             lines.push(untrustedBaseBlock(
-              `query_base row path: ${row.path}`,
+              "query_base row path",
               `- ${displayBaseValue(row.path)}`,
             ));
             if (Object.keys(row.frontmatter).length > 0) {
@@ -233,7 +233,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
                 frontmatterLines.push(`${displayBaseValue(k)}: ${JSON.stringify(v)}`);
               }
               lines.push(indentBlock(
-                formatUntrustedVaultContent(`base row frontmatter: ${row.path}`, frontmatterLines.join("\n")),
+                formatUntrustedVaultContent("query_base row frontmatter", frontmatterLines.join("\n")),
                 "    ",
               ));
             }
