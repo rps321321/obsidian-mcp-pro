@@ -116,7 +116,7 @@ The server exposes five starter prompts that clients (Claude Desktop, Cursor) su
 - **Folder-scoped permissions**: `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists gate every tool at the path-resolution choke point
 - **Persistent mtime cache** at `<vault>/.obsidian/cache/mcp-pro-index-cache.json` survives restarts; subsequent vault scans serve from cache after one stat-pass
 - **Progress notifications** (`notifications/progress`) on `rename_tag`, `find_unused_attachments`, and `index_vault` when the client subscribes via `_meta.progressToken`
-- **Elicitation** prompts the user to retype the note path on `delete_note(permanent: true)` when the client supports it
+- **Elicitation** prompts the user for typed confirmation on `delete_note(permanent: true)`, `move_note` reference rewrites, and `rename_tag` bulk writes when the client supports it
 
 ---
 
@@ -346,6 +346,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **HTTP transport** — binds to `127.0.0.1` by default with DNS rebinding protection (host-header allowlist). Optional `--token=<secret>` requires `Authorization: Bearer <secret>` on every `/mcp` request; compared in constant time.
 - **Error sanitization** — filesystem error messages are stripped of absolute host paths before being returned to MCP clients. Uncaught HTTP errors respond with a generic `Internal server error` body; full detail stays in the server log.
 - **YAML-only frontmatter** — Obsidian properties are parsed only from `---` YAML delimiter lines; non-YAML gray-matter language blocks stay as body text, and oversized frontmatter is skipped on reads and refused for metadata updates.
+- **Bulk-write confirmations** — clients that support MCP elicitation are asked to re-type the destination path or new tag before `move_note` rewrites references or `rename_tag` writes across the vault. Dry runs and clients without elicitation keep their existing behavior.
 - **Atomic writes** — every note write (`create_note`, `append`, `prepend`, `update_frontmatter`, canvas mutations) stages content to a sibling temp file then renames onto the target, so a crash or kill mid-write never leaves a truncated file. Combined with per-path locks for the full read-modify-write cycle, concurrent callers can't lose each other's updates. The `install` subcommand uses the same pattern and keeps a backup of the previous config.
 - **Rate limiting + CORS allowlist** — optional `--rate-limit` caps per-IP request volume; `--allow-origin` restricts browser-facing CORS. `/health` and `/version` stay reachable under load for monitoring.
 - **Request timeout** — HTTP POST requests are capped at 2 minutes of wall-clock time. Long-lived SSE GET streams are exempt so idle clients aren't reaped.
@@ -679,7 +680,7 @@ npm run lint:fix   # auto-fix
 - **Quick wins.** `get_recent_notes`, `get_vault_stats`, `resolve_alias`.
 - **MCP prompts.** `daily-review`, `weekly-rollup`, `find-stale-notes`, `extract-action-items`, `build-moc`.
 - **Progress notifications** on `rename_tag`, `find_unused_attachments`, `index_vault`.
-- **Elicitation** on `delete_note(permanent: true)` for clients that support it.
+- **Elicitation** on `delete_note(permanent: true)`, `move_note` reference rewrites, and `rename_tag` bulk writes for clients that support it.
 - **eslint** wired up with typescript-eslint flat config; `npm run lint` and `lint:fix`.
 
 **v1.7.0** — `delete_note` reference handling:
