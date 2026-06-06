@@ -81,6 +81,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
           .string()
           .min(1)
           .max(500)
+          .regex(/\.base$/i, "Path must end in .base")
           .describe("Vault-relative path to the .base file."),
       },
     },
@@ -140,6 +141,7 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
           .string()
           .min(1)
           .max(500)
+          .regex(/\.base$/i, "Path must end in .base")
           .describe("Vault-relative path to the .base file."),
         view: z
           .string()
