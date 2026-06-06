@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Persistent index-cache snapshots now use owner-only file permissions when written on POSIX systems, matching the embedding cache's private snapshot behavior.
 - `search_semantic` and `find_similar_notes` now filter persisted embedding hits through the current read allowlist, preventing stale wider-scope cache entries from leaking private paths or snippets after permissions are narrowed.
 - Updated the transitive Hono lockfile entry to 4.12.23, clearing the moderate audit advisories in the MCP HTTP dependency path.
 - HTTP server tests now retry OS-assigned ports that Node's `fetch` rejects, avoiding a flaky `bad port` failure during the verify gate.

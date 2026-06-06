@@ -5,6 +5,7 @@ import os from "os";
 import { readAllCached, clearCache, cacheSize, flushNow } from "../lib/index-cache.js";
 
 let vaultDir: string;
+const itPosix = process.platform === "win32" ? it.skip : it;
 
 beforeEach(async () => {
   vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-test-"));
@@ -109,6 +110,16 @@ describe("persistent cache", () => {
     const parsed = JSON.parse(raw);
     expect(parsed.version).toBe(1);
     expect(parsed.entries["a.md"].content).toBe("alpha");
+  });
+
+  itPosix("writes snapshots with owner-only permissions", async () => {
+    await write("a.md", "alpha");
+    await readAllCached(vaultDir, ["a.md"]);
+    await flushNow(vaultDir);
+
+    const snap = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
+    const stat = await fs.stat(snap);
+    expect(stat.mode & 0o777).toBe(0o600);
   });
 
   it("rehydrates from disk on a fresh process (simulated via clearCache)", async () => {

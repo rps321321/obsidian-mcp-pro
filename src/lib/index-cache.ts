@@ -36,6 +36,7 @@ import { renameWithRetry } from "./fs-ops.js";
 const READ_CONCURRENCY = 16;
 const CACHE_FILE_VERSION = 1;
 const CACHE_REL_PATH = ".obsidian/cache/mcp-pro-index-cache.json";
+const CACHE_FILE_MODE = 0o600;
 const FLUSH_DEBOUNCE_MS = 5_000;
 const MAX_PERSISTED_BYTES = 64 * 1024 * 1024; // 64 MB safety cap
 
@@ -271,7 +272,7 @@ async function doFlush(vaultPath: string, state: VaultCacheState): Promise<void>
   try {
     await fs.mkdir(dir, { recursive: true });
     const tmp = `${file}.${process.pid}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(snapshot), "utf-8");
+    await fs.writeFile(tmp, JSON.stringify(snapshot), { encoding: "utf-8", mode: CACHE_FILE_MODE });
     await renameWithRetry(tmp, file);
   } catch (err) {
     // Write failed - re-mark dirty so the next flush retries this data.
