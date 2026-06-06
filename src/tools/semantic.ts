@@ -251,7 +251,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
           if (!force && noteIsCurrent(vaultPath, notePath, contentHash)) {
             stats.notesUnchanged++;
             stats.notesScanned++;
-            await reportProgress(stats.notesScanned, notes.length, `Unchanged ${displaySemanticValue(notePath)}`);
+            await reportProgress(stats.notesScanned, notes.length, `Unchanged note ${stats.notesScanned}/${notes.length}`);
             continue;
           }
           noteHashByPath.set(notePath, contentHash);
@@ -267,7 +267,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             });
           }
           stats.notesScanned++;
-          await reportProgress(stats.notesScanned, notes.length, `Chunked ${displaySemanticValue(notePath)}`);
+          await reportProgress(stats.notesScanned, notes.length, `Chunked note ${stats.notesScanned}/${notes.length}`);
         }
 
         // Embed pending chunks in batches.
