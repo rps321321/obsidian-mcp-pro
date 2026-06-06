@@ -90,10 +90,12 @@ describe("tag handlers — search_by_tag", () => {
     });
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-b.md]");
+    const pathMarkers = [...text.matchAll(/\[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path\]/g)];
+    expect(pathMarkers).toHaveLength(2);
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-b.md]");
     expect(text).not.toContain("orphan.md");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
@@ -148,13 +150,15 @@ describe("tag handlers — search_by_tag", () => {
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     // The body of note-b starts with its frontmatter delimiter in a preview.
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path]");
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
     // Frontmatter is now stripped from previews, so verify body content appears instead.
     expect(text).toMatch(/Note A|Note B/);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: tag preview: note-a.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag preview]");
     expect(text).toContain("# Note A\\n\\nLinks to [[note-b]]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: tag preview: note-a.md]");
     expect(text).not.toContain("# Note A\n\nLinks to [[note-b]]");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
@@ -186,8 +190,9 @@ describe("tag handlers — search_by_tag", () => {
 
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: fresh-tag.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path]");
     expect(text).toContain("fresh-tag.md");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: fresh-tag.md]");
   });
 });
 
