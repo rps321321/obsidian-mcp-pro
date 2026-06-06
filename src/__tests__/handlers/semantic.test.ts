@@ -151,7 +151,7 @@ describe("semantic handlers — search_semantic", () => {
     expect(text).not.toContain("cats\ninjected");
   });
 
-  it("escapes indexed headings and snippets in search output", async () => {
+  it("marks indexed headings and snippets as untrusted in search output", async () => {
     await env.cleanup();
     await clearStore(env.vaultDir, { removeSnapshot: true });
     env = await createTestEnv({
@@ -170,6 +170,10 @@ describe("semantic handlers — search_semantic", () => {
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
+    const resultLine = text.split("\n").find((line) => line.startsWith("- dirty.md"));
+    expect(resultLine).not.toContain("Dirty\\tHeading");
+    expect(text).toContain("    Heading:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
     expect(text).toContain("Dirty\\tHeading");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet: dirty.md]");
     expect(text).toContain("\\x07");
@@ -271,7 +275,7 @@ describe("semantic handlers — find_similar_notes", () => {
     expect(text).not.toContain("missing\nnote.md");
   });
 
-  it("escapes indexed headings in similar-note output", async () => {
+  it("marks indexed headings as untrusted in similar-note output", async () => {
     await env.cleanup();
     await clearStore(env.vaultDir, { removeSnapshot: true });
     env = await createTestEnv({
@@ -290,8 +294,14 @@ describe("semantic handlers — find_similar_notes", () => {
     });
 
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    const resultLine = text.split("\n").find((line) => line.startsWith("- dirty.md"));
+    expect(resultLine).not.toContain("Dirty\\tHeading");
+    expect(text).toContain("    Heading:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
     expect(text).toContain("Dirty\\tHeading");
     expect(text).not.toContain("Dirty\tHeading");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("rejects an unreadable source note from the persisted embedding store", async () => {

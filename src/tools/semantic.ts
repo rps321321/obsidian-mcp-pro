@@ -41,6 +41,16 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function untrustedVaultTextResult(text: string, label: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text,
+      _meta: untrustedVaultContentMeta(label),
+    }],
+  };
+}
+
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
@@ -49,6 +59,13 @@ const displaySemanticValue = escapeControlChars;
 
 function displayHeadingPath(path: readonly string[]): string {
   return path.map(displaySemanticValue).join(" / ");
+}
+
+function semanticHeadingBlock(notePath: string, headingPath: readonly string[]): string {
+  return indentBlock(
+    formatUntrustedVaultContent(`semantic heading: ${notePath}`, displayHeadingPath(headingPath)),
+    "    ",
+  );
 }
 
 function canReadStoredEmbeddingNote(vaultPath: string, notePath: string): boolean {
@@ -414,8 +431,11 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
 
         const lines: string[] = [`${hits.length} match(es) for "${displaySemanticValue(query)}":`, ""];
         for (const hit of hits) {
-          const heading = hit.headingPath.length > 0 ? ` (${displayHeadingPath(hit.headingPath)})` : "";
-          lines.push(`- ${displaySemanticValue(hit.notePath)}${heading}  [score: ${hit.score.toFixed(3)}]`);
+          lines.push(`- ${displaySemanticValue(hit.notePath)}  [score: ${hit.score.toFixed(3)}]`);
+          if (hit.headingPath.length > 0) {
+            lines.push("    Heading:");
+            lines.push(semanticHeadingBlock(hit.notePath, hit.headingPath));
+          }
           if (includeSnippet) {
             const snippet = hit.text.replace(/\s+/g, " ").trim().slice(0, 200);
             const clipped = `${displaySemanticValue(snippet)}${hit.text.length > 200 ? "..." : ""}`;
@@ -425,13 +445,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             ));
           }
         }
-        return {
-          content: [{
-            type: "text" as const,
-            text: lines.join("\n"),
-            _meta: untrustedVaultContentMeta("search_semantic snippets"),
-          }],
-        };
+        return untrustedVaultTextResult(lines.join("\n"), "search_semantic vault text");
       } catch (err) {
         log.error("search_semantic failed", { tool: "search_semantic", err: err as Error });
         return errorResult(`Error during semantic search: ${sanitizeError(err)}`);
@@ -509,10 +523,16 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         }
         const lines: string[] = [`${ranked.length} note(s) similar to ${displaySemanticValue(notePath)}:`, ""];
         for (const r of ranked) {
-          const heading = r.headingPath.length > 0 ? ` (${displayHeadingPath(r.headingPath)})` : "";
-          lines.push(`- ${displaySemanticValue(r.notePath)}${heading}  [score: ${r.score.toFixed(3)}]`);
+          lines.push(`- ${displaySemanticValue(r.notePath)}  [score: ${r.score.toFixed(3)}]`);
+          if (r.headingPath.length > 0) {
+            lines.push("    Heading:");
+            lines.push(semanticHeadingBlock(r.notePath, r.headingPath));
+          }
         }
-        return textResult(lines.join("\n"));
+        const hasHeading = ranked.some((r) => r.headingPath.length > 0);
+        return hasHeading
+          ? untrustedVaultTextResult(lines.join("\n"), "find_similar_notes headings")
+          : textResult(lines.join("\n"));
       } catch (err) {
         log.error("find_similar_notes failed", { tool: "find_similar_notes", err: err as Error });
         return errorResult(`Error finding similar notes: ${sanitizeError(err)}`);
