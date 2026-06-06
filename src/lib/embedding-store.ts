@@ -384,7 +384,7 @@ export function setNoteChunks(
   for (const ch of chunks) {
     const error = validateVector(ch.vector, nextDimension);
     if (error !== null) {
-      throw new Error(`Invalid embedding for ${ch.notePath}#${ch.chunkIndex}: ${error}`);
+      throw new Error(`Invalid embedding vector at chunk ${ch.chunkIndex}: ${error}`);
     }
     if (nextDimension === null) nextDimension = ch.vector.length;
   }
