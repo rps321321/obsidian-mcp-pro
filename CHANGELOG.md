@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search_by_frontmatter` result path and frontmatter marker labels are now generic; clients should read those values from inside the untrusted block body.
 - `search_by_tag` result path and preview marker labels are now generic; clients should read the path or preview from inside the untrusted block body.
 - Semantic search and similar-note result path, heading, and snippet marker labels are now generic; clients should read those values from inside the untrusted block body.
+- Base read and row-frontmatter marker labels are now generic; clients should read Base paths, row paths, and frontmatter values from inside the untrusted block body.
 - Read-tool inventory outputs now mark listed note paths, recent-note rows, vault-stat most-recent paths, and alias-resolution path groups as untrusted vault content.
 - Search outputs now mark matching note path headings from `search_notes` and `search_by_frontmatter` as untrusted vault content.
 - Semantic outputs now mark ranked note result paths from `search_semantic` and `find_similar_notes`, plus failed note rows from `index_vault`, as untrusted vault content.
