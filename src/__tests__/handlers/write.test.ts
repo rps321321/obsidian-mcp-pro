@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
@@ -443,6 +443,40 @@ describe("write handlers — move_note", () => {
     expect(text).not.toContain(newPath);
     await expect(fs.access(path.join(env.vaultDir, newPath))).resolves.toBeUndefined();
   });
+
+  it("marks failed referrer paths in move warnings as untrusted", async () => {
+    const dirtyPath = "dirty\x7fref.md";
+    await fs.writeFile(path.join(env.vaultDir, dirtyPath), "See [[note-a]].", "utf-8");
+
+    const realLink = fs.link.bind(fs);
+    const linkSpy = vi.spyOn(fs, "link").mockImplementationOnce(
+      async (...args: Parameters<typeof fs.link>) => {
+        await realLink(...args);
+        await fs.writeFile(path.join(env.vaultDir, dirtyPath), "See [[other-note]].", "utf-8");
+      },
+    );
+
+    const result = await (async () => {
+      try {
+        return await env.client.callTool({
+          name: "move_note",
+          arguments: { oldPath: "note-a.md", newPath: "archive/renamed-a.md" },
+        });
+      } finally {
+        linkSpy.mockRestore();
+      }
+    })();
+
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("Warning: 1 file(s) could not be updated:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: move_note failed referrer: dirty\\x7fref.md]");
+    expect(text).toContain("dirty\\x7fref.md: content changed during move; references not updated");
+    expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("move_note failed referrers");
+  });
 });
 
 describe("write handlers — delete_note", () => {
@@ -496,5 +530,44 @@ describe("write handlers — delete_note", () => {
     expect(isError(result)).toBe(true);
     expect(text).toContain('Permanent deletion of "line\\nbreak.md" requires confirm=true');
     expect(text).not.toContain("line\nbreak.md");
+  });
+
+  it("marks failed referrer paths in permanent-delete warnings as untrusted", async () => {
+    const dirtyPath = "dirty\x7fdelete-ref.md";
+    await fs.writeFile(path.join(env.vaultDir, dirtyPath), "See [[note-a]].", "utf-8");
+
+    const realUnlink = fs.unlink.bind(fs);
+    const unlinkSpy = vi.spyOn(fs, "unlink").mockImplementationOnce(
+      async (...args: Parameters<typeof fs.unlink>) => {
+        await realUnlink(...args);
+        await fs.writeFile(path.join(env.vaultDir, dirtyPath), "See [[other-note]].", "utf-8");
+      },
+    );
+
+    const result = await (async () => {
+      try {
+        return await env.client.callTool({
+          name: "delete_note",
+          arguments: {
+            path: "note-a.md",
+            permanent: true,
+            confirm: true,
+            removeReferences: true,
+          },
+        });
+      } finally {
+        unlinkSpy.mockRestore();
+      }
+    })();
+
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("Warning: 1 file(s) could not be updated:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: delete_note failed referrer: dirty\\x7fdelete-ref.md]");
+    expect(text).toContain("dirty\\x7fdelete-ref.md: content changed during move; references not updated");
+    expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("delete_note failed referrers");
   });
 });

@@ -12,13 +12,13 @@ import {
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
-import { formatFailedPath } from "../lib/tool-output.js";
+import { formatUntrustedFailedPath, untrustedVaultContentMeta } from "../lib/tool-output.js";
 import { formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
 import { elicitTextConfirmation } from "../lib/confirmation.js";
 import { log } from "../lib/logger.js";
 
-function textResult(text: string) {
-  return { content: [{ type: "text" as const, text }] };
+function textResult(text: string, meta?: Record<string, unknown>) {
+  return { content: [{ type: "text" as const, text, ...(meta ? { _meta: meta } : {}) }] };
 }
 
 function errorResult(text: string) {
@@ -395,6 +395,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const lines: string[] = [
           `Moved note from '${displayWriteValue(resolvedOld)}' to '${displayWriteValue(resolvedNew)}'.`,
         ];
+        let trustMeta: Record<string, unknown> | undefined;
         if (updateLinks !== false) {
           const updated = result.updatedReferrers.length;
           lines.push(
@@ -409,9 +410,14 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             // in `path` and route `error` through `sanitizeError` to prevent
             // a `\n`-bearing name from injecting text into LLM context.
             const MAX_DISPLAY = 5;
+            trustMeta = untrustedVaultContentMeta("move_note failed referrers");
             lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
-              lines.push(formatFailedPath(f.path, f.error));
+              lines.push(formatUntrustedFailedPath(
+                `move_note failed referrer: ${f.path}`,
+                f.path,
+                f.error,
+              ));
             }
             const remaining = result.failedReferrers.length - MAX_DISPLAY;
             if (remaining > 0) {
@@ -419,7 +425,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             }
           }
         }
-        return textResult(lines.join("\n"));
+        return textResult(lines.join("\n"), trustMeta);
       } catch (err) {
         log.error("move_note failed", { tool: "move_note", err: err as Error });
         return errorResult(`Error moving note: ${sanitizeError(err)}`);
@@ -541,6 +547,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
         const result = await deleteNote(vaultPath, resolvedPath, { permanent, removeReferences });
         const method = permanent ? "permanently deleted" : "moved to trash";
         const lines: string[] = [`Note '${displayWriteValue(resolvedPath)}' ${method}.`];
+        let trustMeta: Record<string, unknown> | undefined;
         if (removeReferences && permanent) {
           const updated = result.updatedReferrers.length;
           lines.push(
@@ -550,9 +557,14 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           );
           if (result.failedReferrers.length > 0) {
             const MAX_DISPLAY = 5;
+            trustMeta = untrustedVaultContentMeta("delete_note failed referrers");
             lines.push(`Warning: ${result.failedReferrers.length} file(s) could not be updated:`);
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
-              lines.push(formatFailedPath(f.path, f.error));
+              lines.push(formatUntrustedFailedPath(
+                `delete_note failed referrer: ${f.path}`,
+                f.path,
+                f.error,
+              ));
             }
             const remaining = result.failedReferrers.length - MAX_DISPLAY;
             if (remaining > 0) {
@@ -560,7 +572,7 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
             }
           }
         }
-        return textResult(lines.join("\n"));
+        return textResult(lines.join("\n"), trustMeta);
       } catch (err) {
         log.error("delete_note failed", { tool: "delete_note", err: err as Error });
         return errorResult(`Error deleting note: ${sanitizeError(err)}`);

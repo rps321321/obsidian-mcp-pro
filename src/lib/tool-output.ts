@@ -9,6 +9,18 @@ export function formatFailedPath(path: string, error: unknown, indent = "  "): s
   return `${indent}- ${escapeControlChars(path)}: ${sanitizeError(error)}`;
 }
 
+export function formatUntrustedFailedPath(
+  label: string,
+  path: string,
+  error: unknown,
+  indent = "  ",
+): string {
+  return indentBlock(
+    formatUntrustedVaultContent(label, `- ${escapeControlChars(path)}: ${sanitizeError(error)}`),
+    indent,
+  );
+}
+
 export function untrustedVaultContentMeta(label: string): Record<string, unknown> {
   return {
     "obsidian-mcp-pro/contentTrust": UNTRUSTED_VAULT_CONTENT_KIND,
