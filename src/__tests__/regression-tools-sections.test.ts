@@ -22,6 +22,8 @@ import { setPermissions } from "../lib/permissions.js";
  */
 
 let env: TestEnv;
+const TOO_LARGE_SECTION_PAYLOAD = "x".repeat(1_000_001);
+const TOO_LARGE_FIND = "x".repeat(4097);
 
 beforeEach(async () => {
   setPermissions({ readPaths: null, writePaths: null });
@@ -145,7 +147,7 @@ describe("regression: replace_in_note ReDoS guards (C3)", () => {
       },
     });
     expect(isError(result)).toBe(true);
-    expect(textContent(result)).toMatch(/too long|targeted/i);
+    expect(textContent(result)).toMatch(/too_big|too big|4096/i);
   });
 
   it("rejects an unknown flag character (single-letter allowlist only)", async () => {
@@ -283,6 +285,106 @@ describe("regression: insert_at_section UTF-8 byte count (H11)", () => {
     // Should mention 4 bytes, not 2 (the code-unit count).
     expect(msg).toContain("4 bytes");
     expect(msg).not.toContain("2 bytes");
+  });
+});
+
+describe("regression: section edit payload bounds", () => {
+  it("rejects oversized update_section replacement bodies before writing", async () => {
+    const original = "# Tasks\n\n- existing\n";
+    const fullPath = path.join(env.vaultDir, "bounded-update.md");
+    await fs.writeFile(fullPath, original, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "update_section",
+      arguments: {
+        path: "bounded-update.md",
+        section: "Tasks",
+        newBody: TOO_LARGE_SECTION_PAYLOAD,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/validation|too_big|too long|max/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
+  });
+
+  it("rejects oversized insert_at_section content before writing", async () => {
+    const original = "# Tasks\n\n- existing\n";
+    const fullPath = path.join(env.vaultDir, "bounded-insert.md");
+    await fs.writeFile(fullPath, original, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "insert_at_section",
+      arguments: {
+        path: "bounded-insert.md",
+        section: "Tasks",
+        content: TOO_LARGE_SECTION_PAYLOAD,
+        position: "append",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/validation|too_big|too long|max/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
+  });
+
+  it("rejects oversized literal find strings before replace_in_note writes", async () => {
+    const original = "# Text\n\nneedle\n";
+    const fullPath = path.join(env.vaultDir, "bounded-find.md");
+    await fs.writeFile(fullPath, original, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "bounded-find.md",
+        find: TOO_LARGE_FIND,
+        replace: "x",
+        regex: false,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/validation|too_big|too long|max/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
+  });
+
+  it("rejects oversized replacement text before replace_in_note writes", async () => {
+    const original = "# Text\n\nneedle\n";
+    const fullPath = path.join(env.vaultDir, "bounded-replace.md");
+    await fs.writeFile(fullPath, original, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "bounded-replace.md",
+        find: "needle",
+        replace: TOO_LARGE_SECTION_PAYLOAD,
+        regex: false,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/validation|too_big|too long|max/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
+  });
+
+  it("rejects oversized edit_block replacement content before writing", async () => {
+    const original = "# Text\n\nparagraph ^block\n";
+    const fullPath = path.join(env.vaultDir, "bounded-block.md");
+    await fs.writeFile(fullPath, original, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "edit_block",
+      arguments: {
+        path: "bounded-block.md",
+        block: "block",
+        newContent: TOO_LARGE_SECTION_PAYLOAD,
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/validation|too_big|too long|max/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(original);
   });
 });
 
