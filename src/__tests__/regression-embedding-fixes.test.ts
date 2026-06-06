@@ -407,3 +407,54 @@ describe("OllamaProvider probe (M16)", () => {
     expect(batchedAttempts).toBe(1);
   });
 });
+
+describe("embedding provider error redaction", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    resetProviderForTests();
+    process.env.OBSIDIAN_EMBEDDING_PROVIDER = "openai";
+    process.env.OBSIDIAN_EMBEDDING_URL = "https://api.example.com/v1";
+    process.env.OBSIDIAN_EMBEDDING_MODEL = "text-embedding-3-small";
+    process.env.OBSIDIAN_EMBEDDING_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setProviderForTests(null);
+    resetProviderForTests();
+    delete process.env.OBSIDIAN_EMBEDDING_PROVIDER;
+    delete process.env.OBSIDIAN_EMBEDDING_URL;
+    delete process.env.OBSIDIAN_EMBEDDING_MODEL;
+    delete process.env.OBSIDIAN_EMBEDDING_API_KEY;
+  });
+
+  it("redacts secret-bearing URLs echoed by provider error bodies", async () => {
+    const provider = getActiveProvider();
+    expect(provider).not.toBeNull();
+
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        "failed https://user:pa55@example.internal/v1?api_key=secret#debug",
+        { status: 500 },
+      ),
+    );
+
+    await expect(provider!.embed(["hello"])).rejects.toThrow(
+      /failed https:\/\/<redacted-url>/,
+    );
+
+    let message = "";
+    try {
+      await provider!.embed(["hello"]);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+
+    expect(message).not.toContain("user");
+    expect(message).not.toContain("pa55");
+    expect(message).not.toContain("api_key=secret");
+    expect(message).not.toContain("example.internal");
+    expect(message).not.toContain("#debug");
+  });
+});

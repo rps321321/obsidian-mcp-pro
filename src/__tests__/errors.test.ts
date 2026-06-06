@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeError, escapeControlChars, stripPaths } from "../lib/errors.js";
+import {
+  sanitizeError,
+  escapeControlChars,
+  stripPaths,
+  redactUrlSecrets,
+} from "../lib/errors.js";
 
 describe("escapeControlChars", () => {
   it("passes printable ASCII through unchanged", () => {
@@ -48,6 +53,17 @@ describe("sanitizeError", () => {
     expect(sanitizeError(new Error("oops\r\nbad"))).toBe("oops\\r\\nbad");
   });
 
+  it("redacts secret-bearing URLs in client-facing messages", () => {
+    const msg = sanitizeError(
+      "provider rejected https://alice:pa55@example.internal/v1?api_key=secret#debug",
+    );
+    expect(msg).toBe("provider rejected https://<redacted-url>");
+    expect(msg).not.toContain("alice");
+    expect(msg).not.toContain("pa55");
+    expect(msg).not.toContain("api_key");
+    expect(msg).not.toContain("example.internal");
+  });
+
   it("returns a fixed string for non-Error input", () => {
     expect(sanitizeError(undefined)).toBe("Unknown error");
     expect(sanitizeError(null)).toBe("Unknown error");
@@ -64,5 +80,24 @@ describe("stripPaths", () => {
 
   it("strips quoted paths", () => {
     expect(stripPaths("ENOENT, open '/tmp/foo/bar.md'")).toBe("ENOENT, open <path>");
+  });
+});
+
+describe("redactUrlSecrets", () => {
+  it("leaves plain diagnostic URLs unchanged", () => {
+    expect(redactUrlSecrets("see https://api.example.com/v1")).toBe(
+      "see https://api.example.com/v1",
+    );
+  });
+
+  it("redacts URL credentials, query strings, and fragments", () => {
+    const out = redactUrlSecrets(
+      "bad ftp://user:pass@example.test/path?token=abc#frag.",
+    );
+    expect(out).toBe("bad ftp://<redacted-url>.");
+    expect(out).not.toContain("user");
+    expect(out).not.toContain("pass");
+    expect(out).not.toContain("token=abc");
+    expect(out).not.toContain("example.test");
   });
 });
