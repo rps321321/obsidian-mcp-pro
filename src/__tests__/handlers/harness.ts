@@ -19,6 +19,12 @@ import path from "path";
 import os from "os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import {
+  ElicitRequestSchema,
+  type ClientCapabilities,
+  type ElicitRequest,
+  type ElicitResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { buildMcpServer } from "../../index.js";
 
 export interface TestEnv {
@@ -33,6 +39,10 @@ export interface CreateTestEnvOptions {
   skipFixtures?: boolean;
   /** Additional fixture files to create (relative path → content). */
   extraFiles?: Record<string, string>;
+  /** Optional client capabilities for handler tests that need MCP features. */
+  clientCapabilities?: ClientCapabilities;
+  /** Optional handler for server elicitation requests. */
+  onElicit?: (request: ElicitRequest) => ElicitResult | Promise<ElicitResult>;
 }
 
 export async function createTestEnv(options: CreateTestEnvOptions = {}): Promise<TestEnv> {
@@ -52,7 +62,15 @@ export async function createTestEnv(options: CreateTestEnvOptions = {}): Promise
   }
 
   const server = buildMcpServer(vaultDir);
-  const client = new Client({ name: "handler-test", version: "0.0.0" });
+  const client = new Client(
+    { name: "handler-test", version: "0.0.0" },
+    options.clientCapabilities ? { capabilities: options.clientCapabilities } : undefined,
+  );
+  if (options.onElicit) {
+    client.setRequestHandler(ElicitRequestSchema, async (request) =>
+      options.onElicit!(request),
+    );
+  }
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
 
   await Promise.all([server.connect(serverT), client.connect(clientT)]);

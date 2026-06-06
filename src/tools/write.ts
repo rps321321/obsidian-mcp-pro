@@ -14,6 +14,7 @@ import { getDailyNoteConfig } from "../config.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import { formatFailedPath } from "../lib/tool-output.js";
 import { formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
+import { elicitTextConfirmation } from "../lib/confirmation.js";
 import { log } from "../lib/logger.js";
 
 function textResult(text: string) {
@@ -371,6 +372,25 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
       try {
         const resolvedOld = ensureMdExtension(oldPath);
         const resolvedNew = ensureMdExtension(newPath);
+        if (updateLinks !== false) {
+          const confirmation = await elicitTextConfirmation(server, {
+            tool: "move_note",
+            message:
+              `Move "${displayWriteValue(resolvedOld)}" to "${displayWriteValue(resolvedNew)}" and update references across the vault? ` +
+              "This can rewrite many notes. Type the destination path to confirm.",
+            fieldName: "confirmPath",
+            fieldDescription: "Re-type the destination path to confirm vault-wide reference rewriting.",
+            expectedValue: resolvedNew,
+          });
+          if (confirmation.status === "cancelled") {
+            return textResult(`Move of "${displayWriteValue(resolvedOld)}" cancelled.`);
+          }
+          if (confirmation.status === "mismatch") {
+            return errorResult(
+              `Confirmation path did not match "${displayWriteValue(resolvedNew)}"; move aborted.`,
+            );
+          }
+        }
         const result = await moveNote(vaultPath, resolvedOld, resolvedNew, { updateLinks });
         const lines: string[] = [
           `Moved note from '${displayWriteValue(resolvedOld)}' to '${displayWriteValue(resolvedNew)}'.`,
