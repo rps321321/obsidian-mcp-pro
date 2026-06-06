@@ -323,4 +323,29 @@ describe("semantic handlers — provider missing", () => {
     expect(isError(r2)).toBe(true);
     expect(textContent(r2)).toMatch(/OBSIDIAN_EMBEDDING_PROVIDER/);
   });
+
+  it("does not echo secret-bearing embedding URLs in provider configuration errors", async () => {
+    resetProviderForTests();
+    process.env.OBSIDIAN_EMBEDDING_PROVIDER = "ollama";
+    process.env.OBSIDIAN_EMBEDDING_URL =
+      "ftp://user:pa55@example.internal:11434/v1?token=secret#debug";
+    process.env.OBSIDIAN_EMBEDDING_MODEL = "test-model";
+    try {
+      const result = await env.client.callTool({ name: "index_vault", arguments: {} });
+      const text = textContent(result);
+      expect(isError(result)).toBe(true);
+      expect(text).toContain("OBSIDIAN_EMBEDDING_URL scheme/host not allowed");
+      expect(text).not.toContain("user");
+      expect(text).not.toContain("pa55");
+      expect(text).not.toContain("token=secret");
+      expect(text).not.toContain("example.internal");
+      expect(text).not.toContain("#debug");
+    } finally {
+      delete process.env.OBSIDIAN_EMBEDDING_PROVIDER;
+      delete process.env.OBSIDIAN_EMBEDDING_URL;
+      delete process.env.OBSIDIAN_EMBEDDING_MODEL;
+      resetProviderForTests();
+      setProviderForTests(new MockProvider());
+    }
+  });
 });
