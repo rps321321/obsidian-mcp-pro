@@ -80,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Untrusted-content marker labels now escape bracket characters, preventing vault-authored names from making marker lines look like nested or early boundaries.
 - Vault text returned through read/search/semantic/canvas/link/tag/base/attachment/section surfaces now has explicit untrusted-content boundaries, reducing indirect prompt-injection risk from malicious note text being presented as ordinary tool instructions.
 - Display and error sanitization now escape Unicode bidi controls as `\uHHHH`, preventing vault-controlled names or snippets from visually reordering client output.
 - HTTP transport now refuses wildcard CORS (`--allow-origin=*`) unless bearer auth is configured, preventing unauthenticated loopback servers from exposing MCP responses to arbitrary browser origins.
