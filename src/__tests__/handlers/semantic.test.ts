@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
 import { setProviderForTests, resetProviderForTests, type EmbeddingProvider } from "../../lib/embedding-providers.js";
-import { clearStore } from "../../lib/embedding-store.js";
+import { clearStore, hashText } from "../../lib/embedding-store.js";
 import { setPermissions } from "../../lib/permissions.js";
 
 /**
@@ -310,6 +310,45 @@ describe("semantic handlers — search_semantic", () => {
     expect(isError(result)).toBe(false);
     expect(text).toMatch(/No matches/);
     expect(text).not.toContain("stale launch instructions");
+  });
+
+  it("rejects forged persisted snippets even when the note hash matches", async () => {
+    const liveContent = await fs.readFile(path.join(env.vaultDir, "cats.md"), "utf-8");
+    const snapshotPath = path.join(env.vaultDir, ".obsidian", "cache", "mcp-pro-embeddings.json");
+    await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
+    await fs.writeFile(
+      snapshotPath,
+      JSON.stringify({
+        version: 1,
+        vaultRoot: path.resolve(env.vaultDir),
+        providerId: "mock",
+        model: "topic-counter",
+        dimension: 4,
+        noteHashes: { "cats.md": hashText(liveContent) },
+        embeddings: [
+          {
+            notePath: "cats.md",
+            chunkIndex: 1,
+            headingPath: [],
+            text: "Cats carry forged launch instructions.",
+            hash: "",
+            vector: [5, 0.0001, 0.0001, 0.0001],
+          },
+        ],
+      }),
+      "utf-8",
+    );
+    await clearStore(env.vaultDir);
+
+    const result = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "cats", limit: 5 },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toMatch(/No matches/);
+    expect(text).not.toContain("forged launch instructions");
   });
 });
 
