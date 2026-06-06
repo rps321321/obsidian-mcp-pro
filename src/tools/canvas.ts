@@ -126,7 +126,7 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
 
       lines.push("  Node:");
       lines.push(untrustedCanvasBlock(
-        `canvas node identity: ${canvasPath}#${node.id}`,
+        "read_canvas node identity",
         `[${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)}`,
         "    ",
       ));
@@ -135,7 +135,7 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
         lines.push("    content:");
         lines.push(indentBlock(
           formatUntrustedVaultContent(
-            `canvas node content: ${canvasPath}#${node.id}`,
+            "read_canvas node content",
             displayCanvasValue(preview),
           ),
           "      ",
@@ -144,7 +144,7 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
       if (node.color) {
         lines.push("    color:");
         lines.push(untrustedCanvasBlock(
-          `canvas node color: ${canvasPath}#${node.id}`,
+          "read_canvas node color",
           displayCanvasValue(node.color),
           "      ",
         ));
@@ -168,7 +168,7 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
       const sideInfo = sides ? ` (${sides})` : "";
       lines.push("  Edge:");
       lines.push(untrustedCanvasBlock(
-        `canvas edge endpoints: ${canvasPath}#${edge.id}`,
+        "read_canvas edge endpoints",
         `${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${sideInfo}`,
         "    ",
       ));
@@ -176,7 +176,7 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
         lines.push("    label:");
         lines.push(indentBlock(
           formatUntrustedVaultContent(
-            `canvas edge label: ${canvasPath}#${edge.id}`,
+            "read_canvas edge label",
             displayCanvasValue(edge.label),
           ),
           "      ",
@@ -283,7 +283,7 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
           content: [{
             type: "text" as const,
             text,
-            _meta: untrustedVaultContentMeta(`canvas summary: ${canvasPath}`),
+            _meta: untrustedVaultContentMeta("read_canvas summary"),
           }],
         };
       } catch (err) {
