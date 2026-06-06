@@ -552,8 +552,11 @@ describe("read handlers — get_daily_note", () => {
     });
     expect(isError(result)).toBe(true);
     const text = textContent(result);
-    expect(text).toContain('expected at "daily\\nnotes/1999-01-01.md"');
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_daily_note expected path]");
+    expect(text).toContain("daily\\nnotes/1999-01-01.md");
     expect(text).not.toContain("daily\nnotes");
+    const content = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(content._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("get_daily_note expected path");
   });
 
   it("escapes generated daily-note frontmatter labels", async () => {

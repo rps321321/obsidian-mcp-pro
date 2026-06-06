@@ -12,7 +12,11 @@ import {
 import { updateFrontmatter } from "../lib/markdown.js";
 import { getDailyNoteConfig } from "../config.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
-import { formatUntrustedFailedPath, untrustedVaultContentMeta } from "../lib/tool-output.js";
+import {
+  formatUntrustedFailedPath,
+  formatUntrustedVaultContent,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { formatMomentDate, parseLocalDateOnly } from "../lib/dates.js";
 import { elicitTextConfirmation } from "../lib/confirmation.js";
 import { log } from "../lib/logger.js";
@@ -21,8 +25,11 @@ function textResult(text: string, meta?: Record<string, unknown>) {
   return { content: [{ type: "text" as const, text, ...(meta ? { _meta: meta } : {}) }] };
 }
 
-function errorResult(text: string) {
-  return { content: [{ type: "text" as const, text }], isError: true as const };
+function errorResult(text: string, meta?: Record<string, unknown>) {
+  return {
+    content: [{ type: "text" as const, text, ...(meta ? { _meta: meta } : {}) }],
+    isError: true as const,
+  };
 }
 
 const displayWriteValue = escapeControlChars;
@@ -325,11 +332,19 @@ export function registerWriteTools(server: McpServer, vaultPath: string): void {
           await writeNote(vaultPath, notePath, finalContent, { exclusive: true });
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-            return errorResult(`Error: Daily note already exists at '${displayWriteValue(notePath)}'.`);
+            const pathLabel = "create_daily_note path";
+            return errorResult(
+              `Error: Daily note already exists.\n${formatUntrustedVaultContent(pathLabel, displayWriteValue(notePath))}`,
+              untrustedVaultContentMeta(pathLabel),
+            );
           }
           throw err;
         }
-        return textResult(`Created daily note at '${displayWriteValue(notePath)}'.`);
+        const pathLabel = "create_daily_note path";
+        return textResult(
+          `Created daily note.\n${formatUntrustedVaultContent(pathLabel, displayWriteValue(notePath))}`,
+          untrustedVaultContentMeta(pathLabel),
+        );
       } catch (err) {
         log.error("create_daily_note failed", { tool: "create_daily_note", err: err as Error });
         return errorResult(`Error creating daily note: ${sanitizeError(err)}`);
