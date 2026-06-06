@@ -33,6 +33,10 @@ function errorResult(text: string) {
 /** Escape control characters before embedding values in Base tool display text. */
 const displayBaseValue = escapeControlChars;
 
+function untrustedBaseBlock(label: string, text: string, indent = ""): string {
+  return indentBlock(formatUntrustedVaultContent(label, text), indent);
+}
+
 export function registerBaseTools(server: McpServer, vaultPath: string): void {
   server.registerTool(
     "list_bases",
@@ -51,8 +55,9 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
       try {
         const bases = await listBaseFiles(vaultPath);
         if (bases.length === 0) return textResult("No .base files in this vault.");
-        const lines = [`Found ${bases.length} Base file(s):`, "", ...bases.map(displayBaseValue)];
-        return textResult(lines.join("\n"));
+        const lines = [`Found ${bases.length} Base file(s):`, ""];
+        lines.push(untrustedBaseBlock("list_bases paths", bases.map(displayBaseValue).join("\n")));
+        return untrustedTextResult("list_bases paths", lines.join("\n"));
       } catch (err) {
         log.error("list_bases failed", { tool: "list_bases", err: err as Error });
         return errorResult(`Error listing bases: ${sanitizeError(err)}`);
@@ -200,32 +205,49 @@ export function registerBaseTools(server: McpServer, vaultPath: string): void {
         const truncated = result.rows.slice(0, limit);
 
         const lines: string[] = [];
-        lines.push(`Base: ${displayBaseValue(basePath)}${view ? ` (view: ${displayBaseValue(view)})` : ""}`);
+        lines.push("Base:");
+        lines.push(untrustedBaseBlock("query_base base path", displayBaseValue(basePath), "  "));
+        if (view) lines.push(`View: ${displayBaseValue(view)}`);
         lines.push(
           `Matched ${result.rows.length} note(s)${result.rows.length > limit ? ` (showing first ${limit})` : ""}`,
         );
         if (allWarnings.length > 0) {
           lines.push("");
           lines.push("Warnings:");
-          for (const w of allWarnings) lines.push(`  - ${displayBaseValue(w)}`);
+          lines.push(untrustedBaseBlock(
+            "query_base warnings",
+            allWarnings.map((w) => `- ${displayBaseValue(w)}`).join("\n"),
+            "  ",
+          ));
         }
         lines.push("");
-        for (const row of truncated) {
-          lines.push(`- ${displayBaseValue(row.path)}`);
-          if (includeFrontmatter && Object.keys(row.frontmatter).length > 0) {
-            const frontmatterLines: string[] = [];
-            for (const [k, v] of Object.entries(row.frontmatter)) {
-              frontmatterLines.push(`${displayBaseValue(k)}: ${JSON.stringify(v)}`);
-            }
-            lines.push(indentBlock(
-              formatUntrustedVaultContent(`base row frontmatter: ${row.path}`, frontmatterLines.join("\n")),
-              "    ",
+        if (includeFrontmatter) {
+          for (const row of truncated) {
+            lines.push(untrustedBaseBlock(
+              `query_base row path: ${row.path}`,
+              `- ${displayBaseValue(row.path)}`,
             ));
+            if (Object.keys(row.frontmatter).length > 0) {
+              const frontmatterLines: string[] = [];
+              for (const [k, v] of Object.entries(row.frontmatter)) {
+                frontmatterLines.push(`${displayBaseValue(k)}: ${JSON.stringify(v)}`);
+              }
+              lines.push(indentBlock(
+                formatUntrustedVaultContent(`base row frontmatter: ${row.path}`, frontmatterLines.join("\n")),
+                "    ",
+              ));
+            }
           }
+        } else if (truncated.length > 0) {
+          lines.push(untrustedBaseBlock(
+            "query_base result paths",
+            truncated.map((row) => `- ${displayBaseValue(row.path)}`).join("\n"),
+          ));
         }
-        return includeFrontmatter
-          ? untrustedTextResult("query_base frontmatter", lines.join("\n"))
-          : textResult(lines.join("\n"));
+        return untrustedTextResult(
+          includeFrontmatter ? "query_base paths and frontmatter" : "query_base paths",
+          lines.join("\n"),
+        );
       } catch (err) {
         log.error("query_base failed", { tool: "query_base", err: err as Error });
         return errorResult(`Error querying base: ${sanitizeError(err)}`);
