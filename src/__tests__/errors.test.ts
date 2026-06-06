@@ -21,6 +21,12 @@ describe("escapeControlChars", () => {
     );
   });
 
+  it("escapes Unicode bidi controls to \\uHHHH", () => {
+    expect(escapeControlChars("safe\u202ecod.exe\u2066tail\u061c")).toBe(
+      "safe\\u202ecod.exe\\u2066tail\\u061c",
+    );
+  });
+
   it("preserves non-ASCII characters (Unicode, accents)", () => {
     expect(escapeControlChars("résumé—café 你好")).toBe("résumé—café 你好");
   });
@@ -51,6 +57,12 @@ describe("sanitizeError", () => {
 
   it("escapes control chars in fallback Error.message path", () => {
     expect(sanitizeError(new Error("oops\r\nbad"))).toBe("oops\\r\\nbad");
+  });
+
+  it("escapes Unicode bidi controls in returned messages", () => {
+    expect(sanitizeError("read failed: safe\u202ecod.exe")).toBe(
+      "read failed: safe\\u202ecod.exe",
+    );
   });
 
   it("redacts secret-bearing URLs in client-facing messages", () => {
