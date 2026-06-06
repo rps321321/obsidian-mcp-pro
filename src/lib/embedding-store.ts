@@ -3,7 +3,7 @@ import path from "path";
 import { createHash, randomBytes } from "crypto";
 import { log } from "./logger.js";
 import { isPersistenceEnabled } from "./index-cache.js";
-import { resolveVaultInternalPathSafe } from "./vault.js";
+import { openVaultInternalFileForRead, resolveVaultInternalPathSafe } from "./vault.js";
 import { renameWithRetry } from "./fs-ops.js";
 
 /**
@@ -164,9 +164,10 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
     }
     let raw: string;
     try {
-      const file = await storePath(vaultPath);
-      const stat = await fs.stat(file);
+      const opened = await openVaultInternalFileForRead(vaultPath, STORE_REL_PATH);
+      const stat = opened.stats;
       if (stat.size > maxEmbeddingBytes) {
+        await opened.handle.close();
         log.warn("embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES; ignoring", {
           bytes: stat.size,
           max: maxEmbeddingBytes,
@@ -175,7 +176,11 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
         state.loadingPromise = null;
         return state;
       }
-      raw = await fs.readFile(file, "utf-8");
+      try {
+        raw = await opened.handle.readFile("utf-8");
+      } finally {
+        await opened.handle.close();
+      }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         log.warn("embedding-store: failed to read snapshot", { err: err as Error });

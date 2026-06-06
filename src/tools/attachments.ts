@@ -8,7 +8,7 @@ import {
   getAttachmentStats,
   getNoteStats,
   getVaultRootRealPath,
-  resolveVaultPathSafe,
+  openVaultFileForRead,
 } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { makeProgressReporter } from "../lib/progress.js";
@@ -526,17 +526,21 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         }
 
         const limit = maxBytes ?? DEFAULT_GET_ATTACHMENT_LIMIT;
-        const fullPath = await resolveVaultPathSafe(vaultPath, relPath);
-        await assertNoSymlinkAttachmentPath(vaultPath, fullPath, relPath);
-        const preOpenStat = await fs.stat(fullPath);
-        if (!preOpenStat.isFile()) {
-          return errorResult(
-            `Attachment "${displayAttachmentValue(relPath)}" is not a regular file.`,
-          );
+        let opened: Awaited<ReturnType<typeof openVaultFileForRead>>;
+        try {
+          opened = await openVaultFileForRead(vaultPath, relPath);
+        } catch (err) {
+          if ((err as Error).message === `Not a regular file: ${relPath}`) {
+            return errorResult(
+              `Attachment "${displayAttachmentValue(relPath)}" is not a regular file.`,
+            );
+          }
+          throw err;
         }
-        const handle = await fs.open(fullPath, "r");
+        const handle = opened.handle;
         let bytes: Buffer;
         try {
+          await assertNoSymlinkAttachmentPath(vaultPath, opened.fullPath, relPath);
           const stat = await handle.stat();
           if (!stat.isFile()) {
             return errorResult(

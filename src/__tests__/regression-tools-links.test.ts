@@ -58,9 +58,9 @@ describe("H5: find_broken_links uses bounded parallelism, not a serial loop", ()
     let activeReads = 0;
     let maxActiveReads = 0;
     let noteReads = 0;
-    const originalReadFile = fs.readFile.bind(fs);
-    const readSpy = vi.spyOn(fs, "readFile").mockImplementation(
-      async (...args: Parameters<typeof fs.readFile>) => {
+    const originalOpen = fs.open.bind(fs);
+    const openSpy = vi.spyOn(fs, "open").mockImplementation(
+      async (...args: Parameters<typeof fs.open>) => {
         const fileArg = args[0];
         const filePath = typeof fileArg === "string" ? fileArg : undefined;
         const isVaultNote = filePath !== undefined
@@ -68,7 +68,7 @@ describe("H5: find_broken_links uses bounded parallelism, not a serial loop", ()
           && filePath.endsWith(".md");
 
         if (!isVaultNote) {
-          return originalReadFile(...args);
+          return originalOpen(...args);
         }
 
         activeReads++;
@@ -76,7 +76,7 @@ describe("H5: find_broken_links uses bounded parallelism, not a serial loop", ()
         noteReads++;
         try {
           await new Promise((resolve) => setTimeout(resolve, 20));
-          return await originalReadFile(...args);
+          return await originalOpen(...args);
         } finally {
           activeReads--;
         }
@@ -94,7 +94,7 @@ describe("H5: find_broken_links uses bounded parallelism, not a serial loop", ()
       expect(noteReads).toBe(50);
       expect(maxActiveReads).toBeGreaterThan(1);
     } finally {
-      readSpy.mockRestore();
+      openSpy.mockRestore();
     }
   });
 });

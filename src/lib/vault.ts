@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import { constants as fsConstants, type Stats } from "fs";
+import type { FileHandle } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import { StringDecoder } from "string_decoder";
@@ -70,12 +71,8 @@ async function assertResolvedRegularFile(
   return stats;
 }
 
-async function assertResolvedNoteFileSize(
-  fullPath: string,
-  relativePath: string,
-): Promise<void> {
-  const stats = await assertResolvedRegularFile(fullPath, relativePath);
-  assertNoteFileSize(relativePath, stats.size);
+function sameFileIdentity(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
 }
 
 function assertNoteContentSize(relativePath: string, content: string): void {
@@ -489,6 +486,82 @@ export async function resolveVaultPathSafe(
   return resolved;
 }
 
+export interface ValidatedVaultFile {
+  fullPath: string;
+  handle: FileHandle;
+  stats: Stats;
+}
+
+async function openResolvedVaultFileForRead(
+  vaultPath: string,
+  relativePath: string,
+  fullPath: string,
+  access: AccessKind | null,
+  options?: { realVaultRoot?: string },
+): Promise<ValidatedVaultFile> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let handle: FileHandle | undefined;
+    try {
+      handle = await fs.open(fullPath, "r");
+      const openedStats = await handle.stat();
+      assertRegularFile(relativePath, openedStats);
+
+      const canonical = await assertRealPathWithinVault(
+        fullPath,
+        vaultPath,
+        options?.realVaultRoot,
+      );
+      if (access !== null) {
+        assertAllowed(vaultRelativeFromRealPath(canonical.realVault, canonical.realPath), access);
+      }
+
+      const currentStats = await assertResolvedRegularFile(fullPath, relativePath);
+      if (sameFileIdentity(openedStats, currentStats)) {
+        return { fullPath, handle, stats: openedStats };
+      }
+
+      await handle.close();
+      handle = undefined;
+      if (attempt === 0) continue;
+      throw new Error(`Path changed during validation: ${relativePath}`);
+    } catch (err) {
+      await handle?.close();
+      throw err;
+    }
+  }
+
+  throw new Error(`Path changed during validation: ${relativePath}`);
+}
+
+export async function openVaultFileForRead(
+  vaultPath: string,
+  relativePath: string,
+  access: AccessKind = "read",
+  options?: { realVaultRoot?: string },
+): Promise<ValidatedVaultFile> {
+  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, access, options);
+  return openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, access, options);
+}
+
+export async function readVaultTextFile(
+  vaultPath: string,
+  relativePath: string,
+  access: AccessKind = "read",
+  options?: { realVaultRoot?: string },
+): Promise<{ fullPath: string; stats: Stats; content: string }> {
+  const { fullPath, handle, stats } = await openVaultFileForRead(
+    vaultPath,
+    relativePath,
+    access,
+    options,
+  );
+  try {
+    return { fullPath, stats, content: await handle.readFile("utf-8") };
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function resolveVaultInternalPathSafe(
   vaultPath: string,
   relativePath: string,
@@ -516,6 +589,26 @@ export async function resolveVaultInternalPathSafe(
   }
   await assertRealPathWithinVault(resolved, vaultPath);
   return resolved;
+}
+
+export async function openVaultInternalFileForRead(
+  vaultPath: string,
+  relativePath: string,
+): Promise<ValidatedVaultFile> {
+  const fullPath = await resolveVaultInternalPathSafe(vaultPath, relativePath);
+  return openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, null);
+}
+
+export async function readVaultInternalTextFile(
+  vaultPath: string,
+  relativePath: string,
+): Promise<{ fullPath: string; stats: Stats; content: string }> {
+  const { fullPath, handle, stats } = await openVaultInternalFileForRead(vaultPath, relativePath);
+  try {
+    return { fullPath, stats, content: await handle.readFile("utf-8") };
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function listNotes(
@@ -548,15 +641,21 @@ export async function readNote(
   relativePath: string,
 ): Promise<string> {
   assertMarkdownNotePath(relativePath);
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  let handle: FileHandle | undefined;
   try {
-    await assertResolvedNoteFileSize(fullPath, relativePath);
-    return await fs.readFile(fullPath, "utf-8");
+    const opened = await openVaultFileForRead(vaultPath, relativePath);
+    handle = opened.handle;
+    assertNoteFileSize(relativePath, opened.stats.size);
+    const content = await handle.readFile("utf-8");
+    assertNoteContentSize(relativePath, content);
+    return content;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       throw new Error(`Note not found: ${relativePath}`, { cause: err });
     }
     throw err;
+  } finally {
+    await handle?.close();
   }
 }
 
@@ -583,11 +682,10 @@ export async function readNoteLineRange(
   ) {
     throw new Error(`Invalid line range for note: ${relativePath}`);
   }
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
-  let handle: fs.FileHandle | undefined;
+  let handle: FileHandle | undefined;
   try {
-    await assertResolvedRegularFile(fullPath, relativePath);
-    handle = await fs.open(fullPath, "r");
+    const opened = await openVaultFileForRead(vaultPath, relativePath);
+    handle = opened.handle;
     const decoder = new StringDecoder("utf8");
     const buffer = Buffer.allocUnsafe(64 * 1024);
     const collected: string[] = [];
@@ -735,8 +833,14 @@ export async function updateNote(
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    await assertResolvedNoteFileSize(fullPath, relativePath);
-    const existing = await fs.readFile(fullPath, "utf-8");
+    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    let existing: string;
+    try {
+      assertNoteFileSize(relativePath, opened.stats.size);
+      existing = await opened.handle.readFile("utf-8");
+    } finally {
+      await opened.handle.close();
+    }
     const next = await transform(existing);
     if (next === existing) return;
     assertNoteContentSize(relativePath, next);
@@ -752,8 +856,14 @@ export async function appendToNote(
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    await assertResolvedNoteFileSize(fullPath, relativePath);
-    const existing = await fs.readFile(fullPath, "utf-8");
+    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    let existing: string;
+    try {
+      assertNoteFileSize(relativePath, opened.stats.size);
+      existing = await opened.handle.readFile("utf-8");
+    } finally {
+      await opened.handle.close();
+    }
     const separator = existing.endsWith("\n") ? "" : "\n";
     const next = existing + separator + content;
     assertNoteContentSize(relativePath, next);
@@ -800,8 +910,14 @@ export async function prependToNote(
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    await assertResolvedNoteFileSize(fullPath, relativePath);
-    const existing = await fs.readFile(fullPath, "utf-8");
+    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    let existing: string;
+    try {
+      assertNoteFileSize(relativePath, opened.stats.size);
+      existing = await opened.handle.readFile("utf-8");
+    } finally {
+      await opened.handle.close();
+    }
 
     // Detect frontmatter by scanning only the first N lines instead of
     // running a lazy-match regex across the full file. A malformed note with
@@ -1279,14 +1395,16 @@ export async function getNoteStats(
   relativePath: string,
   options?: { realVaultRoot?: string },
 ): Promise<{ size: number; created: Date | null; modified: Date | null }> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "read", options);
-  const stats = await fs.stat(fullPath);
-
-  return {
-    size: stats.size,
-    created: stats.birthtime ?? null,
-    modified: stats.mtime ?? null,
-  };
+  const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath, "read", options);
+  try {
+    return {
+      size: stats.size,
+      created: stats.birthtime ?? null,
+      modified: stats.mtime ?? null,
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function listCanvasFiles(
@@ -1328,9 +1446,12 @@ export async function getAttachmentStats(
   vaultPath: string,
   relativePath: string,
 ): Promise<{ size: number; modified: Date | null }> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
-  const stats = await fs.stat(fullPath);
-  return { size: stats.size, modified: stats.mtime ?? null };
+  const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath);
+  try {
+    return { size: stats.size, modified: stats.mtime ?? null };
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function readBaseFile(
@@ -1340,15 +1461,18 @@ export async function readBaseFile(
   if (!relativePath.toLowerCase().endsWith(".base")) {
     throw new Error(`Not a Base file: ${relativePath}`);
   }
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
-  const stats = await fs.stat(fullPath);
-  assertRegularFile(relativePath, stats);
+  const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath);
   if (stats.size > MAX_BASE_FILE_BYTES) {
+    await handle.close();
     throw new Error(
       `Base file exceeds size cap (${stats.size} > ${MAX_BASE_FILE_BYTES} bytes)`,
     );
   }
-  return fs.readFile(fullPath, "utf-8");
+  try {
+    return await handle.readFile("utf-8");
+  } finally {
+    await handle.close();
+  }
 }
 
 function assertCanvasFileSize(size: number, relativePath: string): void {
@@ -1394,10 +1518,14 @@ export async function readCanvasFile(
   vaultPath: string,
   relativePath: string,
 ): Promise<CanvasData> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
-  const stats = await fs.stat(fullPath);
-  assertCanvasFileSize(stats.size, relativePath);
-  const content = await fs.readFile(fullPath, "utf-8");
+  const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath);
+  let content: string;
+  try {
+    assertCanvasFileSize(stats.size, relativePath);
+    content = await handle.readFile("utf-8");
+  } finally {
+    await handle.close();
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -1448,9 +1576,14 @@ export async function updateCanvasFile(
 ): Promise<void> {
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    const stats = await fs.stat(fullPath);
-    assertCanvasFileSize(stats.size, relativePath);
-    const raw = await fs.readFile(fullPath, "utf-8");
+    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    let raw: string;
+    try {
+      assertCanvasFileSize(opened.stats.size, relativePath);
+      raw = await opened.handle.readFile("utf-8");
+    } finally {
+      await opened.handle.close();
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
