@@ -12,6 +12,8 @@ import { startHttpServer, type HttpServerHandle } from "../http-server.js";
 //        is configured (GET stays public for monitoring probes).
 //   M5 — Repeated `startHttpServer` calls used to leak SIGINT/SIGTERM
 //        listeners and trip MaxListenersExceededWarning at 11 boots.
+//   DSS-R04-C035 — Oversized HTTP bodies return 413 as soon as the declared or
+//        streamed size crosses the cap, not only after the request finishes.
 
 function buildNoopServer(): McpServer {
   return new McpServer({ name: "test", version: "0.0.0" });
@@ -117,6 +119,65 @@ function rawRequest(
   });
 }
 
+function rawOpenBodyRequest(
+  port: number,
+  options: {
+    method: string;
+    path: string;
+    host?: string;
+    headers?: Record<string, string>;
+    initialBody?: string | Buffer;
+    timeoutMs?: number;
+  },
+): Promise<RawResponse> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let cleanup = (): void => {};
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+    const headers: Record<string, string> = {
+      Host: options.host ?? `127.0.0.1:${port}`,
+      ...(options.headers ?? {}),
+    };
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: options.path,
+        method: options.method,
+        headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          finish(() => resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString("utf-8"),
+          }));
+        });
+      },
+    );
+    const timeout = setTimeout(() => {
+      finish(() => reject(new Error("raw open-body request timed out")));
+    }, options.timeoutMs ?? 1_000);
+    cleanup = () => {
+      clearTimeout(timeout);
+      req.destroy();
+    };
+    req.on("error", (err) => {
+      if (!settled) finish(() => reject(err));
+    });
+    req.flushHeaders();
+    if (options.initialBody !== undefined) req.write(options.initialBody);
+  });
+}
+
 describe("regression: C1 — DNS rebinding protection actually rejects bad Host", () => {
   it("rejects a POST to /mcp whose Host header is not in the allowedHosts list", async () => {
     const token = "rebind-test-token";
@@ -182,6 +243,43 @@ describe("regression: C1 — DNS rebinding protection actually rejects bad Host"
     // The host is allowed, so the request reaches the MCP handshake.
     // We don't assert a specific code beyond "not the Host-rejected 403".
     expect(res.status).not.toBe(403);
+  });
+});
+
+describe("regression: DSS-R04-C035 — HTTP body caps fail fast", () => {
+  it("rejects oversized Content-Length before the body arrives", async () => {
+    const handle = await startOnEphemeral();
+    handles.push(handle);
+
+    const res = await rawOpenBodyRequest(handle.port, {
+      method: "POST",
+      path: "/mcp",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(4 * 1024 * 1024 + 1),
+      },
+    });
+
+    expect(res.status).toBe(413);
+    expect(res.body).toContain("Request body too large");
+  });
+
+  it("rejects chunked bodies as soon as the stream crosses the cap", async () => {
+    const handle = await startOnEphemeral();
+    handles.push(handle);
+
+    const res = await rawOpenBodyRequest(handle.port, {
+      method: "POST",
+      path: "/mcp",
+      headers: {
+        "Content-Type": "application/json",
+        "Transfer-Encoding": "chunked",
+      },
+      initialBody: Buffer.alloc(4 * 1024 * 1024 + 1, 0x78),
+    });
+
+    expect(res.status).toBe(413);
+    expect(res.body).toContain("Request body too large");
   });
 });
 
