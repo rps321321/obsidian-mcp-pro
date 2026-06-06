@@ -573,8 +573,9 @@ describe("read handlers — search_by_frontmatter", () => {
     });
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter result path: note-a.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter result path]");
     expect(text).toContain("note-a.md");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter result path: note-a.md]");
     expect(text).not.toContain("note-b.md");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
@@ -657,8 +658,12 @@ describe("read handlers — search_by_frontmatter", () => {
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     expect(text).toContain('"status" matches "tab\\tvalue"');
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter result path: frontmatter-dirty.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter result path]");
+    expect(text).toContain("frontmatter-dirty.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter values]");
     expect(text).toContain('status: "tab\\tvalue"');
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter result path: frontmatter-dirty.md]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: frontmatter: frontmatter-dirty.md]");
     expect(text).not.toContain("tab\tvalue");
   });
 
