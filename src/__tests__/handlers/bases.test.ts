@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
+import { MAX_BASE_FILE_BYTES } from "../../lib/bases.js";
 
 let env: TestEnv | undefined;
 
@@ -9,6 +10,23 @@ afterEach(async () => {
 });
 
 describe("base handlers — read_base", () => {
+  it("rejects oversized Base files before parsing", async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "huge.base": "x".repeat(MAX_BASE_FILE_BYTES + 1),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "read_base",
+      arguments: { path: "huge.base" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/base file exceeds size cap/i);
+  });
+
   it("escapes control characters in parsed display fields", async () => {
     env = await createTestEnv({
       skipFixtures: true,
@@ -44,6 +62,33 @@ describe("base handlers — read_base", () => {
 });
 
 describe("base handlers — query_base", () => {
+  it("rejects oversized Base files without returning readable rows", async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "note.md": [
+          "---",
+          "secret: readable",
+          "---",
+          "# Note",
+          "",
+        ].join("\n"),
+        "huge.base": "x".repeat(MAX_BASE_FILE_BYTES + 1),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "query_base",
+      arguments: { path: "huge.base", includeFrontmatter: true },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/base file exceeds size cap/i);
+    expect(text).not.toContain("- note.md");
+    expect(text).not.toContain("secret");
+  });
+
   it("populates file.size/ctime/mtime for Base filters", async () => {
     env = await createTestEnv({
       skipFixtures: true,

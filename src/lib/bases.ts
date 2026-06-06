@@ -65,7 +65,7 @@ export interface ParsedBase {
  * Reject before handing bytes to js-yaml so we can't be coerced into a
  * large allocation.
  */
-const MAX_BASE_FILE_BYTES = 1_048_576;
+export const MAX_BASE_FILE_BYTES = 1_048_576;
 
 /** Cap on collected warnings so a pathological Base with thousands of
  *  unrecognized clauses can't blow up memory. */

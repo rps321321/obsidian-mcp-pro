@@ -5,6 +5,7 @@ import { StringDecoder } from "string_decoder";
 import { mapConcurrent } from "./concurrency.js";
 import { assertAllowed, type AccessKind } from "./permissions.js";
 import { renameWithRetry } from "./fs-ops.js";
+import { MAX_BASE_FILE_BYTES } from "./bases.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 
 // Bounded fan-out for vault-wide scans. Higher values saturate the event loop
@@ -1166,6 +1167,12 @@ export async function readBaseFile(
   relativePath: string,
 ): Promise<string> {
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
+  const stats = await fs.stat(fullPath);
+  if (stats.size > MAX_BASE_FILE_BYTES) {
+    throw new Error(
+      `Base file exceeds size cap (${stats.size} > ${MAX_BASE_FILE_BYTES} bytes)`,
+    );
+  }
   return fs.readFile(fullPath, "utf-8");
 }
 
