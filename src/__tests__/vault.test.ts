@@ -428,6 +428,29 @@ describe("moveNote", () => {
     );
   });
 
+  it("does not overwrite a destination created after the move starts", async () => {
+    await writeNote(vaultDir, "source.md", "source content");
+    const racedDest = path.join(vaultDir, "raced.md");
+    const realMkdir = fs.mkdir.bind(fs);
+    const mkdirSpy = vi.spyOn(fs, "mkdir").mockImplementation(async (...args) => {
+      const result = await realMkdir(...args);
+      if (String(args[0]) === vaultDir) {
+        await fs.writeFile(racedDest, "racer content", "utf-8");
+      }
+      return result;
+    });
+
+    await expect(
+      moveNote(vaultDir, "source.md", "raced.md", { updateLinks: false }),
+    ).rejects.toThrow("Destination already exists: raced.md");
+
+    mkdirSpy.mockRestore();
+    await expect(fs.readFile(path.join(vaultDir, "source.md"), "utf-8")).resolves.toBe(
+      "source content",
+    );
+    await expect(fs.readFile(racedDest, "utf-8")).resolves.toBe("racer content");
+  });
+
   it("requires read access to the source note before moving it", async () => {
     await fs.mkdir(path.join(vaultDir, "private"), { recursive: true });
     await fs.mkdir(path.join(vaultDir, "public"), { recursive: true });
@@ -442,17 +465,31 @@ describe("moveNote", () => {
     await expect(fs.access(path.join(vaultDir, "public", "secret.md"))).rejects.toThrow();
   });
 
-  itWin32("retries transient Windows rename failures while moving notes", async () => {
-    await writeNote(vaultDir, "old.md", "moving");
+  itWin32("retries transient Windows rename failures for case-only renames", async () => {
+    await writeNote(vaultDir, "Old.md", "moving");
     const realRename = fs.rename.bind(fs);
     const renameSpy = vi.spyOn(fs, "rename");
     renameSpy
       .mockRejectedValueOnce(Object.assign(new Error("simulated EBUSY"), { code: "EBUSY" }))
       .mockImplementation(realRename);
 
-    await moveNote(vaultDir, "old.md", "new.md");
+    await moveNote(vaultDir, "Old.md", "old.md");
 
     expect(renameSpy).toHaveBeenCalledTimes(2);
+    await expect(fs.access(path.join(vaultDir, "old.md"))).resolves.toBeUndefined();
+  });
+
+  itWin32("retries transient Windows unlink failures after no-replace moves", async () => {
+    await writeNote(vaultDir, "old.md", "moving");
+    const realUnlink = fs.unlink.bind(fs);
+    const unlinkSpy = vi.spyOn(fs, "unlink");
+    unlinkSpy
+      .mockRejectedValueOnce(Object.assign(new Error("simulated EBUSY"), { code: "EBUSY" }))
+      .mockImplementation(realUnlink);
+
+    await moveNote(vaultDir, "old.md", "new.md", { updateLinks: false });
+
+    expect(unlinkSpy).toHaveBeenCalledTimes(2);
     await expect(fs.access(path.join(vaultDir, "old.md"))).rejects.toThrow();
     await expect(fs.access(path.join(vaultDir, "new.md"))).resolves.toBeUndefined();
   });
