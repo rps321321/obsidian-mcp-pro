@@ -305,7 +305,7 @@ Restrict the tools' read/write surface to specific folders without exposing the 
 | `OBSIDIAN_READ_PATHS` | Comma- or colon-separated list of folders that read tools may access. Unset means unrestricted. Use `.` to mean the vault root. |
 | `OBSIDIAN_WRITE_PATHS` | Same shape, but for mutations (create / append / update / delete / move / surgical edits). |
 
-Read and write are independent, so an audit account can be read-only on most of the vault but write-only to a `Drafts/` folder. Moving a note requires read access to the source and write access to the destination, because the move carries the source content into its new folder. The startup log line and `--help` advertise the active scope. The allowlist is enforced at a single path-resolution choke point so every tool inherits it.
+Read and write are independent, so an audit account can be read-only on most of the vault but write-only to a `Drafts/` folder. Moving a note requires read access to the source and write access to the destination, because the move carries the source content into its new folder. Surgical edits (`replace_in_note`, `update_section`, `insert_at_section`, and `edit_block`) require read access to the target plus write access because they inspect existing content before writing. The startup log line and `--help` advertise the active scope. The allowlist is enforced at a single path-resolution choke point so every tool inherits it.
 
 ### Persistent Caches
 

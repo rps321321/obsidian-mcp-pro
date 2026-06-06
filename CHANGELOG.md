@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Surgical note edit tools now require read access to the target before inspecting section, block, or replacement matches, preventing write-only notes from leaking structure or match counts.
 - `move_note` now requires read access to the source note as well as write access to the source and destination, preventing write-only folders from being used to disclose notes by moving them into readable paths.
 - `move_note` reference rewrites and `rename_tag` bulk writes now ask elicitation-capable clients for a typed confirmation before rewriting across the vault, while keeping existing behavior for clients without elicitation and for dry runs.
 - Frontmatter parsing now accepts only Obsidian-style YAML delimiter lines, leaves oversized YAML blocks unparsed during vault-wide reads, and refuses metadata updates on oversized blocks.
