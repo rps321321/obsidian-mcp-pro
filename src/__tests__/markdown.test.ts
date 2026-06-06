@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseFrontmatter,
+  parseStrictYamlFrontmatter,
   updateFrontmatter,
   extractWikilinks,
   extractWikilinkSpans,
@@ -99,6 +100,39 @@ The body.`;
     expect(result.data).toEqual({});
     expect(result.content).toBe(content);
   });
+
+  it("leaves YAML anchors and aliases unparsed for vault-wide reads", () => {
+    const content = [
+      "---",
+      "base: &base",
+      "  tags: [private]",
+      "copy: *base",
+      "---",
+      "Body.",
+    ].join("\n");
+    const result = parseFrontmatter(content);
+    expect(result.data).toEqual({});
+    expect(result.content).toBe(content);
+    const strict = parseStrictYamlFrontmatter(content);
+    expect(strict.error?.message).toMatch(/anchors and aliases/i);
+  });
+
+  it("allows plain scalar ampersands and stars in frontmatter", () => {
+    const content = [
+      "---",
+      "title: R&D notes",
+      "pattern: \"*.md\"",
+      "plain: look * here and R & D",
+      "emphasis: note *emphasis*",
+      "---",
+      "Body.",
+    ].join("\n");
+    const result = parseFrontmatter(content);
+    expect(result.data.title).toBe("R&D notes");
+    expect(result.data.pattern).toBe("*.md");
+    expect(result.data.plain).toBe("look * here and R & D");
+    expect(result.data.emphasis).toBe("note *emphasis*");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -154,6 +188,20 @@ ${body}`;
     expect(() =>
       updateFrontmatter(oversizedFrontmatter(), { status: "safe" }),
     ).toThrow(/Frontmatter block exceeds size cap/);
+  });
+
+  it("refuses to update frontmatter containing YAML anchors or aliases", () => {
+    const content = [
+      "---",
+      "base: &base",
+      "  tags: [private]",
+      "copy: *base",
+      "---",
+      "Body.",
+    ].join("\n");
+    expect(() => updateFrontmatter(content, { status: "safe" })).toThrow(
+      /anchors and aliases/i,
+    );
   });
 });
 
