@@ -90,6 +90,13 @@ describe("stripPaths", () => {
     );
   });
 
+  it("strips unquoted Windows drive paths containing spaces", () => {
+    const text = stripPaths("can't open C:\\Users\\me\\My Vault\\secret.md");
+    expect(text).toBe("can't open <path>");
+    expect(text).not.toContain("My Vault");
+    expect(text).not.toContain("secret.md");
+  });
+
   it("strips quoted paths", () => {
     expect(stripPaths("ENOENT, open '/tmp/foo/bar.md'")).toBe("ENOENT, open <path>");
   });
