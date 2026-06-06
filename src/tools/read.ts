@@ -32,6 +32,10 @@ function displayReadValue(value: string): string {
   return escapeControlChars(value);
 }
 
+function untrustedReadBlock(label: string, text: string, indent = ""): string {
+  return indentBlock(formatUntrustedVaultContent(label, text), indent);
+}
+
 export function registerReadTools(server: McpServer, vaultPath: string): void {
   function errorResult(text: string) {
     return { content: [{ type: "text" as const, text }], isError: true as const };
@@ -298,11 +302,17 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const lines: string[] = [
           `Found ${totalCount} note(s)${folder ? ` in "${displayReadValue(folder)}"` : ""}${totalCount > limit ? ` (showing first ${limit})` : ""}:`,
           "",
-          ...limited.map(displayReadValue),
         ];
+        if (limited.length > 0) {
+          lines.push(untrustedReadBlock("list_notes paths", limited.map(displayReadValue).join("\n")));
+        }
 
         return {
-          content: [{ type: "text" as const, text: lines.join("\n") }],
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            ...(limited.length > 0 ? { _meta: untrustedVaultContentMeta("list_notes paths") } : {}),
+          }],
         };
       } catch (err) {
         log.error("list_notes failed", { tool: "list_notes", err: err as Error });
@@ -581,11 +591,21 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           `${rows.length} note(s)${since ? ` modified since ${displayReadValue(since)}` : ""}${rows.length > limit ? ` (showing first ${limit})` : ""}:`,
           "",
         ];
+        const rowLines: string[] = [];
         for (const r of top) {
           const iso = new Date(r.mtimeMs).toISOString();
-          lines.push(`- ${displayReadValue(r.path)}  (${iso})`);
+          rowLines.push(`- ${displayReadValue(r.path)}  (${iso})`);
         }
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        if (rowLines.length > 0) {
+          lines.push(untrustedReadBlock("get_recent_notes paths", rowLines.join("\n")));
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            ...(rowLines.length > 0 ? { _meta: untrustedVaultContentMeta("get_recent_notes paths") } : {}),
+          }],
+        };
       } catch (err) {
         log.error("get_recent_notes failed", { tool: "get_recent_notes", err: err as Error });
         return errorResult(`Error listing recent notes: ${sanitizeError(err)}`);
@@ -659,11 +679,24 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           `  Avg words/note:  ${avgWords.toLocaleString()}`,
           `  Unique tags:     ${tagSet.size}`,
           `  Untagged notes:  ${untagged} (${untaggedPct}%)`,
-          mostRecent
-            ? `  Most recent:     ${displayReadValue(mostRecent.path)} (${new Date(mostRecent.mtimeMs).toISOString()})`
-            : `  Most recent:     (none)`,
         ];
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        if (mostRecent) {
+          lines.push("  Most recent:");
+          lines.push(untrustedReadBlock(
+            "get_vault_stats most recent path",
+            `${displayReadValue(mostRecent.path)} (${new Date(mostRecent.mtimeMs).toISOString()})`,
+            "    ",
+          ));
+        } else {
+          lines.push("  Most recent:     (none)");
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            ...(mostRecent ? { _meta: untrustedVaultContentMeta("get_vault_stats most recent path") } : {}),
+          }],
+        };
       } catch (err) {
         log.error("get_vault_stats failed", { tool: "get_vault_stats", err: err as Error });
         return errorResult(`Error gathering vault stats: ${sanitizeError(err)}`);
@@ -733,14 +766,30 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         const lines: string[] = [`Matches for "${displayReadValue(name)}":`, ""];
         if (aliasMatches.length > 0) {
           lines.push(`Alias matches (${aliasMatches.length}):`);
-          for (const p of aliasMatches) lines.push(`  - ${displayReadValue(p)}`);
+          lines.push(untrustedReadBlock(
+            "resolve_alias alias paths",
+            aliasMatches.map((p) => `- ${displayReadValue(p)}`).join("\n"),
+            "  ",
+          ));
         }
         if (basenameMatches.length > 0) {
           if (aliasMatches.length > 0) lines.push("");
           lines.push(`Basename matches (${basenameMatches.length}):`);
-          for (const p of basenameMatches) lines.push(`  - ${displayReadValue(p)}`);
+          lines.push(untrustedReadBlock(
+            "resolve_alias basename paths",
+            basenameMatches.map((p) => `- ${displayReadValue(p)}`).join("\n"),
+            "  ",
+          ));
         }
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            _meta: untrustedVaultContentMeta(
+              aliasMatches.length > 0 ? "resolve_alias alias paths" : "resolve_alias basename paths",
+            ),
+          }],
+        };
       } catch (err) {
         log.error("resolve_alias failed", { tool: "resolve_alias", err: err as Error });
         return errorResult(`Error resolving alias: ${sanitizeError(err)}`);
