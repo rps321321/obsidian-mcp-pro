@@ -109,11 +109,10 @@ describe("O2: extended file.* properties", () => {
     expect(mtimeResult.rows).toHaveLength(1);
   });
 
-  it("filters on unpopulated optional fields stay permissive (warn + true)", () => {
+  it("filters on unpopulated optional fields fail closed with a warning", () => {
     const row = buildRow("a.md", noteWithFrontmatter({}));
     const result = queryBase([row], { filters: ['file.linksTo("Other")'] });
-    // Permissive fallback when row.links is undefined: row passes, warning surfaces.
-    expect(result.rows).toHaveLength(1);
+    expect(result.rows).toHaveLength(0);
     expect(result.warnings.some((w) => w.toLowerCase().includes("links"))).toBe(true);
   });
 });

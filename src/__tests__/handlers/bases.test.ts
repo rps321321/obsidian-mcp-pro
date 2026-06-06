@@ -69,13 +69,51 @@ describe("base handlers — query_base", () => {
     expect(textContent(result)).toContain("- note.md");
   });
 
-  it("escapes control characters in view labels, warnings, and frontmatter keys", async () => {
+  it("escapes control characters in view labels and frontmatter keys", async () => {
     env = await createTestEnv({
       skipFixtures: true,
       extraFiles: {
         "note.md": [
           "---",
           "\"bad\\tkey\": \"dirty\\nvalue\"",
+          "---",
+          "# Note",
+          "",
+        ].join("\n"),
+        "query.base": [
+          "views:",
+          "  - type: table",
+          "    name: \"dirty\\nview\"",
+          "",
+        ].join("\n"),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "query_base",
+      arguments: {
+        path: "query.base",
+        view: "dirty\nview",
+        includeFrontmatter: true,
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("Base: query.base (view: dirty\\nview)");
+    expect(text).toContain('    bad\\tkey: "dirty\\nvalue"');
+    expect(text).not.toContain("dirty\nview");
+    expect(text).not.toContain("bad\tkey");
+    expect(text).not.toContain("dirty\nvalue");
+  });
+
+  it("fails closed for missing views instead of returning base-level rows", async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "note.md": [
+          "---",
+          "secret: readable",
           "---",
           "# Note",
           "",
@@ -100,11 +138,45 @@ describe("base handlers — query_base", () => {
 
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("Base: query.base (view: missing\\nview)");
-    expect(text).toContain('View not found: "missing\\nview";');
-    expect(text).toContain('    bad\\tkey: "dirty\\nvalue"');
+    expect(text).toContain("Matched 0 note(s)");
+    expect(text).toContain('View not found: "missing\\nview"; treating query as no-match.');
+    expect(text).not.toContain("- note.md");
+    expect(text).not.toContain("secret");
     expect(text).not.toContain("missing\nview");
-    expect(text).not.toContain("bad\tkey");
-    expect(text).not.toContain("dirty\nvalue");
+  });
+
+  it("fails closed for unsupported filters instead of returning readable rows", async () => {
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "public.md": [
+          "---",
+          "secret: readable",
+          "---",
+          "# Public",
+          "",
+        ].join("\n"),
+        "query.base": [
+          "filters:",
+          "  - mysteryFn(\"status\")",
+          "",
+        ].join("\n"),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "query_base",
+      arguments: {
+        path: "query.base",
+        includeFrontmatter: true,
+      },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("Matched 0 note(s)");
+    expect(text).toContain("Unknown filter function: mysteryFn");
+    expect(text).not.toContain("- public.md");
+    expect(text).not.toContain("secret");
   });
 });

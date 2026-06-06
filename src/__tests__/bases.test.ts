@@ -66,10 +66,27 @@ describe("evaluateFilter / queryBase", () => {
     expect(result.rows.map((r) => r.path).sort()).toEqual(["a.md", "c.md"]);
   });
 
-  it("warns on unknown filter functions and treats as match-all", () => {
+  it("warns on unknown filter functions and treats as no-match", () => {
     const ctx = { warnings: [] };
-    expect(evaluateFilter(rows[0], "mysteryFn(\"x\")", ctx)).toBe(true);
+    expect(evaluateFilter(rows[0], "mysteryFn(\"x\")", ctx)).toBe(false);
     expect(ctx.warnings.length).toBe(1);
+  });
+
+  it("warns on unknown filter shapes and treats as no-match", () => {
+    const ctx = { warnings: [] };
+    expect(evaluateFilter(rows[0], { custom: ["status"] } as never, ctx)).toBe(false);
+    expect(ctx.warnings.some((w) => w.includes("Unknown filter shape"))).toBe(true);
+  });
+
+  it("fails closed when filter recursion exceeds the cap", () => {
+    let filter: unknown = 'status == "active"';
+    for (let i = 0; i < 70; i += 1) {
+      filter = { and: [filter] };
+    }
+
+    const result = queryBase(rows, { filters: filter as never });
+    expect(result.rows).toHaveLength(0);
+    expect(result.warnings.some((w) => w.includes("recursion exceeded"))).toBe(true);
   });
 
   it("supports numeric > comparison", () => {
