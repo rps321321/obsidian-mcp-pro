@@ -73,6 +73,28 @@ function hiddenAttachmentBasename(relPath: string): string | null {
   return basename.startsWith(".") ? basename : null;
 }
 
+async function assertNoSymlinkAttachmentPath(
+  vaultPath: string,
+  fullPath: string,
+  relPath: string,
+): Promise<void> {
+  const vaultRoot = path.resolve(vaultPath);
+  const resolvedFullPath = path.resolve(fullPath);
+  const relativeFromVault = path.relative(vaultRoot, resolvedFullPath);
+  if (relativeFromVault.startsWith("..") || path.isAbsolute(relativeFromVault)) {
+    throw new Error("Path traversal via symlink detected");
+  }
+
+  let current = vaultRoot;
+  for (const segment of relativeFromVault.split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    const entry = await fs.lstat(current);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Refusing to fetch symlink attachment: ${displayAttachmentValue(relPath)}`);
+    }
+  }
+}
+
 /** Group attachments by their lower-cased extension for the summary line. */
 function summarizeByExtension(paths: readonly string[]): Map<string, number> {
   const out = new Map<string, number>();
@@ -465,16 +487,28 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
           );
         }
 
-        const fullPath = await resolveVaultPathSafe(vaultPath, relPath);
-        const stat = await fs.stat(fullPath);
         const limit = maxBytes ?? DEFAULT_GET_ATTACHMENT_LIMIT;
-        if (stat.size > limit) {
+        const fullPath = await resolveVaultPathSafe(vaultPath, relPath);
+        await assertNoSymlinkAttachmentPath(vaultPath, fullPath, relPath);
+        const handle = await fs.open(fullPath, "r");
+        let bytes: Buffer;
+        try {
+          const stat = await handle.stat();
+          if (stat.size > limit) {
+            return errorResult(
+              `Attachment "${displayAttachmentValue(relPath)}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
+            );
+          }
+          bytes = await handle.readFile();
+        } finally {
+          await handle.close();
+        }
+        if (bytes.byteLength > limit) {
           return errorResult(
-            `Attachment "${displayAttachmentValue(relPath)}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
+            `Attachment "${displayAttachmentValue(relPath)}" is ${bytes.byteLength.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`,
           );
         }
-
-        const bytes = await fs.readFile(fullPath);
+        const attachmentSize = bytes.byteLength;
         const mime = detectMimeType(relPath);
         const category = categorizeMimeType(mime);
         const basename = path.basename(relPath);
@@ -490,7 +524,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
               {
                 type: "text" as const,
                 text: `Attached: ${displayedBasename} (SVG returned as text/plain for security - SVGs may contain embedded scripts)\n` +
-                      `Size: ${stat.size.toLocaleString()} bytes`,
+                      `Size: ${attachmentSize.toLocaleString()} bytes`,
               },
               {
                 type: "resource" as const,
@@ -526,7 +560,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         if (category === "image") {
           return {
             content: [
-              { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${stat.size.toLocaleString()} bytes)${magicWarning}` },
+              { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${attachmentSize.toLocaleString()} bytes)${magicWarning}` },
               { type: "image" as const, data, mimeType: mime },
             ],
           };
@@ -534,7 +568,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         if (category === "audio") {
           return {
             content: [
-              { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${stat.size.toLocaleString()} bytes)` },
+              { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${attachmentSize.toLocaleString()} bytes)` },
               { type: "audio" as const, data, mimeType: mime },
             ],
           };
@@ -543,7 +577,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         const mimeLabel = resourceMime === mime ? mime : `${mime} returned as ${resourceMime}`;
         return {
           content: [
-            { type: "text" as const, text: `Attached: ${displayedBasename} (${mimeLabel}, ${stat.size.toLocaleString()} bytes)` },
+            { type: "text" as const, text: `Attached: ${displayedBasename} (${mimeLabel}, ${attachmentSize.toLocaleString()} bytes)` },
             {
               type: "resource" as const,
               resource: {
