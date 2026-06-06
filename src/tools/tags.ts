@@ -298,7 +298,7 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
     {
       title: "Rename Tag",
       description:
-        "Rename a tag everywhere it appears across the vault, in both inline #tags and frontmatter `tags:` fields. With `hierarchical: true` (default), nested tags also rebase: renaming `project` to `client` also renames `project/alpha` → `client/alpha`. With `dryRun: true`, returns the planned counts without writing. Strip the leading `#` from oldName/newName — they're tag names, not tag tokens.",
+        "Rename a tag everywhere it appears across the vault, in both inline #tags and frontmatter `tags:` fields. Non-dry-run rewrites require `confirmTag` to match the new tag name. With `hierarchical: true` (default), nested tags also rebase: renaming `project` to `client` also renames `project/alpha` → `client/alpha`. With `dryRun: true`, returns the planned counts without writing. Strip the leading `#` from oldName/newName — they're tag names, not tag tokens.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -328,12 +328,23 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
           .optional()
           .default(false)
           .describe("If true, count matches without modifying any notes."),
+        confirmTag: z
+          .string()
+          .max(200)
+          .optional()
+          .describe("Required when dryRun is false: re-type the new tag name to confirm vault-wide tag rewriting."),
       },
     },
-    async ({ oldName, newName, hierarchical, dryRun }, extra) => {
+    async ({ oldName, newName, hierarchical, dryRun, confirmTag }, extra) => {
       try {
         if (oldName === newName) return errorResult("oldName and newName must differ");
         if (!dryRun) {
+          if (confirmTag?.trim() !== newName) {
+            return errorResult(
+              `Vault-wide tag rewriting to #${displayTagValue(newName)} requires confirmTag="${displayTagValue(newName)}". ` +
+              "Set dryRun=true to preview without writing.",
+            );
+          }
           const confirmation = await elicitTextConfirmation(server, {
             tool: "rename_tag",
             message:

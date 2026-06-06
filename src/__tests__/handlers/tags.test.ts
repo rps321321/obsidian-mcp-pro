@@ -197,10 +197,25 @@ describe("tag handlers — search_by_tag", () => {
 });
 
 describe("tag handlers — rename_tag", () => {
-  it("rewrites both inline #tag and frontmatter tags vault-wide", async () => {
+  it("requires confirmTag for non-dry-run vault-wide rewrites", async () => {
     const result = await env.client.callTool({
       name: "rename_tag",
       arguments: { oldName: "review", newName: "audit" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toContain('confirmTag="audit"');
+    const search = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "review" },
+    });
+    expect(textContent(search)).toContain("note-a.md");
+  });
+
+  it("rewrites both inline #tag and frontmatter tags vault-wide", async () => {
+    const result = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "review", newName: "audit", confirmTag: "audit" },
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
@@ -274,7 +289,7 @@ describe("tag handlers — rename_tag", () => {
 
     const result = await env.client.callTool({
       name: "rename_tag",
-      arguments: { oldName: "draft", newName: "wip" },
+      arguments: { oldName: "draft", newName: "wip", confirmTag: "wip" },
     });
 
     expect(isError(result)).toBe(true);
@@ -301,7 +316,7 @@ describe("tag handlers — rename_tag", () => {
 
     const result = await env.client.callTool({
       name: "rename_tag",
-      arguments: { oldName: "draft", newName: "wip" },
+      arguments: { oldName: "draft", newName: "wip", confirmTag: "wip" },
     });
 
     expect(isError(result)).toBe(false);
@@ -333,11 +348,15 @@ describe("tag handlers — rename_tag", () => {
     const [moveResult, renameResult] = await Promise.all([
       env.client.callTool({
         name: "move_note",
-        arguments: { oldPath: "note-c.md", newPath: "archive/note-c.md" },
+        arguments: {
+          oldPath: "note-c.md",
+          newPath: "archive/note-c.md",
+          confirmPath: "archive/note-c.md",
+        },
       }),
       env.client.callTool({
         name: "rename_tag",
-        arguments: { oldName: "review", newName: "audit" },
+        arguments: { oldName: "review", newName: "audit", confirmTag: "audit" },
       }),
     ]);
     expect(isError(moveResult)).toBe(false);
