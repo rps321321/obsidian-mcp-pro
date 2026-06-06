@@ -476,6 +476,8 @@ export interface SearchOptions {
   /** Excluded note paths — used by `find_similar_notes` to drop the source
    *  note from its own results. */
   excludeNotes?: ReadonlySet<string>;
+  /** Optional policy check applied before scoring/ranking each stored note. */
+  filterNote?: (notePath: string) => boolean;
 }
 
 export function searchEmbeddings(
@@ -489,6 +491,7 @@ export function searchEmbeddings(
     ? options.folder.replace(/^\/+|\/+$/g, "")
     : null;
   const exclude = options.excludeNotes ?? null;
+  const filterNote = options.filterNote ?? null;
 
   const hits: SearchHit[] = [];
   for (const entry of state.byKey.values()) {
@@ -496,6 +499,7 @@ export function searchEmbeddings(
       if (entry.notePath !== folder && !entry.notePath.startsWith(folder + "/")) continue;
     }
     if (exclude && exclude.has(entry.notePath)) continue;
+    if (filterNote && !filterNote(entry.notePath)) continue;
     const score = cosineSimilarity(queryVector, entry.vector);
     hits.push({
       notePath: entry.notePath,

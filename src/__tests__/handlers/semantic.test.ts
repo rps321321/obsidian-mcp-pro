@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
 import { setProviderForTests, resetProviderForTests, type EmbeddingProvider } from "../../lib/embedding-providers.js";
 import { clearStore } from "../../lib/embedding-store.js";
+import { setPermissions } from "../../lib/permissions.js";
 
 /**
  * Deterministic mock embedding provider for handler tests. Maps text to a
@@ -31,6 +32,7 @@ class MockProvider implements EmbeddingProvider {
 let env: TestEnv;
 
 beforeEach(async () => {
+  setPermissions({ readPaths: null, writePaths: null });
   setProviderForTests(new MockProvider());
   env = await createTestEnv({
     skipFixtures: true,
@@ -47,6 +49,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await env.cleanup();
   await clearStore(env.vaultDir, { removeSnapshot: true });
+  setPermissions({ readPaths: null, writePaths: null });
   resetProviderForTests();
 });
 
@@ -169,6 +172,33 @@ describe("semantic handlers — search_semantic", () => {
     expect(text).not.toContain("Dirty\tHeading");
     expect(text).not.toContain("\x07");
   });
+
+  it("filters persisted embedding hits through the current read allowlist", async () => {
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "public/cats.md": "# Public Cats\n\nCats are friendly companions.",
+        "private/secret.md": "# Private Cats\n\nCats guard the private launch notes.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+    setPermissions({ readPaths: ["public"], writePaths: null });
+
+    const result = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "cats", limit: 5 },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("public/cats.md");
+    expect(text).not.toContain("private/secret.md");
+    expect(text).not.toContain("private launch notes");
+  });
 });
 
 describe("semantic handlers — find_similar_notes", () => {
@@ -228,6 +258,57 @@ describe("semantic handlers — find_similar_notes", () => {
     const text = textContent(result);
     expect(text).toContain("Dirty\\tHeading");
     expect(text).not.toContain("Dirty\tHeading");
+  });
+
+  it("rejects an unreadable source note from the persisted embedding store", async () => {
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "public/cats.md": "# Public Cats\n\nCats are friendly companions.",
+        "private/secret.md": "# Private Cats\n\nCats guard the private launch notes.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+    setPermissions({ readPaths: ["public"], writePaths: null });
+
+    const result = await env.client.callTool({
+      name: "find_similar_notes",
+      arguments: { path: "private/secret.md", limit: 5 },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/Access denied/);
+  });
+
+  it("filters similar-note results through the current read allowlist", async () => {
+    await env.cleanup();
+    await clearStore(env.vaultDir, { removeSnapshot: true });
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "public/cats.md": "# Public Cats\n\nCats are friendly companions.",
+        "public/dogs.md": "# Public Dogs\n\nDogs are loyal companions.",
+        "private/secret.md": "# Private Cats\n\nCats guard the private launch notes.",
+        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      },
+    });
+
+    await env.client.callTool({ name: "index_vault", arguments: {} });
+    setPermissions({ readPaths: ["public"], writePaths: null });
+
+    const result = await env.client.callTool({
+      name: "find_similar_notes",
+      arguments: { path: "public/cats.md", limit: 5 },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("public/dogs.md");
+    expect(text).not.toContain("private/secret.md");
   });
 });
 

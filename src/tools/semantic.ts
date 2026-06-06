@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { listNotes, vaultRewriteLockKey, withFileLock } from "../lib/vault.js";
+import { listNotes, resolveVaultPath, vaultRewriteLockKey, withFileLock } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { chunkNote } from "../lib/chunker.js";
 import { getActiveProvider } from "../lib/embedding-providers.js";
@@ -42,6 +42,15 @@ const displaySemanticValue = escapeControlChars;
 
 function displayHeadingPath(path: readonly string[]): string {
   return path.map(displaySemanticValue).join(" / ");
+}
+
+function canReadStoredEmbeddingNote(vaultPath: string, notePath: string): boolean {
+  try {
+    resolveVaultPath(vaultPath, notePath, "read");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface IndexProgress {
@@ -324,7 +333,11 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         if (!Array.isArray(vector)) {
           return errorResult("Provider did not return a vector for the query.");
         }
-        const hits = searchEmbeddings(vaultPath, vector, { limit, ...(folder ? { folder } : {}) });
+        const hits = searchEmbeddings(vaultPath, vector, {
+          limit,
+          ...(folder ? { folder } : {}),
+          filterNote: (notePath) => canReadStoredEmbeddingNote(vaultPath, notePath),
+        });
         if (hits.length === 0) {
           return textResult(`No matches for "${displaySemanticValue(query)}".`);
         }
@@ -383,6 +396,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         if (provider) {
           invalidateIfIncompatible(vaultPath, provider.id, provider.model);
         }
+        resolveVaultPath(vaultPath, notePath, "read");
         const ownChunks = getNoteEmbeddings(vaultPath, notePath);
         if (ownChunks.length === 0) {
           return errorResult(
@@ -394,6 +408,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         const hits = searchEmbeddings(vaultPath, queryVector, {
           limit,
           excludeNotes: exclude,
+          filterNote: (hitPath) => canReadStoredEmbeddingNote(vaultPath, hitPath),
         });
         const ranked = hits.map((h) => ({
           notePath: h.notePath,

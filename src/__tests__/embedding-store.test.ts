@@ -162,6 +162,23 @@ describe("setNoteChunks / searchEmbeddings", () => {
     expect(hits.map((h) => h.notePath)).toEqual(["other.md"]);
   });
 
+  it("applies the note filter before ranking and limiting", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(vaultDir, "private.md", hashText("private"), [
+      { notePath: "private.md", chunkIndex: 1, headingPath: [], text: "x", hash: "h", vector: [1, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "public.md", hashText("public"), [
+      { notePath: "public.md", chunkIndex: 1, headingPath: [], text: "y", hash: "h", vector: [0.9, 0.1] },
+    ], "test", "m");
+
+    const hits = searchEmbeddings(vaultDir, [1, 0], {
+      limit: 1,
+      filterNote: (notePath) => notePath.startsWith("public"),
+    });
+
+    expect(hits.map((h) => h.notePath)).toEqual(["public.md"]);
+  });
+
   it("anchors similar-note queries to the source note's opening topic", async () => {
     await loadStore(vaultDir);
     setNoteChunks(vaultDir, "source-cat-care.md", hashText("source"), [
