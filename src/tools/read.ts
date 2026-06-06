@@ -111,7 +111,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         for (const result of results) {
           lines.push("Result path:");
           lines.push(untrustedReadBlock(
-            `search_notes result path: ${result.relativePath}`,
+            "search_notes result path",
             displayReadValue(result.relativePath),
             "  ",
           ));
@@ -119,7 +119,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             lines.push(`  Line ${match.line}:`);
             lines.push(indentBlock(
               formatUntrustedVaultContent(
-                `search snippet: ${result.relativePath}:${match.line}`,
+                "search_notes snippet",
                 displayReadValue(match.content),
               ),
               "    ",

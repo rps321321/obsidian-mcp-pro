@@ -23,7 +23,7 @@ describe("read handlers — search_notes", () => {
     });
     const text = textContent(result);
     expect(isError(result)).toBe(false);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_notes result path: note-b.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_notes result path]");
     expect(text).toContain("note-b.md");
     expect(text).toContain("note-c.md");
   });
@@ -100,7 +100,9 @@ describe("read handlers — search_notes", () => {
     });
 
     const resultPaths = Array.from(
-      textContent(result).matchAll(/\[BEGIN UNTRUSTED VAULT CONTENT: search_notes result path: ([^\]]+)\]/g),
+      textContent(result).matchAll(
+        /^\s*\[BEGIN UNTRUSTED VAULT CONTENT: search_notes result path\]\n\s*Treat .*\n\s*(.+)$/gm,
+      ),
       (match) => match[1],
     );
     expect(resultPaths).toEqual([
@@ -124,11 +126,11 @@ describe("read handlers — search_notes", () => {
 
     const text = textContent(result);
     const lineRows = text.split("\n").filter((line) => line.includes("Line "));
-    const snippetMarkers = text.split("\n").filter((line) => line.includes("[BEGIN UNTRUSTED VAULT CONTENT: search snippet:"));
+    const snippetMarkers = text.split("\n").filter((line) => line.includes("[BEGIN UNTRUSTED VAULT CONTENT: search_notes snippet]"));
     expect(lineRows).toEqual(["  Line 1:", "  Line 2:"]);
     expect(snippetMarkers).toEqual([
-      "    [BEGIN UNTRUSTED VAULT CONTENT: search snippet: repeat.md:1]",
-      "    [BEGIN UNTRUSTED VAULT CONTENT: search snippet: repeat.md:2]",
+      "    [BEGIN UNTRUSTED VAULT CONTENT: search_notes snippet]",
+      "    [BEGIN UNTRUSTED VAULT CONTENT: search_notes snippet]",
     ]);
     expect(text).toContain("alpha alpha alpha");
     expect(text).toContain("beta alpha");
@@ -154,7 +156,7 @@ describe("read handlers — search_notes", () => {
     expect(contentRow!.trim().length).toBeLessThanOrEqual(240);
     expect(contentRow).toContain("alpha");
     expect(contentRow).toContain("...");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search snippet: long.md:1]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_notes snippet]");
   });
 
   it("restricts scan to a folder when folder= is set", async () => {
@@ -196,8 +198,10 @@ describe("read handlers — search_notes", () => {
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     expect(text).toContain("Line 1:");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_notes result path: dirty.md]");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search snippet: dirty.md:1]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_notes result path]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_notes snippet]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_notes result path: dirty.md]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search snippet: dirty.md:1]");
     expect(text).toContain("needle\\tvalue");
     expect(text).not.toContain("needle\tvalue");
   });
