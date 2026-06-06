@@ -34,6 +34,17 @@ async function createAttachmentClient(mocks: AttachmentMocks): Promise<{
       }
       return mocks.resolvedPath;
     }),
+    openVaultFileForRead: vi.fn(async () => {
+      if (!mocks.resolvedPath) {
+        throw new Error("openVaultFileForRead mock missing resolvedPath");
+      }
+      const handle = await fs.open(mocks.resolvedPath, "r");
+      return {
+        fullPath: mocks.resolvedPath,
+        handle,
+        stats: await handle.stat(),
+      };
+    }),
   }));
   vi.doMock("../lib/index-cache.js", () => ({
     readAllCached: vi.fn(async () => ({ contents: new Map<string, string>() })),

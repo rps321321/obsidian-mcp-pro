@@ -263,6 +263,35 @@ describe("readNote", () => {
       /Note line fragment exceeds size cap \(13 > 12 bytes\): many-lines\.md/,
     );
   });
+
+  it.skipIf(!SYMLINKS_SUPPORTED)("rejects a symlink retargeted between validation and open", async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "vault-race-outside-"));
+    try {
+      const insideTarget = path.join(vaultDir, "inside.md");
+      const outsideTarget = path.join(outsideDir, "secret.md");
+      const linkPath = path.join(vaultDir, "race.md");
+      await fs.writeFile(insideTarget, "inside\n", "utf-8");
+      await fs.writeFile(outsideTarget, "outside\n", "utf-8");
+      await fs.symlink(insideTarget, linkPath);
+
+      const realOpen = fs.open.bind(fs);
+      let swapped = false;
+      vi.spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+        const [file] = args;
+        if (!swapped && path.resolve(String(file)) === linkPath) {
+          swapped = true;
+          await fs.unlink(linkPath);
+          await fs.symlink(outsideTarget, linkPath);
+        }
+        return realOpen(...args);
+      });
+
+      await expect(readNoteLineRange(vaultDir, "race.md", 1, 1)).rejects.toThrow(/symlink|changed/i);
+      await expect(fs.readFile(outsideTarget, "utf-8")).resolves.toBe("outside\n");
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

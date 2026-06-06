@@ -1,8 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import fs from "fs/promises";
 import path from "path";
-import { assertNoteFileSize, readNote, resolveVaultPathSafe, updateNote } from "../lib/vault.js";
+import {
+  assertNoteFileSize,
+  openVaultFileForRead,
+  readNote,
+  readVaultTextFile,
+  resolveVaultPathSafe,
+  updateNote,
+} from "../lib/vault.js";
 import {
   findSection,
   findBlockById,
@@ -353,16 +359,18 @@ async function getSectionListSignature(
   notePath: string,
 ): Promise<{ fullPath: string; size: number; mtimeMs: number }> {
   assertMarkdownSectionListPath(notePath);
-  const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
+  let opened: Awaited<ReturnType<typeof openVaultFileForRead>> | undefined;
   try {
-    const stats = await fs.stat(fullPath);
-    assertNoteFileSize(notePath, stats.size);
-    return { fullPath, size: stats.size, mtimeMs: stats.mtimeMs };
+    opened = await openVaultFileForRead(vaultPath, notePath);
+    assertNoteFileSize(notePath, opened.stats.size);
+    return { fullPath: opened.fullPath, size: opened.stats.size, mtimeMs: opened.stats.mtimeMs };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       await readNote(vaultPath, notePath);
     }
     throw err;
+  } finally {
+    await opened?.handle.close();
   }
 }
 
@@ -391,17 +399,24 @@ async function readSectionListCached(vaultPath: string, notePath: string): Promi
     return cached.text;
   }
 
-  let content: string;
+  let read: Awaited<ReturnType<typeof readVaultTextFile>> | undefined;
   try {
-    content = await fs.readFile(signature.fullPath, "utf-8");
+    read = await readVaultTextFile(vaultPath, notePath);
+    assertNoteFileSize(notePath, read.stats.size);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       throw new Error(`Note not found: ${notePath}`, { cause: err });
     }
     throw err;
   }
-  const text = renderSectionList(notePath, content);
-  sectionListCache.set(key, { ...signature, text });
+  if (!read) throw new Error(`Note not found: ${notePath}`);
+  const text = renderSectionList(notePath, read.content);
+  sectionListCache.set(key, {
+    fullPath: read.fullPath,
+    size: read.stats.size,
+    mtimeMs: read.stats.mtimeMs,
+    text,
+  });
   while (sectionListCache.size > SECTION_LIST_CACHE_LIMIT) {
     const oldestKey = sectionListCache.keys().next().value;
     if (oldestKey === undefined) break;
