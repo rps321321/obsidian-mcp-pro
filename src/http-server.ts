@@ -105,6 +105,14 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+function parseRequestUrl(req: IncomingMessage): URL | null {
+  try {
+    return new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  } catch {
+    return null;
+  }
+}
+
 // Constant-time string compare that does not leak the expected token's
 // length. Both inputs are padded to a fixed comparison width (the longer
 // of the two) before `timingSafeEqual`, so the compare time is the same
@@ -314,6 +322,16 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
     setCors(req, res, allowedOrigins);
     setSecurityHeaders(req, res);
+    const url = parseRequestUrl(req);
+    if (!url) {
+      log.warn("Rejected malformed HTTP request URL", {
+        method: req.method,
+        path: req.url ?? "",
+        ip: clientIp(req),
+      });
+      sendJson(res, 400, { error: "Malformed request URL" });
+      return;
+    }
     const requestOrigin = req.headers.origin;
     if (typeof requestOrigin === "string" && !originAllowed(requestOrigin, allowedOrigins)) {
       log.warn("Rejected request from disallowed Origin", {
@@ -336,7 +354,6 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     // need to stay reachable for monitoring even under load.
     if (rateLimiter) {
       const ip = clientIp(req);
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       const exempt = url.pathname === "/health" || url.pathname === "/version";
       if (!exempt && !rateLimiter.check(ip)) {
         res.setHeader("Retry-After", "60");
@@ -345,7 +362,6 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       }
     }
 
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     if (url.pathname !== "/mcp") {
       if (url.pathname === "/health") {
         // When a Bearer token is configured (production deployments),
