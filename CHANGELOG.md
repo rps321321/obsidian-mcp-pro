@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Frontmatter parsing now accepts only Obsidian-style YAML delimiter lines, leaves oversized YAML blocks unparsed during vault-wide reads, and refuses metadata updates on oversized blocks.
 - Canvas link nodes now reject dangerous URL schemes after URL normalization, catching control-character-obfuscated `javascript:`, `data:`, and `vbscript:` inputs.
 - HTTP transport now refuses non-loopback binds unless bearer auth is configured, preventing accidental unauthenticated LAN exposure.
 - `replace_in_note` now rejects nested-quantifier regex shapes before matching, reducing catastrophic-backtracking risk on smaller notes.

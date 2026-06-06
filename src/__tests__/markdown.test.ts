@@ -12,6 +12,33 @@ import {
   buildNoteMetadata,
 } from "../lib/markdown.js";
 
+const FRONTMATTER_EXEC_FLAG = "__obsidianMcpProFrontmatterExecuted";
+
+function setFrontmatterExecFlag(value: boolean): void {
+  (globalThis as Record<string, unknown>)[FRONTMATTER_EXEC_FLAG] = value;
+}
+
+function frontmatterExecFlag(): unknown {
+  return (globalThis as Record<string, unknown>)[FRONTMATTER_EXEC_FLAG];
+}
+
+function clearFrontmatterExecFlag(): void {
+  delete (globalThis as Record<string, unknown>)[FRONTMATTER_EXEC_FLAG];
+}
+
+function javascriptFrontmatter(body = "Body."): string {
+  return [
+    "---js",
+    `(() => { globalThis.${FRONTMATTER_EXEC_FLAG} = true; return { title: "Executed" }; })()`,
+    "---",
+    body,
+  ].join("\n");
+}
+
+function oversizedFrontmatter(): string {
+  return `---\n${"status: active\n".repeat(20_000)}---\nBody.`;
+}
+
 // ---------------------------------------------------------------------------
 // parseFrontmatter
 // ---------------------------------------------------------------------------
@@ -52,6 +79,26 @@ The body.`;
     expect(result.data).toEqual({});
     expect(result.content).toBe("");
   });
+
+  it("treats non-YAML gray-matter language blocks as body text", () => {
+    setFrontmatterExecFlag(false);
+    try {
+      const content = javascriptFrontmatter();
+      const result = parseFrontmatter(content);
+      expect(result.data).toEqual({});
+      expect(result.content).toBe(content);
+      expect(frontmatterExecFlag()).toBe(false);
+    } finally {
+      clearFrontmatterExecFlag();
+    }
+  });
+
+  it("leaves oversized frontmatter unparsed for vault-wide reads", () => {
+    const content = oversizedFrontmatter();
+    const result = parseFrontmatter(content);
+    expect(result.data).toEqual({});
+    expect(result.content).toBe(content);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -87,6 +134,26 @@ ${body}`;
     const updated = updateFrontmatter(content, { b: 2 });
     const parsed = parseFrontmatter(updated);
     expect(parsed.content.trim()).toBe(body);
+  });
+
+  it("does not execute non-YAML gray-matter language blocks while updating", () => {
+    setFrontmatterExecFlag(false);
+    try {
+      const original = javascriptFrontmatter("Body #tag.");
+      const updated = updateFrontmatter(original, { status: "safe" });
+      const parsed = parseFrontmatter(updated);
+      expect(parsed.data.status).toBe("safe");
+      expect(parsed.content).toBe(`${original}\n`);
+      expect(frontmatterExecFlag()).toBe(false);
+    } finally {
+      clearFrontmatterExecFlag();
+    }
+  });
+
+  it("refuses to update oversized frontmatter", () => {
+    expect(() =>
+      updateFrontmatter(oversizedFrontmatter(), { status: "safe" }),
+    ).toThrow(/Frontmatter block exceeds size cap/);
   });
 });
 
