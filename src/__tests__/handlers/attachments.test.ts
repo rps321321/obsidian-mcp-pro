@@ -5,6 +5,8 @@ import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js"
 
 let env: TestEnv;
 const itWin32 = process.platform === "win32" ? it : it.skip;
+const SYMLINKS_SUPPORTED = process.platform !== "win32" || process.env.CI_SYMLINKS === "1";
+const itSymlink = SYMLINKS_SUPPORTED ? it : it.skip;
 
 beforeEach(async () => {
   env = await createTestEnv({
@@ -247,6 +249,52 @@ describe("attachments handlers — get_attachment", () => {
     const text = textContent(result);
     expect(text).toContain('Refusing to fetch hidden attachment "assets/.env"');
     expect(text).not.toContain("TOKEN=hidden");
+  });
+
+  itSymlink("rejects symlinked attachment files skipped by the inventory", async () => {
+    await fs.symlink(
+      path.join(env.vaultDir, "assets", "used-image.png"),
+      path.join(env.vaultDir, "assets", "linked-image.png"),
+      process.platform === "win32" ? "file" : undefined,
+    );
+
+    const listed = await env.client.callTool({
+      name: "list_attachments",
+      arguments: {},
+    });
+    expect(textContent(listed)).not.toMatch(/linked-image\.png/);
+
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "assets/linked-image.png" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("Refusing to fetch symlink attachment");
+    expect(text).not.toContain(Buffer.from("PNG-fake-bytes").toString("base64"));
+  });
+
+  itSymlink("rejects symlinked attachment directories skipped by the inventory", async () => {
+    await fs.symlink(
+      path.join(env.vaultDir, "assets"),
+      path.join(env.vaultDir, "linked-assets"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const listed = await env.client.callTool({
+      name: "list_attachments",
+      arguments: {},
+    });
+    expect(textContent(listed)).not.toMatch(/linked-assets/);
+
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "linked-assets/used-image.png" },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("Refusing to fetch symlink attachment");
+    expect(text).not.toContain(Buffer.from("PNG-fake-bytes").toString("base64"));
   });
 
   itWin32("rejects Windows alternate data stream attachment paths", async () => {

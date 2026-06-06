@@ -10,6 +10,7 @@ import { isError, textContent } from "./handlers/harness.js";
 interface AttachmentMocks {
   attachments: string[];
   notes?: string[];
+  vaultPath?: string;
   resolvedPath?: string;
   stats?: Map<string, number>;
 }
@@ -40,7 +41,7 @@ async function createAttachmentClient(mocks: AttachmentMocks): Promise<{
 
   const { registerAttachmentTools } = await import("../tools/attachments.js");
   const server = new McpServer({ name: "attachment-display-test", version: "0.0.0" });
-  registerAttachmentTools(server, "mock-vault");
+  registerAttachmentTools(server, mocks.vaultPath ?? "mock-vault");
 
   const client = new Client({ name: "attachment-display-client", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
@@ -118,6 +119,7 @@ describe("attachment display escaping", () => {
     const relPath = "assets/big\nfile.png";
     const env = await createAttachmentClient({
       attachments: [],
+      vaultPath: dir,
       resolvedPath: fullPath,
     });
     try {
@@ -142,6 +144,7 @@ describe("attachment display escaping", () => {
 
     const env = await createAttachmentClient({
       attachments: [],
+      vaultPath: dir,
       resolvedPath: fullPath,
     });
     try {
