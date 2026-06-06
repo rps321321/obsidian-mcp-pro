@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import * as fs from "fs/promises";
 import { readFileSync, realpathSync } from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -8,7 +7,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
-import { resolveVaultPathSafe, listNotes, readNote } from "./lib/vault.js";
+import { listNotes, readNote } from "./lib/vault.js";
 import { describePermissions } from "./lib/permissions.js";
 import { flushAllCachesAsync, readAllCached } from "./lib/index-cache.js";
 import { extractTags } from "./lib/markdown.js";
@@ -228,8 +227,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       }
 
       try {
-        const fullPath = await resolveVaultPathSafe(vaultPath, notePath);
-        const content = await fs.readFile(fullPath, "utf-8");
+        const content = await readNote(vaultPath, notePath);
         return {
           contents: [
             {

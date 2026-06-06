@@ -370,6 +370,39 @@ describe("regression: surgical edits require read access to inspect note content
   });
 });
 
+describe("regression: surgical edits only target markdown notes", () => {
+  it("rejects non-markdown files before reading or rewriting them", async () => {
+    const assetPath = path.join(env.vaultDir, "asset.txt");
+    const original = "# Secret\n\nneedle\n";
+    await fs.writeFile(assetPath, original, "utf-8");
+
+    const replace = await env.client.callTool({
+      name: "replace_in_note",
+      arguments: {
+        path: "asset.txt",
+        find: "needle",
+        replace: "redacted",
+      },
+    });
+
+    expect(isError(replace)).toBe(true);
+    expect(textContent(replace)).toMatch(/not a markdown note/i);
+
+    const update = await env.client.callTool({
+      name: "update_section",
+      arguments: {
+        path: "asset.txt",
+        section: "Secret",
+        newBody: "changed",
+      },
+    });
+
+    expect(isError(update)).toBe(true);
+    expect(textContent(update)).toMatch(/not a markdown note/i);
+    await expect(fs.readFile(assetPath, "utf-8")).resolves.toBe(original);
+  });
+});
+
 describe("regression: section tool output escaping", () => {
   it("escapes control characters in listed heading text", async () => {
     await fs.writeFile(

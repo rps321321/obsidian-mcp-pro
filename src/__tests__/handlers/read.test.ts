@@ -226,6 +226,34 @@ describe("read handlers — get_note", () => {
     expect(text).not.toMatch(/^\/[a-z]/);
   });
 
+  it("rejects non-markdown vault files", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "asset.txt"), "hidden asset body", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "asset.txt" },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/not a markdown note/i);
+    expect(text).not.toContain("hidden asset body");
+  });
+
+  it("rejects non-markdown line fragments", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "asset-lines.txt"), "hidden line body", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "get_note",
+      arguments: { path: "asset-lines.txt", lines: "1" },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toMatch(/not a markdown note/i);
+    expect(text).not.toContain("hidden line body");
+  });
+
   it("rejects a path traversal attempt with isError, not a crash", async () => {
     const result = await env.client.callTool({
       name: "get_note",

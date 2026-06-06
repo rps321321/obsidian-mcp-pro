@@ -21,6 +21,12 @@ const SEARCH_SNIPPET_OMISSION = "...";
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
 
+function assertMarkdownNotePath(relativePath: string): void {
+  if (!relativePath.toLowerCase().endsWith(".md")) {
+    throw new Error(`Not a markdown note: ${relativePath}`);
+  }
+}
+
 // Legacy DOS device names reserved by the Windows filesystem at any depth.
 // Opening one of these as a file quietly binds to the device (e.g. NUL
 // discards writes) rather than creating a real file, which surprises users
@@ -447,6 +453,7 @@ export async function readNote(
   vaultPath: string,
   relativePath: string,
 ): Promise<string> {
+  assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   try {
     return await fs.readFile(fullPath, "utf-8");
@@ -472,6 +479,7 @@ export async function readNoteLineRange(
   startLine: number,
   endLine: number,
 ): Promise<NoteLineRangeRead> {
+  assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   let handle: fs.FileHandle | undefined;
   try {
@@ -538,6 +546,7 @@ export async function writeNote(
   content: string,
   options?: { exclusive?: boolean },
 ): Promise<void> {
+  assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -603,6 +612,7 @@ export async function updateNote(
   relativePath: string,
   transform: (existing: string) => string | Promise<string>,
 ): Promise<void> {
+  assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
@@ -617,6 +627,7 @@ export async function appendToNote(
   relativePath: string,
   content: string,
 ): Promise<void> {
+  assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
@@ -661,6 +672,7 @@ export async function prependToNote(
   relativePath: string,
   content: string,
 ): Promise<void> {
+  assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     const existing = await fs.readFile(fullPath, "utf-8");
@@ -734,6 +746,7 @@ export async function deleteNote(
   relativePath: string,
   options: DeleteNoteOptions = {},
 ): Promise<DeleteNoteResult> {
+  assertMarkdownNotePath(relativePath);
   const permanent = options.permanent === true;
   const removeReferences = permanent && options.removeReferences === true;
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
@@ -827,6 +840,8 @@ export async function moveNote(
   newPath: string,
   options: MoveNoteOptions = {},
 ): Promise<MoveNoteResult> {
+  assertMarkdownNotePath(oldPath);
+  assertMarkdownNotePath(newPath);
   const updateLinks = options.updateLinks !== false;
   // Moving preserves the source bytes at a new path, so the source has to pass
   // both write permission for the rename and read permission for disclosure.

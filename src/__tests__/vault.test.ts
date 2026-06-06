@@ -6,7 +6,9 @@ import {
   resolveVaultPath,
   listNotes,
   readNote,
+  readNoteLineRange,
   writeNote,
+  updateNote,
   appendToNote,
   prependToNote,
   deleteNote,
@@ -182,6 +184,17 @@ describe("readNote", () => {
       "Note not found: nonexistent.md",
     );
   });
+
+  it("should reject non-markdown vault files", async () => {
+    await fs.writeFile(path.join(vaultDir, "secret.txt"), "not note content", "utf-8");
+
+    await expect(readNote(vaultDir, "secret.txt")).rejects.toThrow(
+      "Not a markdown note: secret.txt",
+    );
+    await expect(readNoteLineRange(vaultDir, "secret.txt", 1, 1)).rejects.toThrow(
+      "Not a markdown note: secret.txt",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -221,6 +234,32 @@ describe("writeNote", () => {
       "utf-8",
     );
     expect(content).toBe("new");
+  });
+
+  it("should reject non-markdown write targets", async () => {
+    await fs.writeFile(path.join(vaultDir, "asset.txt"), "original", "utf-8");
+
+    await expect(writeNote(vaultDir, "asset.txt", "new")).rejects.toThrow(
+      "Not a markdown note: asset.txt",
+    );
+    await expect(updateNote(vaultDir, "asset.txt", () => "new")).rejects.toThrow(
+      "Not a markdown note: asset.txt",
+    );
+    await expect(appendToNote(vaultDir, "asset.txt", "new")).rejects.toThrow(
+      "Not a markdown note: asset.txt",
+    );
+    await expect(prependToNote(vaultDir, "asset.txt", "new")).rejects.toThrow(
+      "Not a markdown note: asset.txt",
+    );
+    await expect(deleteNote(vaultDir, "asset.txt")).rejects.toThrow(
+      "Not a markdown note: asset.txt",
+    );
+    await expect(moveNote(vaultDir, "asset.txt", "asset-renamed.txt")).rejects.toThrow(
+      "Not a markdown note: asset.txt",
+    );
+
+    await expect(fs.readFile(path.join(vaultDir, "asset.txt"), "utf-8"))
+      .resolves.toBe("original");
   });
 });
 
