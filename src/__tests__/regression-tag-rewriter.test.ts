@@ -11,6 +11,20 @@ const opts = (oldName: string, newName: string, hierarchical = true) => ({
   hierarchical,
 });
 
+const TAG_REWRITER_EXEC_FLAG = "__obsidianMcpProTagRewriteExecuted";
+
+function setTagRewriteExecFlag(value: boolean): void {
+  (globalThis as Record<string, unknown>)[TAG_REWRITER_EXEC_FLAG] = value;
+}
+
+function tagRewriteExecFlag(): unknown {
+  return (globalThis as Record<string, unknown>)[TAG_REWRITER_EXEC_FLAG];
+}
+
+function clearTagRewriteExecFlag(): void {
+  delete (globalThis as Record<string, unknown>)[TAG_REWRITER_EXEC_FLAG];
+}
+
 describe("regression: rewriteAllTags idempotence (H3)", () => {
   it("is byte-identical when applied twice to the same content", () => {
     const input =
@@ -53,6 +67,27 @@ describe("regression: rewriteAllTags idempotence (H3)", () => {
     expect(second.frontmatterCount).toBe(0);
     expect(second.inlineCount).toBe(0);
     expect(second.content).toBe(first.content);
+  });
+});
+
+describe("regression: tag rewriting parses YAML frontmatter only", () => {
+  it("does not execute gray-matter JavaScript language blocks", () => {
+    setTagRewriteExecFlag(false);
+    try {
+      const input = [
+        "---js",
+        `(() => { globalThis.${TAG_REWRITER_EXEC_FLAG} = true; return { tags: ["project"] }; })()`,
+        "---",
+        "#project body",
+      ].join("\n");
+      const result = rewriteAllTags(input, opts("project", "client"));
+      expect(result.frontmatterCount).toBe(0);
+      expect(result.inlineCount).toBe(1);
+      expect(result.content).toContain("#client body");
+      expect(tagRewriteExecFlag()).toBe(false);
+    } finally {
+      clearTagRewriteExecFlag();
+    }
   });
 });
 

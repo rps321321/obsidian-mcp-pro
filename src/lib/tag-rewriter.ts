@@ -1,5 +1,7 @@
-import matter from "gray-matter";
-import { quoteWikilinksInFrontmatter } from "./markdown.js";
+import {
+  parseStrictYamlFrontmatter,
+  stringifyYamlFrontmatter,
+} from "./markdown.js";
 
 /**
  * Tag rewriting across the two places Obsidian recognizes tags:
@@ -208,26 +210,14 @@ export function rewriteFrontmatterTags(
   content: string,
   opts: TagMatchOptions,
 ): { content: string; count: number } {
-  let parsed;
-  try {
-    parsed = matter(content);
-  } catch {
+  const parsed = parseStrictYamlFrontmatter(content);
+  if (!parsed.hasFrontmatter || parsed.error || parsed.oversized) {
     return { content, count: 0 };
   }
-  const data = parsed.data as Record<string, unknown>;
+  const data = parsed.data;
   const count = rewriteFrontmatterData(data, opts);
   if (count === 0) return { content, count: 0 };
-  const stringified = matter.stringify(parsed.content, data);
-  // Post-process YAML region so wikilink values are double-quoted (BUG-9).
-  if (stringified.startsWith("---\n")) {
-    const closeIdx = stringified.indexOf("\n---", 4);
-    if (closeIdx !== -1) {
-      const yamlBlock = stringified.slice(4, closeIdx + 1);
-      const fixed = quoteWikilinksInFrontmatter(yamlBlock);
-      return { content: `---\n${fixed}${stringified.slice(closeIdx + 1)}`, count };
-    }
-  }
-  return { content: stringified, count };
+  return { content: stringifyYamlFrontmatter(parsed.content, data), count };
 }
 
 /**
@@ -244,10 +234,8 @@ export function rewriteAllTags(
   content: string,
   opts: TagMatchOptions,
 ): { content: string; inlineCount: number; frontmatterCount: number } {
-  let parsed;
-  try {
-    parsed = matter(content);
-  } catch {
+  const parsed = parseStrictYamlFrontmatter(content);
+  if (parsed.error || parsed.oversized) {
     // Malformed YAML: fall back to inline-only rewriting on the raw content.
     const inline = rewriteInlineTags(content, opts);
     return { content: inline.body, inlineCount: inline.count, frontmatterCount: 0 };
@@ -255,28 +243,14 @@ export function rewriteAllTags(
   // Detect whether the original content had frontmatter before we mutate
   // the data object. This way we preserve the `---\n---\n` delimiters even
   // if tag removal empties the frontmatter entirely (BUG-5 fix).
-  const hadFrontmatter = content.trimStart().startsWith("---");
-  const data = parsed.data as Record<string, unknown>;
+  const hadFrontmatter = parsed.hasFrontmatter;
+  const data = parsed.data;
   const frontmatterCount = rewriteFrontmatterData(data, opts);
   const inline = rewriteInlineTags(parsed.content, opts);
   const hasFrontmatter = Object.keys(data).length > 0;
   let reassembled: string;
   if (hasFrontmatter) {
-    const stringified = matter.stringify(inline.body, data);
-    // Post-process YAML region so wikilink values like [[Foo]] are
-    // double-quoted, matching the behavior in markdown.ts (BUG-9 fix).
-    if (stringified.startsWith("---\n")) {
-      const closeIdx = stringified.indexOf("\n---", 4);
-      if (closeIdx !== -1) {
-        const yamlBlock = stringified.slice(4, closeIdx + 1);
-        const fixed = quoteWikilinksInFrontmatter(yamlBlock);
-        reassembled = `---\n${fixed}${stringified.slice(closeIdx + 1)}`;
-      } else {
-        reassembled = stringified;
-      }
-    } else {
-      reassembled = stringified;
-    }
+    reassembled = stringifyYamlFrontmatter(inline.body, data);
   } else if (hadFrontmatter) {
     // Frontmatter was present but is now empty after tag removal;
     // preserve the empty delimiters so downstream tools still see a

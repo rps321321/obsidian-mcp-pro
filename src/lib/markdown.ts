@@ -2,6 +2,149 @@ import matter from "gray-matter";
 import path from "path";
 import type { NoteMetadata, LinkInfo } from "../types.js";
 
+const MAX_FRONTMATTER_BYTES = 262_144;
+const YAML_MATTER_OPTIONS = { language: "yaml" };
+
+type FrontmatterScan =
+  | { kind: "none" }
+  | { kind: "oversized"; bytes?: number }
+  | { kind: "found"; bytes: number };
+
+export interface ParsedFrontmatter {
+  data: Record<string, unknown>;
+  content: string;
+  hasFrontmatter: boolean;
+  error?: Error;
+  oversized?: boolean;
+  bytes?: number;
+}
+
+function frontmatterOpenEnd(content: string): number | null {
+  if (content.startsWith("---\n")) return 4;
+  if (content.startsWith("---\r\n")) return 5;
+  return null;
+}
+
+function scanYamlFrontmatter(content: string): FrontmatterScan {
+  const yamlStart = frontmatterOpenEnd(content);
+  if (yamlStart === null) return { kind: "none" };
+
+  let lineStart = yamlStart;
+  while (lineStart <= content.length) {
+    if (lineStart - yamlStart > MAX_FRONTMATTER_BYTES) {
+      return { kind: "oversized" };
+    }
+
+    const lineEnd = content.indexOf("\n", lineStart);
+    const rawLine = lineEnd === -1
+      ? content.slice(lineStart)
+      : content.slice(lineStart, lineEnd);
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+
+    if (line === "---") {
+      const bytes = Buffer.byteLength(
+        content.slice(yamlStart, lineStart),
+        "utf8",
+      );
+      if (bytes > MAX_FRONTMATTER_BYTES) {
+        return { kind: "oversized", bytes };
+      }
+      return { kind: "found", bytes };
+    }
+
+    if (lineEnd === -1) return { kind: "none" };
+    lineStart = lineEnd + 1;
+  }
+
+  return { kind: "none" };
+}
+
+function asFrontmatterObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+/**
+ * Parse only Obsidian-style YAML frontmatter: an opening `---` line, a
+ * closing `---` line, and no gray-matter language auto-detection. This keeps
+ * `---js` and similar blocks as body text instead of invoking non-YAML
+ * engines while still preserving tolerant read behavior for vault scans.
+ */
+export function parseStrictYamlFrontmatter(content: string): ParsedFrontmatter {
+  const scan = scanYamlFrontmatter(content);
+  if (scan.kind === "none") {
+    return { data: {}, content, hasFrontmatter: false };
+  }
+  if (scan.kind === "oversized") {
+    return {
+      data: {},
+      content,
+      hasFrontmatter: true,
+      oversized: true,
+      bytes: scan.bytes,
+    };
+  }
+
+  try {
+    const result = matter(content, YAML_MATTER_OPTIONS);
+    return {
+      data: asFrontmatterObject(result.data),
+      content: result.content,
+      hasFrontmatter: true,
+      bytes: scan.bytes,
+    };
+  } catch (err) {
+    return {
+      data: {},
+      content,
+      hasFrontmatter: true,
+      error: err as Error,
+      bytes: scan.bytes,
+    };
+  }
+}
+
+function frontmatterTooLargeMessage(bytes?: number): string {
+  if (bytes !== undefined) {
+    return `Frontmatter block exceeds size cap (${bytes} > ${MAX_FRONTMATTER_BYTES} bytes).`;
+  }
+  return `Frontmatter block exceeds size cap (${MAX_FRONTMATTER_BYTES} bytes).`;
+}
+
+function parseFrontmatterForMutation(content: string): ParsedFrontmatter {
+  const parsed = parseStrictYamlFrontmatter(content);
+  if (parsed.oversized) {
+    throw new Error(frontmatterTooLargeMessage(parsed.bytes));
+  }
+  if (parsed.error) throw parsed.error;
+  return parsed;
+}
+
+function quoteWikilinksInDocumentFrontmatter(stringified: string): string {
+  // gray-matter emits `---\n<yaml>---\n<body>`. Find the two delimiter lines
+  // and post-process only the YAML region.
+  if (!stringified.startsWith("---\n")) return stringified;
+  const closeIdx = stringified.indexOf("\n---", 4);
+  if (closeIdx === -1) return stringified;
+  const yamlBlock = stringified.slice(4, closeIdx + 1); // include trailing \n
+  const fixed = quoteWikilinksInFrontmatter(yamlBlock);
+  return `---\n${fixed}${stringified.slice(closeIdx + 1)}`;
+}
+
+export function stringifyYamlFrontmatter(
+  content: string,
+  data: Record<string, unknown>,
+): string {
+  const stringified = matter.stringify(
+    { content },
+    data,
+    YAML_MATTER_OPTIONS,
+  );
+  return quoteWikilinksInDocumentFrontmatter(stringified);
+}
+
 /**
  * Parse YAML frontmatter from markdown content. Malformed YAML yields empty
  * data and the raw content — a single broken note must not abort vault-wide
@@ -11,15 +154,9 @@ export function parseFrontmatter(content: string): {
   data: Record<string, unknown>;
   content: string;
 } {
-  try {
-    const result = matter(content);
-    return {
-      data: result.data,
-      content: result.content,
-    };
-  } catch {
-    return { data: {}, content };
-  }
+  const result = parseStrictYamlFrontmatter(content);
+  if (result.error || result.oversized) return { data: {}, content };
+  return { data: result.data, content: result.content };
 }
 
 /**
@@ -116,17 +253,9 @@ export function updateFrontmatter(
   content: string,
   updates: Record<string, unknown>,
 ): string {
-  const parsed = matter(content);
+  const parsed = parseFrontmatterForMutation(content);
   const merged = { ...parsed.data, ...updates };
-  const stringified = matter.stringify(parsed.content, merged);
-  // gray-matter emits `---\n<yaml>---\n<body>`. Find the two delimiter lines
-  // and post-process only the YAML region.
-  if (!stringified.startsWith("---\n")) return stringified;
-  const closeIdx = stringified.indexOf("\n---", 4);
-  if (closeIdx === -1) return stringified;
-  const yamlBlock = stringified.slice(4, closeIdx + 1); // include trailing \n
-  const fixed = quoteWikilinksInFrontmatter(yamlBlock);
-  return `---\n${fixed}${stringified.slice(closeIdx + 1)}`;
+  return stringifyYamlFrontmatter(parsed.content, merged);
 }
 
 /**
