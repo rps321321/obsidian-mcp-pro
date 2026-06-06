@@ -252,7 +252,7 @@ This gives the AI a way to reason about context: "Show me everything within 2 ho
 | | `find_broken_links` | Wikilinks pointing to non-existent notes |
 | | `get_graph_neighbors` | BFS traversal to configurable depth |
 | **Canvas** | `list_canvases` | List all `.canvas` files |
-| | `read_canvas` | Read canvas with full node/edge data |
+| | `read_canvas` | Read a bounded node/edge summary |
 | | `add_canvas_node` | Add text, file, link, or group nodes |
 | | `add_canvas_edge` | Connect canvas nodes with edges |
 

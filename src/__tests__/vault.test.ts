@@ -17,6 +17,7 @@ import {
   searchNotes,
   listCanvasFiles,
   readCanvasFile,
+  MAX_CANVAS_FILE_BYTES,
   getNoteStats,
   getVaultRootRealPath,
 } from "../lib/vault.js";
@@ -745,6 +746,18 @@ describe("readCanvasFile", () => {
 
     await expect(readCanvasFile(vaultDir, "bad.canvas")).rejects.toThrow(
       "Invalid canvas file (malformed JSON): bad.canvas",
+    );
+  });
+
+  it("should reject oversized canvas files before JSON parsing", async () => {
+    await fs.writeFile(
+      path.join(vaultDir, "huge.canvas"),
+      "x".repeat(MAX_CANVAS_FILE_BYTES + 1),
+      "utf-8",
+    );
+
+    await expect(readCanvasFile(vaultDir, "huge.canvas")).rejects.toThrow(
+      "Canvas file exceeds size cap",
     );
   });
 

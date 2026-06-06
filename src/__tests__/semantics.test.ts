@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { resolveWikilink, extractTags, extractAliases } from "../lib/markdown.js";
 import { formatMomentDate } from "../lib/dates.js";
-import { writeCanvasFile, updateCanvasFile, readCanvasFile } from "../lib/vault.js";
+import { writeCanvasFile, updateCanvasFile, readCanvasFile, MAX_CANVAS_FILE_BYTES } from "../lib/vault.js";
 import type { CanvasData } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -174,5 +174,40 @@ describe("updateCanvasFile — round-trip fidelity", () => {
     // Not an object — writeCanvasFile then read via updateCanvasFile.
     await writeCanvasFile(vaultDir, canvasPath, { nodes: [], edges: [] });
     await expect(readCanvasFile(vaultDir, canvasPath)).resolves.toBeDefined();
+  });
+
+  it("rejects oversized existing canvas files before update parsing", async () => {
+    const canvasPath = "huge.canvas";
+    const before = "x".repeat(MAX_CANVAS_FILE_BYTES + 1);
+    await fs.writeFile(path.join(vaultDir, canvasPath), before, "utf-8");
+
+    await expect(
+      updateCanvasFile(vaultDir, canvasPath, (data) => ({
+        nodes: data.nodes,
+        edges: data.edges,
+      })),
+    ).rejects.toThrow("Canvas file exceeds size cap");
+    await expect(fs.readFile(path.join(vaultDir, canvasPath), "utf-8")).resolves.toBe(before);
+  });
+
+  it("rejects writes that would exceed the canvas file cap", async () => {
+    await expect(
+      writeCanvasFile(vaultDir, "too-big.canvas", {
+        nodes: [
+          {
+            id: "n1",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            text: "x".repeat(MAX_CANVAS_FILE_BYTES),
+          },
+        ],
+        edges: [],
+      }),
+    ).rejects.toThrow("Canvas file exceeds size cap");
+
+    await expect(fs.access(path.join(vaultDir, "too-big.canvas"))).rejects.toThrow();
   });
 });
