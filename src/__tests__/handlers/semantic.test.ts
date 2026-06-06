@@ -114,9 +114,12 @@ describe("semantic handlers — search_semantic", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    const lines = text.split("\n").filter((l) => l.startsWith("- "));
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toContain("cats.md");
+    const resultPaths = Array.from(
+      text.matchAll(/\[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path: ([^\]]+)\]/g),
+      (match) => match[1],
+    );
+    expect(resultPaths.length).toBeGreaterThan(0);
+    expect(resultPaths[0]).toBe("cats.md");
   });
 
   it("errors with a helpful message when the index is empty", async () => {
@@ -170,8 +173,7 @@ describe("semantic handlers — search_semantic", () => {
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    const resultLine = text.split("\n").find((line) => line.startsWith("- dirty.md"));
-    expect(resultLine).not.toContain("Dirty\\tHeading");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path: dirty.md]");
     expect(text).toContain("    Heading:");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
     expect(text).toContain("Dirty\\tHeading");
@@ -248,10 +250,13 @@ describe("semantic handlers — find_similar_notes", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).not.toContain("- cats.md");
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: cats.md]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path:");
     // dogs.md (also pets) shares no topic dimension with cats; results
     // simply rank the rest by similarity. Just check we got hits back.
     expect(text).toMatch(/note\(s\) similar to cats\.md/);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("errors when the source note has no embeddings", async () => {
@@ -295,8 +300,7 @@ describe("semantic handlers — find_similar_notes", () => {
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    const resultLine = text.split("\n").find((line) => line.startsWith("- dirty.md"));
-    expect(resultLine).not.toContain("Dirty\\tHeading");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: dirty.md]");
     expect(text).toContain("    Heading:");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
     expect(text).toContain("Dirty\\tHeading");
@@ -351,6 +355,7 @@ describe("semantic handlers — find_similar_notes", () => {
 
     const text = textContent(result);
     expect(isError(result)).toBe(false);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: public/dogs.md]");
     expect(text).toContain("public/dogs.md");
     expect(text).not.toContain("private/secret.md");
   });
