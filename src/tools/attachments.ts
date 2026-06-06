@@ -57,6 +57,17 @@ function vaultResourceUri(relPath: string): string {
   return `vault://${relPath.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/")}`;
 }
 
+const ACTIVE_TEXT_MIME_TYPES = new Set([
+  "text/html",
+  "application/xml",
+  "text/xml",
+  "text/css",
+]);
+
+function safeResourceMimeType(mime: string): string {
+  return ACTIVE_TEXT_MIME_TYPES.has(mime.toLowerCase()) ? "text/plain" : mime;
+}
+
 /** Group attachments by their lower-cased extension for the summary line. */
 function summarizeByExtension(paths: readonly string[]): Map<string, number> {
   const out = new Map<string, number>();
@@ -516,16 +527,18 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
             ],
           };
         }
+        const resourceMime = safeResourceMimeType(mime);
+        const mimeLabel = resourceMime === mime ? mime : `${mime} returned as ${resourceMime}`;
         return {
           content: [
-            { type: "text" as const, text: `Attached: ${displayedBasename} (${mime}, ${stat.size.toLocaleString()} bytes)` },
+            { type: "text" as const, text: `Attached: ${displayedBasename} (${mimeLabel}, ${stat.size.toLocaleString()} bytes)` },
             {
               type: "resource" as const,
               resource: {
                 // vault:// URI lets clients distinguish vault files from
                 // arbitrary URLs in their UI without leaking the host path.
                 uri: vaultResourceUri(relPath),
-                mimeType: mime,
+                mimeType: resourceMime,
                 blob: data,
               },
             },
