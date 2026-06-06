@@ -206,6 +206,56 @@ describe("tag handlers — rename_tag", () => {
     expect(textContent(search)).toContain("note-a.md");
   });
 
+  it("aborts rename_tag when elicitation confirms the wrong tag", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      clientCapabilities: { elicitation: {} },
+      onElicit: () => ({
+        action: "accept",
+        content: { confirmTag: "wrong" },
+      }),
+    });
+
+    const result = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "draft", newName: "wip" },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toContain("Confirmation tag did not match #wip");
+    const search = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "draft" },
+    });
+    expect(textContent(search)).toContain("note-a.md");
+  });
+
+  it("renames after elicitation confirms the new tag", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      clientCapabilities: { elicitation: {} },
+      onElicit: (request) => {
+        expect(request.params.message).toContain("across the vault");
+        return {
+          action: "accept",
+          content: { confirmTag: "wip" },
+        };
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "draft", newName: "wip" },
+    });
+
+    expect(isError(result)).toBe(false);
+    const search = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "wip" },
+    });
+    expect(textContent(search)).toContain("note-a.md");
+  });
+
   it("rejects new tag names the parser cannot round-trip", async () => {
     const result = await env.client.callTool({
       name: "rename_tag",

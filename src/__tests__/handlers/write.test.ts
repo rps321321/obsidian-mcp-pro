@@ -314,6 +314,47 @@ describe("write handlers — move_note", () => {
     await expect(fs.access(path.join(env.vaultDir, "note-c.md"))).rejects.toThrow();
   });
 
+  it("cancels a link-rewriting move when elicitation is cancelled", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      clientCapabilities: { elicitation: {} },
+      onElicit: () => ({ action: "cancel" }),
+    });
+
+    const result = await env.client.callTool({
+      name: "move_note",
+      arguments: { oldPath: "note-c.md", newPath: "archive/note-c.md" },
+    });
+
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toContain('Move of "note-c.md" cancelled.');
+    await expect(fs.access(path.join(env.vaultDir, "note-c.md"))).resolves.toBeUndefined();
+    await expect(fs.access(path.join(env.vaultDir, "archive/note-c.md"))).rejects.toThrow();
+  });
+
+  it("moves after elicitation confirms the destination path", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      clientCapabilities: { elicitation: {} },
+      onElicit: (request) => {
+        expect(request.params.message).toContain("update references across the vault");
+        return {
+          action: "accept",
+          content: { confirmPath: "archive/note-c.md" },
+        };
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "move_note",
+      arguments: { oldPath: "note-c.md", newPath: "archive/note-c.md" },
+    });
+
+    expect(isError(result)).toBe(false);
+    await expect(fs.access(path.join(env.vaultDir, "archive/note-c.md"))).resolves.toBeUndefined();
+    await expect(fs.access(path.join(env.vaultDir, "note-c.md"))).rejects.toThrow();
+  });
+
   it("refuses to overwrite an existing destination", async () => {
     const result = await env.client.callTool({
       name: "move_note",
