@@ -1,10 +1,11 @@
 import fs from "fs/promises";
+import { constants as fsConstants } from "fs";
 import path from "path";
 import { randomBytes } from "crypto";
 import { StringDecoder } from "string_decoder";
 import { mapConcurrent } from "./concurrency.js";
 import { assertAllowed, type AccessKind } from "./permissions.js";
-import { renameWithRetry } from "./fs-ops.js";
+import { renameWithRetry, unlinkWithRetry } from "./fs-ops.js";
 import { MAX_BASE_FILE_BYTES } from "./bases.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 
@@ -21,6 +22,7 @@ const SEARCH_SNIPPET_OMISSION = "...";
 export const MAX_CANVAS_FILE_BYTES = 1_048_576;
 const MAX_CANVAS_NODES = 10_000;
 const MAX_CANVAS_EDGES = 20_000;
+const COPY_FALLBACK_CODES = new Set(["EXDEV", "EPERM", "ENOSYS", "ENOTSUP", "EOPNOTSUPP"]);
 
 const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
@@ -850,6 +852,53 @@ export async function deleteNote(
   return performDelete();
 }
 
+async function linkOrCopyFileNoReplace(fullOldPath: string, fullNewPath: string): Promise<void> {
+  try {
+    await fs.link(fullOldPath, fullNewPath);
+    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (!COPY_FALLBACK_CODES.has(code)) throw err;
+  }
+  await fs.copyFile(fullOldPath, fullNewPath, fsConstants.COPYFILE_EXCL);
+}
+
+async function createDestinationNoReplace(fullOldPath: string, fullNewPath: string): Promise<void> {
+  const sourceStat = await fs.lstat(fullOldPath);
+  if (sourceStat.isSymbolicLink()) {
+    const linkTarget = await fs.readlink(fullOldPath);
+    if (IS_WIN32) {
+      await fs.symlink(linkTarget, fullNewPath, "file");
+    } else {
+      await fs.symlink(linkTarget, fullNewPath);
+    }
+    return;
+  }
+  await linkOrCopyFileNoReplace(fullOldPath, fullNewPath);
+}
+
+async function movePathNoReplace(
+  fullOldPath: string,
+  fullNewPath: string,
+  displayNewPath: string,
+): Promise<void> {
+  let createdDestination = false;
+  try {
+    await createDestinationNoReplace(fullOldPath, fullNewPath);
+    createdDestination = true;
+    await unlinkWithRetry(fullOldPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (createdDestination) {
+      try { await fs.unlink(fullNewPath); } catch { /* ignore cleanup failure */ }
+    }
+    if (code === "EEXIST") {
+      throw new Error(`Destination already exists: ${displayNewPath}`, { cause: err });
+    }
+    throw err;
+  }
+}
+
 export interface MoveNoteOptions {
   /** When true (default), rewrite wikilinks and markdown links in every other
    *  note + canvas to point at the new path. Set false to skip the scan
@@ -863,7 +912,7 @@ export interface MoveNoteResult {
    *  when no other note/canvas referenced the moved file (or `updateLinks`
    *  was false). */
   updatedReferrers: string[];
-  /** Per-file failures during the rewrite pass. The rename has already
+  /** Per-file failures during the rewrite pass. The move has already
    *  committed by the time these are surfaced. Empty when everything landed
    *  cleanly. */
   failedReferrers: Array<{ path: string; error: string }>;
@@ -884,38 +933,17 @@ export async function moveNote(
   const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath, "write");
   const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath, "write");
   const doRename = async (): Promise<void> => {
-    // TOCTOU note: there is a small race window between `fs.access` and
-    // `fs.rename` where another process (Obsidian, a sync client, a second
-    // MCP server, an unrelated shell) could create a file at `fullNewPath`
-    // after our existence check returns ENOENT but before our rename runs.
-    // We deliberately do NOT close this race here, for two reasons:
-    //   1. POSIX `rename(2)` is documented to silently overwrite an existing
-    //      destination, which is the standard expected behavior. Closing
-    //      the window would require platform-specific syscalls (`renameat2`
-    //      with RENAME_NOREPLACE on Linux, or O_EXCL + link/unlink dance
-    //      elsewhere) that Node does not expose portably.
-    //   2. The vault-level lock taken by `performMove` already serializes
-    //      moveNote against itself and against deleteNote+removeReferences
-    //      and rename_tag, which covers every in-process writer. The
-    //      remaining race is exclusively against EXTERNAL writers on the
-    //      same vault, and those can also race against the rename itself
-    //      regardless of any pre-check we add.
-    // The pre-check stays as a friendly fast-path error for the common case
-    // (user typo'd into an existing file); on a race it merely upgrades to
-    // standard rename-overwrite semantics rather than a corruption bug.
-    try {
-      await fs.access(fullNewPath);
-      // A case-only rename (Note.md to note.md on a case-insensitive FS)
-      // resolves to the same inode, so `access` succeeds even though the
-      // caller intends to rename. Detect that case and allow the rename.
-      if (lockKey(fullOldPath) !== lockKey(fullNewPath)) {
-        throw new Error(`Destination already exists: ${newPath}`);
-      }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // A case-only rename (Note.md to note.md on a case-insensitive FS)
+    // resolves to the same inode, so a fail-on-exists move would reject the
+    // caller's intended rename. Keep that path on the native rename retry
+    // helper; every other move must create the destination with no-replace
+    // semantics before unlinking the old name.
+    if (lockKey(fullOldPath) === lockKey(fullNewPath)) {
+      await renameWithRetry(fullOldPath, fullNewPath);
+      return;
     }
     await fs.mkdir(path.dirname(fullNewPath), { recursive: true });
-    await renameWithRetry(fullOldPath, fullNewPath);
+    await movePathNoReplace(fullOldPath, fullNewPath, newPath);
   };
 
   const performMove = async (): Promise<MoveNoteResult> => {
