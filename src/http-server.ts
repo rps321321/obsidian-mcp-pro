@@ -220,10 +220,32 @@ function clientIp(req: IncomingMessage): string {
   return addr.startsWith("::ffff:") ? addr.slice(7) : addr;
 }
 
+function normalizedBindHost(host: string): string {
+  const trimmed = host.trim().toLowerCase();
+  return trimmed.startsWith("[") && trimmed.endsWith("]")
+    ? trimmed.slice(1, -1)
+    : trimmed;
+}
+
+function isLoopbackBindHost(host: string): boolean {
+  const normalized = normalizedBindHost(host);
+  return (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized.startsWith("127.") ||
+    normalized.startsWith("::ffff:127.")
+  );
+}
+
 export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServerHandle> {
   const bearerToken = opts.bearerToken?.trim();
   if (opts.bearerToken !== undefined && !bearerToken) {
     throw new Error("HTTP bearer token cannot be empty");
+  }
+  if (!bearerToken && !isLoopbackBindHost(opts.host)) {
+    throw new Error(
+      "HTTP bearer token is required when binding to a non-loopback host. Set MCP_HTTP_TOKEN or pass --token, or bind to 127.0.0.1.",
+    );
   }
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const lastActivity = new Map<string, number>();
