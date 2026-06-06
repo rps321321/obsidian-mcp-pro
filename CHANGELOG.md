@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `get_attachment` now refuses symlinked attachment paths, matching attachment inventory scans and reducing path-swap exposure during direct reads.
 - HTTP transport now rejects oversized JSON request bodies as soon as `Content-Length` or streamed bytes cross the cap, instead of waiting for the request to finish.
 - `get_attachment` now refuses hidden dotfile attachments, matching the files skipped by attachment inventory scans.
 - `move_note` now creates the destination with no-replace semantics, preventing an external writer from racing the move into overwriting a newly created note.
