@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
-- `get_note`, `get_daily_note`, `search_notes`, `search_by_frontmatter`, `search_by_tag includeContent`, `search_semantic includeSnippet`, `read_canvas`, `read_base`, `query_base includeFrontmatter`, SVG attachment text, and backlink context output now wrap vault-authored text in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers. Clients that parsed raw note fragments or snippets should extract the text between those markers. Raw markdown resources still return the original note text, but now carry `_meta["obsidian-mcp-pro/contentTrust"] = "untrusted-vault-content"`.
+- `get_note`, `get_daily_note`, `search_notes`, `search_by_frontmatter`, `search_by_tag includeContent`, `search_semantic includeSnippet`, `read_canvas`, `read_base`, `query_base includeFrontmatter`, SVG attachment text, section-heading output, and backlink context output now wrap vault-authored text in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers. Clients that parsed raw note fragments or snippets should extract the text between those markers. Raw markdown resources still return the original note text, but now carry `_meta["obsidian-mcp-pro/contentTrust"] = "untrusted-vault-content"`.
 
 ### Added
 
@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Tool outputs that include vault-authored bodies, snippets, previews, frontmatter values, Base data, SVG attachment text, Canvas node content, or backlink context now mark those portions with explicit untrusted-content boundaries before they enter an MCP client's model context.
+- Tool outputs that include vault-authored bodies, snippets, previews, frontmatter values, Base data, SVG attachment text, section headings, Canvas node content, or backlink context now mark those portions with explicit untrusted-content boundaries before they enter an MCP client's model context.
 - `search_notes` now caps very long matching lines with query-centered snippets, keeping result output focused without changing ranking inputs.
 - `search_notes` now renders repeated matches on the same line as one snippet row while preserving repeated-hit ranking signals.
 - `search_notes` now ranks literal matches with title/path focus and repeated-line dampening, so noisy repeated mentions are less likely to outrank focused notes.
@@ -71,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Vault text returned through read/search/semantic/canvas/link/tag/base/attachment surfaces now has explicit untrusted-content boundaries, reducing indirect prompt-injection risk from malicious note text being presented as ordinary tool instructions.
+- Vault text returned through read/search/semantic/canvas/link/tag/base/attachment/section surfaces now has explicit untrusted-content boundaries, reducing indirect prompt-injection risk from malicious note text being presented as ordinary tool instructions.
 - Display and error sanitization now escape Unicode bidi controls as `\uHHHH`, preventing vault-controlled names or snippets from visually reordering client output.
 - HTTP transport now refuses wildcard CORS (`--allow-origin=*`) unless bearer auth is configured, preventing unauthenticated loopback servers from exposing MCP responses to arbitrary browser origins.
 - `search_semantic` and `find_similar_notes` now prune stale embedding chunks before returning snippets or source-note vectors, preventing deleted or changed note text from persisting in semantic results.
