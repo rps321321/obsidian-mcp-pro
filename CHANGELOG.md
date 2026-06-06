@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Frontmatter parsing now accepts only Obsidian-style YAML delimiter lines, leaves oversized YAML blocks unparsed during vault-wide reads, and refuses metadata updates on oversized blocks.
 - Canvas link nodes now reject dangerous URL schemes after URL normalization, catching control-character-obfuscated `javascript:`, `data:`, and `vbscript:` inputs.
 - HTTP transport now refuses non-loopback binds unless bearer auth is configured, preventing accidental unauthenticated LAN exposure.
-- `replace_in_note` now rejects nested-quantifier regex shapes before matching, reducing catastrophic-backtracking risk on smaller notes.
+- `replace_in_note` now rejects nested-quantifier and ambiguous repeated-alternation regex shapes before matching, reducing catastrophic-backtracking risk on smaller notes.
 - `get_attachment` now percent-encodes vault resource URIs for blob/SVG responses, keeping control characters out of MCP resource identifiers while preserving plain paths for ordinary attachment names.
 - Persistent index-cache snapshots now use owner-only file permissions when written on POSIX systems, matching the embedding cache's private snapshot behavior.
 - `search_semantic` and `find_similar_notes` now filter persisted embedding hits through the current read allowlist, preventing stale wider-scope cache entries from leaking private paths or snippets after permissions are narrowed.
