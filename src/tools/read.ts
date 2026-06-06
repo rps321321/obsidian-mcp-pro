@@ -54,8 +54,11 @@ function untrustedReadBlock(label: string, text: string, indent = ""): string {
 }
 
 export function registerReadTools(server: McpServer, vaultPath: string): void {
-  function errorResult(text: string) {
-    return { content: [{ type: "text" as const, text }], isError: true as const };
+  function errorResult(text: string, meta?: Record<string, unknown>) {
+    return {
+      content: [{ type: "text" as const, text, ...(meta ? { _meta: meta } : {}) }],
+      isError: true as const,
+    };
   }
 
   server.registerTool(
@@ -386,7 +389,11 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         try {
           content = await readNote(vaultPath, notePath);
         } catch {
-          return errorResult(`Daily note not found for ${displayReadValue(targetDate)} (expected at "${displayReadValue(notePath)}")`);
+          const pathLabel = "get_daily_note expected path";
+          return errorResult(
+            `Daily note not found for ${displayReadValue(targetDate)}.\n${untrustedReadBlock(pathLabel, displayReadValue(notePath))}`,
+            untrustedVaultContentMeta(pathLabel),
+          );
         }
 
         const { data: dailyFrontmatter, content: dailyBody } = parseFrontmatter(content);
