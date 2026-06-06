@@ -454,9 +454,9 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         return textResultWithMeta(
           [
             `Updated section in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`,
-            renderResolvedHeading(`section heading: ${notePath}`, resolvedHeading),
+            renderResolvedHeading("update_section resolved heading", resolvedHeading),
           ].join("\n"),
-          `section heading: ${notePath}`,
+          "update_section resolved heading",
         );
       } catch (err) {
         log.error("update_section failed", { tool: "update_section", err: err as Error });
@@ -526,9 +526,9 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
         return textResultWithMeta(
           [
             `Inserted ${Buffer.byteLength(content, "utf-8")} bytes (${position}) in ${displaySectionValue(notePath)}`,
-            renderResolvedHeading(`section heading: ${notePath}`, resolvedHeading),
+            renderResolvedHeading("insert_at_section resolved heading", resolvedHeading),
           ].join("\n"),
-          `section heading: ${notePath}`,
+          "insert_at_section resolved heading",
         );
       } catch (err) {
         log.error("insert_at_section failed", { tool: "insert_at_section", err: err as Error });
@@ -556,7 +556,7 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
       try {
         return {
           content: [untrustedTextContent(
-            `section headings: ${notePath}`,
+            "list_sections headings",
             await readSectionListCached(vaultPath, notePath),
           )],
         };
