@@ -8,7 +8,8 @@ import { log } from "./lib/logger.js";
 export interface HttpServerOptions {
   host: string;
   port: number;
-  bearerToken?: string;
+  /** Required for HTTP transport. Use MCP_HTTP_TOKEN in the CLI path. */
+  bearerToken: string;
   buildMcpServer: () => McpServer;
   /** Install SIGINT/SIGTERM handlers + exit the process on shutdown. Default
    *  `true` for CLI use. Set `false` when embedding (e.g. inside an Obsidian
@@ -243,41 +244,17 @@ function clientIp(req: IncomingMessage): string {
   return addr.startsWith("::ffff:") ? addr.slice(7) : addr;
 }
 
-function normalizedBindHost(host: string): string {
-  const trimmed = host.trim().toLowerCase();
-  return trimmed.startsWith("[") && trimmed.endsWith("]")
-    ? trimmed.slice(1, -1)
-    : trimmed;
-}
-
-function isLoopbackBindHost(host: string): boolean {
-  const normalized = normalizedBindHost(host);
-  return (
-    normalized === "localhost" ||
-    normalized === "::1" ||
-    normalized.startsWith("127.") ||
-    normalized.startsWith("::ffff:127.")
-  );
-}
-
 export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServerHandle> {
   const bearerToken = opts.bearerToken?.trim();
   if (opts.bearerToken !== undefined && !bearerToken) {
     throw new Error("HTTP bearer token cannot be empty");
   }
+  if (!bearerToken) {
+    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN or pass --token.");
+  }
   const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
     ? opts.allowedOrigins
     : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
-  if (!bearerToken && allowedOrigins.includes("*")) {
-    throw new Error(
-      "HTTP bearer token is required when CORS allows all origins. Set MCP_HTTP_TOKEN or pass --token, or restrict --allow-origin.",
-    );
-  }
-  if (!bearerToken && !isLoopbackBindHost(opts.host)) {
-    throw new Error(
-      "HTTP bearer token is required when binding to a non-loopback host. Set MCP_HTTP_TOKEN or pass --token, or bind to 127.0.0.1.",
-    );
-  }
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const lastActivity = new Map<string, number>();
   const touch = (sid: string): void => { lastActivity.set(sid, Date.now()); };
@@ -392,7 +369,6 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           status: "ok",
           version: opts.version ?? "",
         };
-        if (!bearerToken) body.sessions = transports.size;
         sendJson(res, 200, body);
         return;
       }
@@ -567,10 +543,6 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     allowedOrigins: allowedOrigins.join(","),
     rateLimitPerMinute: opts.rateLimitPerMinute ?? 0,
   });
-  if (!bearerToken) {
-    log.warn("WARNING: HTTP server starting without authentication. Set MCP_HTTP_TOKEN to enable bearer token auth.");
-  }
-
   const installSignals = opts.installSignalHandlers ?? true;
   const onSignal = (): void => {
     void stop().finally(() => {
