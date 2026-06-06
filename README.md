@@ -86,7 +86,7 @@ Give AI assistants deep, structured access to your Obsidian knowledge base. Read
 ### Bases (Obsidian 1.10+)
 - `list_bases` enumerates `.base` files
 - `read_base` returns the parsed YAML (filters, properties, views)
-- `query_base` runs the filter DSL against the vault and returns matching notes; supports `taggedWith()`, `file.hasTag()`, `file.inFolder()`, comparison operators, and `and`/`or`/`not` combinators
+- `query_base` runs the filter DSL against the vault and returns matching notes; supports `taggedWith()`, `file.hasTag()`, `file.inFolder()`, comparison operators, and `and`/`or`/`not` combinators. Unsupported filters warn and fail closed instead of broadening results.
 
 ### Attachments
 - `list_attachments` enumerates every non-md/canvas/base file with a per-extension count summary
@@ -438,7 +438,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 |------|-------------|----------------|
 | `list_bases` | Enumerate `.base` files in the vault | (none) |
 | `read_base` | Parse a Base file (filters, properties, views) | `path` |
-| `query_base` | Run a Base's filter DSL against the vault | `path`, `view`, `limit`, `includeFrontmatter` |
+| `query_base` | Run a Base's filter DSL against the vault; unsupported filters warn and fail closed | `path`, `view`, `limit`, `includeFrontmatter` |
 
 ### Attachments
 

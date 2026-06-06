@@ -21,8 +21,9 @@ import { parseFrontmatter, extractTags } from "./markdown.js";
  *       - priority > 3
  *       - taggedWith(file, "tag")   # legacy function form (still accepted)
  *
- * Unsupported expressions surface as parse warnings and evaluate to `true`
- * (permissive fallback) so a partial Base still returns plausible rows.
+ * Unsupported expressions surface as parse warnings and evaluate to `false`
+ * so unsupported filters cannot broaden a query beyond the Base's visible
+ * intent.
  */
 
 export interface BaseDocument {
@@ -169,8 +170,7 @@ function flattenFilter(filter: BaseFilter | BaseFilter[] | undefined): BaseFilte
 
 /**
  * Evaluate a Base filter against a single row. Unrecognized clauses log a
- * warning and short-circuit to `true` so the row is included rather than
- * silently dropped.
+ * warning and short-circuit to `false` so unsupported filters fail closed.
  */
 export function evaluateFilter(
   row: BaseRow,
@@ -179,8 +179,8 @@ export function evaluateFilter(
   depth = 0,
 ): boolean {
   if (depth > MAX_FILTER_DEPTH) {
-    pushWarning(ctx.warnings, `Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; clauses past this depth were skipped.`);
-    return true;
+    pushWarning(ctx.warnings, `Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; treating clause as no-match.`);
+    return false;
   }
   if (filter === undefined) return true;
   if (typeof filter === "string") return evaluateExpression(row, filter, ctx);
@@ -198,7 +198,7 @@ export function evaluateFilter(
     return !evaluateFilter(row, inner, ctx, depth + 1);
   }
   pushWarning(ctx.warnings, `Unknown filter shape: ${JSON.stringify(filter)}`);
-  return true;
+  return false;
 }
 
 // ---------- Expression parsing ----------
@@ -413,9 +413,8 @@ function evaluateMethod(
         const target = firstStringArg(args, `file.${method}`, ctx);
         if (target === null) return false;
         if (!row.links) {
-          // Permissive: builder didn't supply links; warn and match-all.
-          pushWarning(ctx.warnings, `file.${method}: row has no links populated; treating as match.`);
-          return true;
+          pushWarning(ctx.warnings, `file.${method}: row has no links populated; treating as no-match.`);
+          return false;
         }
         return matchesLink(row.links, target);
       }
@@ -474,7 +473,7 @@ function evaluateValueMethod(
       return true;
     default:
       pushWarning(ctx.warnings, `Unknown method: ${chainForWarnings}.${method}`);
-      return true;
+      return false;
   }
 }
 
@@ -544,7 +543,7 @@ function evaluateFunction(
     }
     default:
       pushWarning(ctx.warnings, `Unknown filter function: ${name}`);
-      return true;
+      return false;
   }
 }
 
@@ -623,7 +622,8 @@ export function queryBase(
   if (viewName && Array.isArray(base.views)) {
     const view = base.views.find((v) => v.name === viewName || v.type === viewName);
     if (!view) {
-      pushWarning(ctx.warnings, `View not found: "${viewName}"; using base-level filters only.`);
+      pushWarning(ctx.warnings, `View not found: "${viewName}"; treating query as no-match.`);
+      return { rows: [], warnings: ctx.warnings };
     } else {
       viewFilter = flattenFilter(view.filters);
       order = Array.isArray(view.order) ? view.order : undefined;
