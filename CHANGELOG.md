@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Note read/edit helpers, `get_note`, and `obsidian://note/...` resources now reject non-`.md` vault files, keeping attachments, Canvas files, and Bases on their dedicated tool paths.
 - Folder-scoped permissions now re-check the canonical in-vault target after following symlinks, preventing allowed symlink aliases from reading or writing outside their configured folders.
 - Persistent index and embedding cache loaders now ignore oversized snapshot files before reading or parsing them, preventing corrupted vault-local cache files from forcing unbounded memory use.
 - HTTP transport now returns `400` for malformed request URL or Host data before auth and routing, preventing those requests from escaping the normal response path.

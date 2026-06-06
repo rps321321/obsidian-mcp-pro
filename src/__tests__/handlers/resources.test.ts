@@ -51,6 +51,20 @@ describe("MCP resources", () => {
     expect(firstText(result.contents)).toContain("Nested note that references [[note-a]].");
   });
 
+  it("rejects non-markdown files through the note URI template", async () => {
+    await fs.writeFile(path.join(env.vaultDir, "asset.txt"), "hidden resource body", "utf-8");
+
+    let message = "";
+    try {
+      await env.client.readResource({ uri: "obsidian://note/asset.txt" });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(message).toMatch(/not a markdown note/i);
+    expect(message).not.toContain("hidden resource body");
+  });
+
   it("reads the tag index resource as JSON", async () => {
     const result = await env.client.readResource({ uri: "obsidian://tags" });
     const content = result.contents[0];
