@@ -263,14 +263,14 @@ export function registerTagTools(server: McpServer, vaultPath: string): void {
         for (const note of matchingNotes) {
           lines.push("Path:");
           lines.push(untrustedTagBlock(
-            `search_by_tag result path: ${note.path}`,
+            "search_by_tag result path",
             displayTagValue(note.path),
             "  ",
           ));
           if (note.preview) {
             lines.push("  Preview:");
             lines.push(indentBlock(
-              formatUntrustedVaultContent(`tag preview: ${note.path}`, displayTagValue(note.preview)),
+              formatUntrustedVaultContent("search_by_tag preview", displayTagValue(note.preview)),
               "    ",
             ));
             lines.push("");
