@@ -73,6 +73,22 @@ describe("parseArgs token redaction (C7)", () => {
       delete process.env.MCP_HTTP_TOKEN;
     }
   });
+
+  it("should reject HTTP transport without a bearer token", () => {
+    process.argv = ["node", "script", "--transport", "http"];
+    expect(() => parseArgs(process.argv.slice(2))).toThrow(/bearer token is required/i);
+  });
+
+  it("should accept HTTP transport when MCP_HTTP_TOKEN is set", () => {
+    process.env.MCP_HTTP_TOKEN = "env-token";
+    try {
+      process.argv = ["node", "script", "--transport", "http"];
+      const opts = parseArgs(process.argv.slice(2));
+      expect(opts.bearerToken).toBe("env-token");
+    } finally {
+      delete process.env.MCP_HTTP_TOKEN;
+    }
+  });
 });
 
 describe("runInstall serverName sanitization (H2)", () => {

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_note`, `get_daily_note`, `search_notes`, `search_by_frontmatter`, `list_notes`, `get_recent_notes`, `get_vault_stats`, `resolve_alias`, `list_tags`, `search_by_tag` result paths and previews, `rename_tag` skipped note rows, `index_vault` failed note rows, `search_semantic` result paths and snippets, semantic heading paths, `find_similar_notes` result paths, `move_note`/`delete_note` failed referrers, `get_backlinks`, `get_outlinks`, `find_orphans`, `find_broken_links`, `get_graph_neighbors`, `list_attachments` paths and extension summaries, `find_unused_attachments`, `list_bases`, `list_canvases`, `read_canvas` paths, node identities, node colors, edge endpoints, node previews, and edge labels, `read_base`, `query_base`, SVG attachment text, section-heading output, backlink context output, and note/daily resource bodies now wrap vault-authored text or path summaries in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers. Clients that parsed raw note fragments, path rows, attachment extension summaries, failed-referrer rows, skipped-note rows, failed-note rows, search result headings, tag values, headings, link targets, canvas labels, canvas identifiers, resource bodies, or snippets should extract the text between those markers.
 - `index_vault` now requires `confirm: "send-vault-text-to-embedding-provider"` on each call before it reads notes and sends chunks to the configured embedding provider.
 - `move_note` now requires `confirmPath` to match the destination path when `updateLinks` is true, and `rename_tag` now requires `confirmTag` to match the new tag when `dryRun` is false.
+- HTTP transport now requires `--token=<secret>` or `MCP_HTTP_TOKEN`, even for loopback-only local servers.
 
 ### Added
 
@@ -59,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Semantic search now verifies persisted embedding chunk text against the live note chunks before accepting cached snippets or skipping an unchanged note.
 - `index_vault` now has a hard confirmation latch before any readable note chunks are sent to the active embedding provider.
 - `move_note` and `rename_tag` now have hard confirmation latches before vault-wide rewrites, so clients without MCP elicitation cannot silently skip the confirmation boundary.
+- HTTP transport now refuses to start without bearer auth, removing the previous warning-only tokenless loopback mode.
 - `replace_in_note` now rejects bounded repeated regex groups that contain quantified atoms before matching.
 - Tool outputs that include vault-authored bodies, snippets, previews, frontmatter values, Base data, SVG attachment text, section headings, Canvas node content, or backlink context now mark those portions with explicit untrusted-content boundaries before they enter an MCP client's model context.
 - `search_notes` result path and snippet marker labels are now generic; clients should read the path or snippet from inside the untrusted block body.
