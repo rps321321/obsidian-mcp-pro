@@ -827,6 +827,22 @@ describe("writeNote exclusive mode", () => {
     const content = await fs.readFile(path.join(vaultDir, "fresh.md"), "utf-8");
     expect(content).toBe("hello");
   });
+
+  it("removes the reserved file if the staged write fails", async () => {
+    const realWriteFile = fs.writeFile.bind(fs);
+    vi.spyOn(fs, "writeFile").mockImplementation(async (...args: Parameters<typeof fs.writeFile>) => {
+      const [file] = args;
+      if (String(file).endsWith(".tmp")) {
+        throw new Error("simulated staged write failure");
+      }
+      return realWriteFile(...args);
+    });
+
+    await expect(
+      writeNote(vaultDir, "reserved.md", "body", { exclusive: true }),
+    ).rejects.toThrow("simulated staged write failure");
+    await expect(fs.access(path.join(vaultDir, "reserved.md"))).rejects.toThrow();
+  });
 });
 
 describe("atomic writes", () => {
