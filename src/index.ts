@@ -132,6 +132,9 @@ export function parseArgs(argv: string[]): CliOptions {
       throw new Error("--token / MCP_HTTP_TOKEN cannot be empty");
     }
   }
+  if (opts.transport === "http" && opts.bearerToken === undefined) {
+    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN or pass --token.");
+  }
   if (!Number.isFinite(opts.port) || opts.port < 1 || opts.port > 65535) {
     throw new Error(`Invalid port: ${opts.port}`);
   }
@@ -157,7 +160,7 @@ Serve options:
   --transport=<stdio|http>                  Transport to use (default: stdio)
   --host=<addr>                             HTTP bind host (default: 127.0.0.1)
   --port=<n>                                HTTP port (default: 3333)
-  --token=<secret>                          Require Bearer <secret> (prefer env MCP_HTTP_TOKEN to avoid leaking via ps/cmdline)
+  --token=<secret>                          Bearer token for HTTP transport (prefer env MCP_HTTP_TOKEN to avoid leaking via ps/cmdline)
   --allow-origin=<origins>                  Comma-separated CORS/Origin allowlist (default: localhost-only)
   --rate-limit=<n>                          Max requests per minute per IP (default: unlimited)
 
@@ -387,6 +390,10 @@ async function main(): Promise<void> {
   const vaultPath = resolveVaultPathOrWarn();
 
   if (opts.transport === "http") {
+    const bearerToken = opts.bearerToken;
+    if (!bearerToken) {
+      throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN or pass --token.");
+    }
     // Single McpServer instance shared across sessions — the canonical SDK
     // pattern (one server, one transport per session, transports share the
     // server's tool/resource registry). Tools here are stateless, so nothing
@@ -394,7 +401,7 @@ async function main(): Promise<void> {
     await startHttpServer({
       host: opts.host,
       port: opts.port,
-      bearerToken: opts.bearerToken,
+      bearerToken,
       allowedOrigins: opts.allowedOrigins,
       rateLimitPerMinute: opts.rateLimitPerMinute,
       buildMcpServer: () => buildMcpServer(vaultPath),

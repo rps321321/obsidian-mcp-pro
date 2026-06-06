@@ -3,6 +3,9 @@ import * as http from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { startHttpServer, type HttpServerHandle } from "../http-server.js";
 
+const TEST_TOKEN = "test-http-token";
+const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+
 // Regression coverage for the v1.8.x HTTP audit:
 //   C1 — DNS-rebinding allowedHosts ref was captured empty, silently disabling
 //        Host validation (now mutated in place after listen()).
@@ -28,6 +31,7 @@ async function startOnEphemeral(
     buildMcpServer: buildNoopServer,
     installSignalHandlers: false,
     ...overrides,
+    bearerToken: overrides.bearerToken ?? TEST_TOKEN,
   });
 }
 
@@ -256,6 +260,7 @@ describe("regression: DSS-R04-C035 — HTTP body caps fail fast", () => {
       path: "/mcp",
       headers: {
         "Content-Type": "application/json",
+        ...AUTH_HEADERS,
         "Content-Length": String(4 * 1024 * 1024 + 1),
       },
     });
@@ -273,6 +278,7 @@ describe("regression: DSS-R04-C035 — HTTP body caps fail fast", () => {
       path: "/mcp",
       headers: {
         "Content-Type": "application/json",
+        ...AUTH_HEADERS,
         "Transfer-Encoding": "chunked",
       },
       initialBody: Buffer.alloc(4 * 1024 * 1024 + 1, 0x78),
@@ -290,7 +296,7 @@ describe("regression: M1 — POST with non-JSON Content-Type returns 415", () =>
 
     const res = await fetch(handle.url, {
       method: "POST",
-      headers: { "Content-Type": "text/plain" },
+      headers: { "Content-Type": "text/plain", ...AUTH_HEADERS },
       body: "not json at all",
     });
     expect(res.status).toBe(415);
@@ -307,6 +313,7 @@ describe("regression: M1 — POST with non-JSON Content-Type returns 415", () =>
     const res = await rawRequest(handle.port, {
       method: "POST",
       path: "/mcp",
+      headers: AUTH_HEADERS,
       body: "{}",
     });
     expect(res.status).toBe(415);
@@ -317,7 +324,7 @@ describe("regression: M1 — POST with non-JSON Content-Type returns 415", () =>
     handles.push(handle);
     const res = await fetch(handle.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
+      headers: { "Content-Type": "application/json; charset=utf-8", ...AUTH_HEADERS },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
     });
     // Whatever the MCP layer does next, it must NOT be a Content-Type 415.
@@ -339,18 +346,14 @@ describe("regression: M2 — /version gates non-GET methods when bearerToken is 
     expect(res.headers.get("www-authenticate")).toMatch(/Bearer/);
   });
 
-  it("POST /version succeeds (200) when no bearerToken is configured", async () => {
-    const handle = await startOnEphemeral({ version: "9.9.9" });
-    handles.push(handle);
-
-    const res = await fetch(`http://127.0.0.1:${handle.port}/version`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { version: string };
-    expect(body.version).toBe("9.9.9");
+  it("refuses to start without bearer auth instead of exposing tokenless /version writes", async () => {
+    await expect(startHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      version: "9.9.9",
+      buildMcpServer: buildNoopServer,
+      installSignalHandlers: false,
+    } as Parameters<typeof startHttpServer>[0])).rejects.toThrow(/bearer token is required/i);
   });
 
   it("POST /version with the correct bearer token returns 200", async () => {
@@ -387,6 +390,7 @@ describe("regression: M5 — repeated startHttpServer does not leak signal liste
     const h1 = await startHttpServer({
       host: "127.0.0.1",
       port: 0,
+      bearerToken: "secret",
       buildMcpServer: buildNoopServer,
       installSignalHandlers: true,
     });
@@ -395,6 +399,7 @@ describe("regression: M5 — repeated startHttpServer does not leak signal liste
     const h2 = await startHttpServer({
       host: "127.0.0.1",
       port: 0,
+      bearerToken: "secret",
       buildMcpServer: buildNoopServer,
       installSignalHandlers: true,
     });
@@ -490,9 +495,13 @@ describe("regression: HTTP bearer token must not be empty", () => {
   });
 
   it("rejects wildcard CORS without bearer auth", async () => {
-    await expect(startOnEphemeral({ allowedOrigins: ["*"] })).rejects.toThrow(
-      /bearer token.*CORS.*all origins/i,
-    );
+    await expect(startHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      allowedOrigins: ["*"],
+      buildMcpServer: buildNoopServer,
+      installSignalHandlers: false,
+    } as Parameters<typeof startHttpServer>[0])).rejects.toThrow(/bearer token is required/i);
   });
 
   it("allows wildcard CORS when bearer auth is configured", async () => {
@@ -522,7 +531,7 @@ describe("regression: HTTP bearer token must not be empty", () => {
         port: 0,
         buildMcpServer: buildNoopServer,
         installSignalHandlers: false,
-      });
+      } as Parameters<typeof startHttpServer>[0]);
     } catch (caught) {
       err = caught;
     } finally {
@@ -530,7 +539,7 @@ describe("regression: HTTP bearer token must not be empty", () => {
     }
 
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toMatch(/bearer token.*non-loopback/i);
+    expect((err as Error).message).toMatch(/bearer token is required/i);
   });
 
   it("allows non-loopback binds when bearer auth is configured", async () => {

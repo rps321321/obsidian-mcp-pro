@@ -4,6 +4,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startHttpServer, type HttpServerHandle } from "../http-server.js";
 
+const TEST_TOKEN = "test-http-token";
+const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+
 function buildNoopServer(): McpServer {
   return new McpServer({ name: "test", version: "0.0.0" });
 }
@@ -27,6 +30,7 @@ async function startOnEphemeral(
       buildMcpServer: buildNoopServer,
       installSignalHandlers: false,
       ...overrides,
+      bearerToken: overrides.bearerToken ?? TEST_TOKEN,
     });
     if (!FETCH_FORBIDDEN_PORTS.has(handle.port)) return handle;
     await handle.stop();
@@ -51,6 +55,17 @@ afterEach(async () => {
     await handle.stop();
     handle = null;
   }
+});
+
+describe("HTTP server — required Bearer auth", () => {
+  it("refuses to start without a bearer token, even on loopback", async () => {
+    await expect(startHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      buildMcpServer: buildNoopServer,
+      installSignalHandlers: false,
+    } as Parameters<typeof startHttpServer>[0])).rejects.toThrow(/bearer token is required/i);
+  });
 });
 
 describe("HTTP server — Bearer auth (regression guard for timing-safe compare / 401 behavior)", () => {
@@ -103,7 +118,7 @@ describe("HTTP server — oversize body (regression guard for 413 / drain)", () 
     const huge = "x".repeat(5 * 1024 * 1024); // 5 MB
     const res = await fetch(`${handle.url}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "noop", params: { huge } }),
     });
     expect(res.status).toBe(413);
@@ -194,7 +209,7 @@ describe("HTTP server — rate limiting", () => {
     const hit = async (): Promise<number> => {
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
         body,
       });
       // Drain the body so the socket can be reused / freed cleanly.
@@ -215,7 +230,11 @@ describe("HTTP server — rate limiting", () => {
     const port = pickPort();
     handle = await startOnEphemeral({ port, rateLimitPerMinute: 1 });
     // Burn the one allowed /mcp request.
-    await fetch(`${handle.url}`, { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+    await fetch(`${handle.url}`, {
+      method: "POST",
+      body: "{}",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+    });
     // Health and version still respond 200 even though the window is exhausted.
     for (let i = 0; i < 5; i++) {
       const h = await fetch(`http://127.0.0.1:${handle.port}/health`);
@@ -236,14 +255,18 @@ describe("HTTP server: multi-session lifecycle (regression for #8)", () => {
     handle = await startOnEphemeral();
 
     const clientA = new Client({ name: "session-a", version: "0.0.0" });
-    const transportA = new StreamableHTTPClientTransport(new URL(handle.url));
+    const transportA = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
     await clientA.connect(transportA);
     expect(transportA.sessionId).toBeTruthy();
     await clientA.close();
 
     // Pre-fix: second initialize → 500 "Already connected to a transport".
     const clientB = new Client({ name: "session-b", version: "0.0.0" });
-    const transportB = new StreamableHTTPClientTransport(new URL(handle.url));
+    const transportB = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
     await clientB.connect(transportB);
     expect(transportB.sessionId).toBeTruthy();
     expect(transportB.sessionId).not.toBe(transportA.sessionId);
@@ -254,9 +277,13 @@ describe("HTTP server: multi-session lifecycle (regression for #8)", () => {
     handle = await startOnEphemeral();
 
     const clientA = new Client({ name: "session-a", version: "0.0.0" });
-    const transportA = new StreamableHTTPClientTransport(new URL(handle.url));
+    const transportA = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
     const clientB = new Client({ name: "session-b", version: "0.0.0" });
-    const transportB = new StreamableHTTPClientTransport(new URL(handle.url));
+    const transportB = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
 
     // Connect both before either closes. This exercises the
     // singleton-Protocol failure mode, where the second `connect()` happens
@@ -289,9 +316,7 @@ describe("HTTP server — /version", () => {
     const body = (await res.json()) as { status: string; version: string; sessions?: number };
     expect(body.status).toBe("ok");
     expect(body.version).toBe("1.2.3");
-    // Without a bearer token configured, the live session count is part
-    // of the /health response so local-only operators can see usage.
-    expect(typeof body.sessions).toBe("number");
+    expect(body.sessions).toBeUndefined();
   });
 
   // Regression for the v1.8.1-audit finding: when a Bearer token is
