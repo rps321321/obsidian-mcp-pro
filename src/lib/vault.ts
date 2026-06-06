@@ -741,6 +741,37 @@ async function chooseTrashPath(trashFullPath: string): Promise<string> {
   throw new Error(`Could not allocate unique trash path for ${path.basename(trashFullPath)}`);
 }
 
+async function ensureTrashParentDirectory(
+  vaultPath: string,
+  trashRoot: string,
+  parentDir: string,
+): Promise<void> {
+  const root = path.resolve(trashRoot);
+  const parent = path.resolve(parentDir);
+  if (parent !== root && !parent.startsWith(root + path.sep)) {
+    throw new Error("Invalid trash path parent");
+  }
+
+  const realVault = await getRealVaultRoot(vaultPath);
+  const relative = path.relative(root, parent);
+  const segments = relative === "" ? [] : relative.split(path.sep).filter(Boolean);
+  let current = root;
+
+  for (const segment of ["", ...segments]) {
+    if (segment) current = path.join(current, segment);
+    try {
+      await fs.mkdir(current);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+    await assertRealPathWithinVault(current, vaultPath, realVault);
+    const stat = await fs.stat(current);
+    if (!stat.isDirectory()) {
+      throw new Error(`Trash path parent is not a directory: ${path.basename(current)}`);
+    }
+  }
+}
+
 export async function deleteNote(
   vaultPath: string,
   relativePath: string,
@@ -784,9 +815,9 @@ export async function deleteNote(
         ) {
           throw new Error(`Invalid trash path: ${relativePath}`);
         }
-        await fs.mkdir(path.dirname(trashFullPath), { recursive: true });
-        // Realpath check on the canonical destination: rejects a symlinked
-        // `.trash` (or any intermediate dir) that resolves outside the vault.
+        await ensureTrashParentDirectory(vaultPath, trashRoot, path.dirname(trashFullPath));
+        // Realpath check on the canonical destination: rejects a symlink swap
+        // after parent creation but before the rename.
         await assertRealPathWithinVault(trashFullPath, vaultPath);
         const finalTrashPath = await chooseTrashPath(trashFullPath);
         await renameWithRetry(fullPath, finalTrashPath);
