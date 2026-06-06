@@ -316,7 +316,7 @@ Two caches live under `<vault>/.obsidian/cache/`:
 | `mcp-pro-index-cache.json` | mtime-keyed snapshot of recently read notes. The next process start hydrates from this and stat-passes against the live filesystem; only changed notes are re-read. |
 | `mcp-pro-embeddings.json` | Persisted embeddings for semantic search (only present once `index_vault` has run). Vault-relocation safe via an embedded `vaultRoot` check; switching providers / models invalidates entries automatically. |
 
-Both are vault-local, are excluded from vault scans (`.obsidian/` is pruned), and can be deleted at any time. Persistence can be turned off entirely with `OBSIDIAN_CACHE_DISABLED=1`.
+Both are vault-local, are excluded from vault scans (`.obsidian/` is pruned), and can be deleted at any time. Oversized snapshots are ignored before loading so a corrupted or synced cache file cannot force an unbounded JSON parse. Persistence can be turned off entirely with `OBSIDIAN_CACHE_DISABLED=1`.
 
 ### Semantic Search Provider
 

@@ -164,7 +164,18 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
     }
     let raw: string;
     try {
-      raw = await fs.readFile(await storePath(vaultPath), "utf-8");
+      const file = await storePath(vaultPath);
+      const stat = await fs.stat(file);
+      if (stat.size > maxEmbeddingBytes) {
+        log.warn("embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES; ignoring", {
+          bytes: stat.size,
+          max: maxEmbeddingBytes,
+        });
+        state.loaded = true;
+        state.loadingPromise = null;
+        return state;
+      }
+      raw = await fs.readFile(file, "utf-8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         log.warn("embedding-store: failed to read snapshot", { err: err as Error });
