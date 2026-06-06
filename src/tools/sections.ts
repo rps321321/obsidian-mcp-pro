@@ -11,6 +11,12 @@ import {
   insertAfterHeading,
 } from "../lib/sections.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
+import {
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedTextContent,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 
 const SECTION_LIST_CACHE_LIMIT = 16;
@@ -31,12 +37,29 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function textResultWithMeta(text: string, metaLabel: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text,
+      _meta: untrustedVaultContentMeta(metaLabel),
+    }],
+  };
+}
+
 function errorResult(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
 
 /** Escape control characters before embedding values in section-tool display text. */
 const displaySectionValue = escapeControlChars;
+
+function renderResolvedHeading(label: string, heading: string): string {
+  return [
+    "Resolved heading:",
+    indentBlock(formatUntrustedVaultContent(label, displaySectionValue(heading)), "  "),
+  ].join("\n");
+}
 
 async function assertReadableEditTarget(vaultPath: string, notePath: string): Promise<void> {
   await resolveVaultPathSafe(vaultPath, notePath, "read");
@@ -428,8 +451,12 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           return updated;
         });
         invalidateSectionListCache(vaultPath, notePath);
-        return textResult(
-          `Updated section "${displaySectionValue(resolvedHeading)}" in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`,
+        return textResultWithMeta(
+          [
+            `Updated section in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`,
+            renderResolvedHeading(`section heading: ${notePath}`, resolvedHeading),
+          ].join("\n"),
+          `section heading: ${notePath}`,
         );
       } catch (err) {
         log.error("update_section failed", { tool: "update_section", err: err as Error });
@@ -496,8 +523,12 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
           return before + payload + after;
         });
         invalidateSectionListCache(vaultPath, notePath);
-        return textResult(
-          `Inserted ${Buffer.byteLength(content, "utf-8")} bytes into "${displaySectionValue(resolvedHeading)}" (${position}) in ${displaySectionValue(notePath)}`,
+        return textResultWithMeta(
+          [
+            `Inserted ${Buffer.byteLength(content, "utf-8")} bytes (${position}) in ${displaySectionValue(notePath)}`,
+            renderResolvedHeading(`section heading: ${notePath}`, resolvedHeading),
+          ].join("\n"),
+          `section heading: ${notePath}`,
         );
       } catch (err) {
         log.error("insert_at_section failed", { tool: "insert_at_section", err: err as Error });
@@ -523,7 +554,12 @@ export function registerSectionTools(server: McpServer, vaultPath: string): void
     },
     async ({ path: notePath }) => {
       try {
-        return textResult(await readSectionListCached(vaultPath, notePath));
+        return {
+          content: [untrustedTextContent(
+            `section headings: ${notePath}`,
+            await readSectionListCached(vaultPath, notePath),
+          )],
+        };
       } catch (err) {
         log.error("list_sections failed", { tool: "list_sections", err: err as Error });
         return errorResult(`Error listing sections: ${sanitizeError(err)}`);
