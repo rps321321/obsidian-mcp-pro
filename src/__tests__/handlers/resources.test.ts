@@ -48,6 +48,7 @@ describe("MCP resources", () => {
       uri: "obsidian://note/nested/note-d.md",
       mimeType: "text/markdown",
     });
+    expect(content?._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     expect(firstText(result.contents)).toContain("Nested note that references [[note-a]].");
   });
 
@@ -73,6 +74,7 @@ describe("MCP resources", () => {
       uri: "obsidian://tags",
       mimeType: "application/json",
     });
+    expect(content?._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
 
     const tags = JSON.parse(firstText(result.contents)) as Record<string, string[]>;
     expect(tags["#review"]).toEqual(expect.arrayContaining(["note-a.md", "note-b.md"]));

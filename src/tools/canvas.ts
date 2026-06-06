@@ -5,6 +5,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listCanvasFiles, readCanvasFile, updateCanvasFile, resolveVaultPathSafe } from "../lib/vault.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
+import {
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 import type { CanvasNode, CanvasData } from "../types.js";
 
@@ -108,7 +113,14 @@ function renderCanvasSummary(canvasPath: string, data: CanvasData): string {
         `  [${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)} pos=${pos} size=${size}`,
       );
       if (preview) {
-        lines.push(`    content: ${displayCanvasValue(preview)}`);
+        lines.push("    content:");
+        lines.push(indentBlock(
+          formatUntrustedVaultContent(
+            `canvas node content: ${canvasPath}#${node.id}`,
+            displayCanvasValue(preview),
+          ),
+          "      ",
+        ));
       }
       if (node.color) {
         lines.push(`    color: ${displayCanvasValue(node.color)}`);
@@ -230,7 +242,13 @@ export function registerCanvasTools(server: McpServer, vaultPath: string): void 
     async ({ path: canvasPath }) => {
       try {
         const text = await readCanvasSummaryCached(vaultPath, canvasPath);
-        return { content: [{ type: "text" as const, text }] };
+        return {
+          content: [{
+            type: "text" as const,
+            text,
+            _meta: untrustedVaultContentMeta(`canvas summary: ${canvasPath}`),
+          }],
+        };
       } catch (err) {
         log.error("read_canvas failed", { tool: "read_canvas", err: err as Error });
         return errorResult(`Error reading canvas: ${sanitizeError(err)}`);

@@ -5,6 +5,11 @@ import { listNotes, getNoteStats, getVaultRootRealPath } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
 import { extractWikilinks, extractAliases } from "../lib/markdown.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
+import {
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 import type { LinkInfo, BrokenLink, OrphanNote, GraphNeighbor } from "../types.js";
 
@@ -494,17 +499,32 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
           return true;
         });
 
-        const output = [
+        const outputLines = [
           `Backlinks to: ${displayLinkValue(resolvedTarget)}`,
           `Found: ${deduped.length} backlink(s)\n`,
-          ...deduped.map((r) => {
-            const lineStr = r.line > 0 ? `:${r.line}` : "";
-            const contextStr = r.context ? `  → ${displayLinkValue(r.context)}` : "";
-            return `- ${displayLinkValue(r.source)}${lineStr}${contextStr}`;
-          }),
-        ].join("\n");
+        ];
+        for (const r of deduped) {
+          const lineStr = r.line > 0 ? `:${r.line}` : "";
+          outputLines.push(`- ${displayLinkValue(r.source)}${lineStr}`);
+          if (r.context) {
+            outputLines.push(indentBlock(
+              `→ ${formatUntrustedVaultContent(
+                `backlink context: ${r.source}:${r.line}`,
+                displayLinkValue(r.context),
+              )}`,
+              "  ",
+            ));
+          }
+        }
+        const output = outputLines.join("\n");
 
-        return { content: [{ type: "text" as const, text: output }] };
+        return {
+          content: [{
+            type: "text" as const,
+            text: output,
+            _meta: untrustedVaultContentMeta("get_backlinks context"),
+          }],
+        };
       } catch (err) {
         log.error("get_backlinks failed", { tool: "get_backlinks", err: err as Error });
         return errorResult(`Error finding backlinks: ${sanitizeError(err)}`);

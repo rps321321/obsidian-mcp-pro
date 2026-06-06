@@ -18,6 +18,12 @@ import { formatLocalDateOnly, formatMomentDate, parseLocalDateOnly } from "../li
 import { parseFrontmatter, extractTags, extractAliases } from "../lib/markdown.js";
 import { findSection, findBlockById, stripBlockId } from "../lib/sections.js";
 import { getDailyNoteConfig } from "../config.js";
+import {
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedTextContent,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 
 /** Maximum number of concurrent file I/O operations for parallel vault scans. */
 const MAX_CONCURRENT_OPS = 16;
@@ -101,13 +107,24 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         for (const result of results) {
           lines.push(`## ${displayReadValue(result.relativePath)}`);
           for (const match of result.matches) {
-            lines.push(`  Line ${match.line}: ${displayReadValue(match.content)}`);
+            lines.push(`  Line ${match.line}:`);
+            lines.push(indentBlock(
+              formatUntrustedVaultContent(
+                `search snippet: ${result.relativePath}:${match.line}`,
+                displayReadValue(match.content),
+              ),
+              "    ",
+            ));
           }
           lines.push("");
         }
 
         return {
-          content: [{ type: "text" as const, text: lines.join("\n") }],
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            _meta: untrustedVaultContentMeta("search_notes snippets"),
+          }],
         };
       } catch (err) {
         log.error("search_notes failed", { tool: "search_notes", err: err as Error });
@@ -162,7 +179,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
               return errorResult(`Line ${range.pastEndLine.requested} is past end of file (${range.pastEndLine.total} lines)`);
             }
             return {
-              content: [{ type: "text" as const, text: range.text }],
+              content: [untrustedTextContent(`note fragment: ${notePath} lines ${a}-${b}`, range.text)],
             };
           }
         }
@@ -179,12 +196,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             return errorResult(`Section not found: "${displayReadValue(section)}" in ${displayReadValue(notePath)}`);
           }
           return {
-            content: [
-              {
-                type: "text" as const,
-                text: content.slice(found.start, found.end),
-              },
-            ],
+            content: [untrustedTextContent(`note section: ${notePath}#${section}`, content.slice(found.start, found.end))],
           };
         }
 
@@ -194,12 +206,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
             return errorResult(`Block not found: "^${displayReadValue(block)}" in ${displayReadValue(notePath)}`);
           }
           return {
-            content: [
-              {
-                type: "text" as const,
-                text: stripBlockId(content.slice(found.start, found.end)),
-              },
-            ],
+            content: [untrustedTextContent(`note block: ${notePath}^${block}`, stripBlockId(content.slice(found.start, found.end)))],
           };
         }
 
@@ -214,7 +221,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           }
           const slice = allLines.slice(a - 1, Math.min(b, allLines.length));
           return {
-            content: [{ type: "text" as const, text: slice.join("\n") }],
+            content: [untrustedTextContent(`note fragment: ${notePath} lines ${a}-${b}`, slice.join("\n"))],
           };
         }
 
@@ -236,13 +243,15 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           header.push("");
         }
 
+        const renderedNote = header.length > 0
+          ? header.join("\n") + bodyContent
+          : content;
         return {
           content: [
             {
               type: "text" as const,
-              text: header.length > 0
-                ? header.join("\n") + bodyContent
-                : content,
+              text: formatUntrustedVaultContent(`note: ${notePath}`, renderedNote),
+              _meta: untrustedVaultContentMeta(`note: ${notePath}`),
             },
           ],
         };
@@ -369,7 +378,11 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
 
         return {
           content: [
-            { type: "text" as const, text: header.join("\n") + dailyBody },
+            {
+              type: "text" as const,
+              text: formatUntrustedVaultContent(`daily note: ${notePath}`, header.join("\n") + dailyBody),
+              _meta: untrustedVaultContentMeta(`daily note: ${notePath}`),
+            },
           ],
         };
       } catch (err) {
@@ -462,8 +475,15 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
 
         for (const match of matches) {
           lines.push(`## ${displayReadValue(match.path)}`);
+          const frontmatterLines: string[] = [];
           for (const [key, val] of Object.entries(match.frontmatter)) {
-            lines.push(`  ${displayReadValue(key)}: ${displayReadValue(JSON.stringify(val) ?? "")}`);
+            frontmatterLines.push(`${displayReadValue(key)}: ${displayReadValue(JSON.stringify(val) ?? "")}`);
+          }
+          if (frontmatterLines.length > 0) {
+            lines.push(indentBlock(
+              formatUntrustedVaultContent(`frontmatter: ${match.path}`, frontmatterLines.join("\n")),
+              "  ",
+            ));
           }
           lines.push("");
         }
@@ -473,7 +493,11 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
         }
 
         return {
-          content: [{ type: "text" as const, text: lines.join("\n") }],
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            _meta: untrustedVaultContentMeta("search_by_frontmatter values"),
+          }],
         };
       } catch (err) {
         log.error("search_by_frontmatter failed", { tool: "search_by_frontmatter", err: err as Error });
