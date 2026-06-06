@@ -13,7 +13,7 @@ import { flushAllCachesAsync, readAllCached } from "./lib/index-cache.js";
 import { extractTags } from "./lib/markdown.js";
 import { log, configureLogger } from "./lib/logger.js";
 import { escapeControlChars, sanitizeError } from "./lib/errors.js";
-import { untrustedVaultContentMeta } from "./lib/tool-output.js";
+import { formatUntrustedVaultContent, untrustedVaultContentMeta } from "./lib/tool-output.js";
 import { formatMomentDate } from "./lib/dates.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
@@ -235,7 +235,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
               uri: uri.href,
               mimeType: "text/markdown",
               text: content,
-              _meta: untrustedVaultContentMeta(`note resource: ${notePath}`),
+              _meta: untrustedVaultContentMeta("note resource body"),
             },
           ],
         };
@@ -299,7 +299,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
             uri: uri.href,
             mimeType: "text/markdown",
             text: content,
-            _meta: untrustedVaultContentMeta(`daily note resource: ${notePath}`),
+            _meta: untrustedVaultContentMeta("daily note resource body"),
           },
         ],
       };
@@ -308,7 +308,10 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       // response with body "No daily note found..." is indistinguishable to
       // MCP clients from a real note whose first line happens to say the
       // same thing — clients need a proper error so they can branch on it.
-      throw new Error(`No daily note found for today (expected at ${displayResourceValue(notePath)})`);
+      const pathLabel = "daily note resource expected path";
+      throw new Error(
+        `No daily note found for today.\n${formatUntrustedVaultContent(pathLabel, displayResourceValue(notePath))}`,
+      );
     }
   });
 

@@ -314,11 +314,39 @@ describe("write handlers — create_daily_note", () => {
     });
 
     expect(isError(result)).toBe(false);
-    expect(textContent(result)).toContain("daily\\x7fnotes/2026-05-07.md");
-    expect(textContent(result)).not.toContain(`${dirtyFolder}/2026-05-07.md`);
+    const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: create_daily_note path]");
+    expect(text).toContain("daily\\x7fnotes/2026-05-07.md");
+    expect(text).not.toContain(`${dirtyFolder}/2026-05-07.md`);
+    const content = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(content._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("create_daily_note path");
     await expect(
       fs.access(path.join(env.vaultDir, dirtyFolder, "2026-05-07.md")),
     ).resolves.toBeUndefined();
+  });
+
+  it("marks configured daily-note paths in already-exists output as untrusted", async () => {
+    const dirtyFolder = "daily\x7fnotes";
+    await fs.writeFile(
+      path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: dirtyFolder, format: "YYYY-MM-DD" }),
+      "utf-8",
+    );
+    await fs.mkdir(path.join(env.vaultDir, dirtyFolder), { recursive: true });
+    await fs.writeFile(path.join(env.vaultDir, dirtyFolder, "2026-05-07.md"), "Already here.", "utf-8");
+
+    const result = await env.client.callTool({
+      name: "create_daily_note",
+      arguments: { date: "2026-05-07", content: "May 7 entry." },
+    });
+
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: create_daily_note path]");
+    expect(text).toContain("daily\\x7fnotes/2026-05-07.md");
+    expect(text).not.toContain(`${dirtyFolder}/2026-05-07.md`);
+    const content = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(content._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("create_daily_note path");
   });
 });
 

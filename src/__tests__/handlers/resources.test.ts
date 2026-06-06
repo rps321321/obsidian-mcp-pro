@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { createTestEnv, type TestEnv } from "./harness.js";
+import { formatMomentDate } from "../../lib/dates.js";
 
 let env: TestEnv;
 
@@ -49,6 +50,8 @@ describe("MCP resources", () => {
       mimeType: "text/markdown",
     });
     expect(content?._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(content?._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("note resource body");
+    expect(content?._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).not.toContain("nested/note-d.md");
     expect(firstText(result.contents)).toContain("Nested note that references [[note-a]].");
   });
 
@@ -102,7 +105,28 @@ describe("MCP resources", () => {
     expect(text).not.toContain(dirtyPath);
   });
 
-  it("escapes configured daily-note paths in missing daily resource errors", async () => {
+  it("uses generic metadata labels for daily resource bodies", async () => {
+    const today = formatMomentDate(new Date(), "YYYY-MM-DD");
+    await fs.writeFile(
+      path.join(env.vaultDir, "daily", `${today}.md`),
+      "# Today\n\nDaily resource fixture.",
+      "utf-8",
+    );
+
+    const result = await env.client.readResource({ uri: "obsidian://daily" });
+    const content = result.contents[0];
+
+    expect(content).toMatchObject({
+      uri: "obsidian://daily",
+      mimeType: "text/markdown",
+    });
+    expect(content?._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(content?._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("daily note resource body");
+    expect(content?._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).not.toContain(`daily/${today}.md`);
+    expect(firstText(result.contents)).toContain("Daily resource fixture.");
+  });
+
+  it("marks configured daily-note paths in missing daily resource errors as untrusted", async () => {
     const dirtyFolder = "daily\nnotes";
     await fs.writeFile(
       path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
@@ -116,6 +140,7 @@ describe("MCP resources", () => {
       message = err instanceof Error ? err.message : String(err);
     }
 
+    expect(message).toContain("[BEGIN UNTRUSTED VAULT CONTENT: daily note resource expected path]");
     expect(message).toContain("daily\\nnotes/");
     expect(message).not.toContain(dirtyFolder);
   });
