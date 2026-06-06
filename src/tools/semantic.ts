@@ -68,6 +68,13 @@ function semanticHeadingBlock(notePath: string, headingPath: readonly string[]):
   );
 }
 
+function semanticPathBlock(label: string, notePath: string, indent = "    "): string {
+  return indentBlock(
+    formatUntrustedVaultContent(label, displaySemanticValue(notePath)),
+    indent,
+  );
+}
+
 function canReadStoredEmbeddingNote(vaultPath: string, notePath: string): boolean {
   try {
     resolveVaultPath(vaultPath, notePath, "read");
@@ -431,7 +438,9 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
 
         const lines: string[] = [`${hits.length} match(es) for "${displaySemanticValue(query)}":`, ""];
         for (const hit of hits) {
-          lines.push(`- ${displaySemanticValue(hit.notePath)}  [score: ${hit.score.toFixed(3)}]`);
+          lines.push(`- score: ${hit.score.toFixed(3)}`);
+          lines.push("    Path:");
+          lines.push(semanticPathBlock(`search_semantic result path: ${hit.notePath}`, hit.notePath));
           if (hit.headingPath.length > 0) {
             lines.push("    Heading:");
             lines.push(semanticHeadingBlock(hit.notePath, hit.headingPath));
@@ -523,16 +532,15 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         }
         const lines: string[] = [`${ranked.length} note(s) similar to ${displaySemanticValue(notePath)}:`, ""];
         for (const r of ranked) {
-          lines.push(`- ${displaySemanticValue(r.notePath)}  [score: ${r.score.toFixed(3)}]`);
+          lines.push(`- score: ${r.score.toFixed(3)}`);
+          lines.push("    Path:");
+          lines.push(semanticPathBlock(`find_similar_notes result path: ${r.notePath}`, r.notePath));
           if (r.headingPath.length > 0) {
             lines.push("    Heading:");
             lines.push(semanticHeadingBlock(r.notePath, r.headingPath));
           }
         }
-        const hasHeading = ranked.some((r) => r.headingPath.length > 0);
-        return hasHeading
-          ? untrustedVaultTextResult(lines.join("\n"), "find_similar_notes headings")
-          : textResult(lines.join("\n"));
+        return untrustedVaultTextResult(lines.join("\n"), "find_similar_notes paths and headings");
       } catch (err) {
         log.error("find_similar_notes failed", { tool: "find_similar_notes", err: err as Error });
         return errorResult(`Error finding similar notes: ${sanitizeError(err)}`);
