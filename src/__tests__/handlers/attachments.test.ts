@@ -4,6 +4,7 @@ import path from "path";
 import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
 
 let env: TestEnv;
+const itWin32 = process.platform === "win32" ? it : it.skip;
 
 beforeEach(async () => {
   env = await createTestEnv({
@@ -206,6 +207,15 @@ describe("attachments handlers — get_attachment", () => {
     const text = textContent(result);
     expect(text).toContain('"tools/bad\\tthing.exe"');
     expect(text).not.toContain("tools/bad\tthing.exe");
+  });
+
+  itWin32("rejects Windows alternate data stream attachment paths", async () => {
+    const result = await env.client.callTool({
+      name: "get_attachment",
+      arguments: { path: "assets/used-image.png:hidden.txt" },
+    });
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/alternate data stream/i);
   });
 
   it("enforces the maxBytes cap", async () => {
