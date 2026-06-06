@@ -20,8 +20,11 @@ const SEARCH_REPEATED_SAME_LINE_PENALTY = 0.5;
 const SEARCH_SNIPPET_MAX_CHARS = 240;
 const SEARCH_SNIPPET_OMISSION = "...";
 const MAX_NOTE_FILE_BYTES_DEFAULT = 5 * 1024 * 1024;
+const MAX_NOTE_LINE_RANGE_BYTES_DEFAULT = MAX_NOTE_FILE_BYTES_DEFAULT;
 let maxNoteFileBytes = MAX_NOTE_FILE_BYTES_DEFAULT;
+let maxNoteLineRangeBytes = MAX_NOTE_LINE_RANGE_BYTES_DEFAULT;
 export const MAX_NOTE_FILE_BYTES = MAX_NOTE_FILE_BYTES_DEFAULT;
+export const MAX_NOTE_LINE_RANGE_BYTES = MAX_NOTE_LINE_RANGE_BYTES_DEFAULT;
 export const MAX_CANVAS_FILE_BYTES = 1_048_576;
 const MAX_CANVAS_NODES = 10_000;
 const MAX_CANVAS_EDGES = 20_000;
@@ -38,6 +41,10 @@ function assertMarkdownNotePath(relativePath: string): void {
 
 export function setMaxNoteFileBytesForTests(bytes: number | null): void {
   maxNoteFileBytes = bytes === null ? MAX_NOTE_FILE_BYTES_DEFAULT : bytes;
+}
+
+export function setMaxNoteLineRangeBytesForTests(bytes: number | null): void {
+  maxNoteLineRangeBytes = bytes === null ? MAX_NOTE_LINE_RANGE_BYTES_DEFAULT : bytes;
 }
 
 export function assertNoteFileSize(relativePath: string, size: number): void {
@@ -58,6 +65,14 @@ async function assertResolvedNoteFileSize(
 
 function assertNoteContentSize(relativePath: string, content: string): void {
   assertNoteFileSize(relativePath, Buffer.byteLength(content, "utf-8"));
+}
+
+function assertNoteLineRangeBytes(relativePath: string, size: number): void {
+  if (size > maxNoteLineRangeBytes) {
+    throw new Error(
+      `Note line fragment exceeds size cap (${size} > ${maxNoteLineRangeBytes} bytes): ${relativePath}`,
+    );
+  }
 }
 
 // Legacy DOS device names reserved by the Windows filesystem at any depth.
@@ -544,6 +559,14 @@ export async function readNoteLineRange(
   endLine: number,
 ): Promise<NoteLineRangeRead> {
   assertMarkdownNotePath(relativePath);
+  if (
+    !Number.isSafeInteger(startLine) ||
+    !Number.isSafeInteger(endLine) ||
+    startLine < 1 ||
+    endLine < startLine
+  ) {
+    throw new Error(`Invalid line range for note: ${relativePath}`);
+  }
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath);
   let handle: fs.FileHandle | undefined;
   try {
@@ -553,9 +576,15 @@ export async function readNoteLineRange(
     const collected: string[] = [];
     let pending = "";
     let currentLine = 1;
+    let scannedBytes = 0;
+    let outputBytes = 0;
 
     const processLine = (line: string): boolean => {
       if (currentLine >= startLine && currentLine <= endLine) {
+        const lineBytes = Buffer.byteLength(line, "utf-8");
+        const separatorBytes = collected.length > 0 ? 1 : 0;
+        assertNoteLineRangeBytes(relativePath, outputBytes + separatorBytes + lineBytes);
+        outputBytes += separatorBytes + lineBytes;
         collected.push(line);
       }
       const reachedRequestedEnd = currentLine >= endLine;
@@ -564,8 +593,12 @@ export async function readNoteLineRange(
     };
 
     while (true) {
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      const remainingBytes = maxNoteLineRangeBytes - scannedBytes;
+      const bytesToRead = Math.min(buffer.length, Math.max(remainingBytes + 1, 1));
+      const { bytesRead } = await handle.read(buffer, 0, bytesToRead, null);
       if (bytesRead === 0) break;
+      scannedBytes += bytesRead;
+      assertNoteLineRangeBytes(relativePath, scannedBytes);
 
       let chunk = decoder.write(buffer.subarray(0, bytesRead));
       while (true) {
