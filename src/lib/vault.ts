@@ -313,7 +313,7 @@ async function assertRealPathWithinVault(
   resolved: string,
   vaultPath: string,
   realVaultRoot?: string,
-): Promise<void> {
+): Promise<{ realVault: string; realPath: string }> {
   const realVault = realVaultRoot ?? await getRealVaultRoot(vaultPath);
   const missing: string[] = [];
   let current = resolved;
@@ -326,7 +326,7 @@ async function assertRealPathWithinVault(
       if (rebuilt !== realVault && !rebuilt.startsWith(realVault + path.sep)) {
         throw new Error("Path traversal via symlink detected");
       }
-      return;
+      return { realVault, realPath: rebuilt };
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       // ENOENT / ENOTDIR: ancestor doesn't exist yet — climb up to find the
@@ -347,6 +347,11 @@ async function assertRealPathWithinVault(
       current = parent;
     }
   }
+}
+
+function vaultRelativeFromRealPath(realVault: string, realPath: string): string {
+  const rel = path.relative(realVault, realPath).replace(/\\/g, "/");
+  return rel === "" ? "." : rel;
 }
 
 function isReadAllowed(relativePath: string): boolean {
@@ -379,7 +384,8 @@ export async function resolveVaultPathSafe(
   options?: { realVaultRoot?: string },
 ): Promise<string> {
   const resolved = resolveVaultPath(vaultPath, relativePath, access);
-  await assertRealPathWithinVault(resolved, vaultPath, options?.realVaultRoot);
+  const canonical = await assertRealPathWithinVault(resolved, vaultPath, options?.realVaultRoot);
+  assertAllowed(vaultRelativeFromRealPath(canonical.realVault, canonical.realPath), access);
   return resolved;
 }
 
