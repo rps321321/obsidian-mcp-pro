@@ -209,6 +209,7 @@ describe("canvas handlers — read_canvas", () => {
             width: 200,
             height: 80,
             text: "first\nsecond",
+            color: "red\nblue",
           },
           {
             id: "clean",
@@ -225,6 +226,8 @@ describe("canvas handlers — read_canvas", () => {
             id: "edge-1",
             fromNode: "bad\nnode",
             toNode: "clean",
+            fromSide: "left\nside",
+            toSide: "right",
             label: "label\nspoof",
           },
         ],
@@ -238,14 +241,19 @@ describe("canvas handlers — read_canvas", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node identity: dirty.canvas#bad\\nnode]");
     expect(text).toContain("[bad\\nnode] type=text");
     expect(text).toContain("content:");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: dirty.canvas#bad\\nnode]");
     expect(text).toContain("first\\nsecond");
-    expect(text).toContain("bad\\nnode -> clean");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node color: dirty.canvas#bad\\nnode]");
+    expect(text).toContain("red\\nblue");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge endpoints: dirty.canvas#edge-1]");
+    expect(text).toContain("bad\\nnode -> clean (from-side=left\\nside to-side=right)");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: dirty.canvas#edge-1]");
     expect(text).toContain("label\\nspoof");
     expect(text).not.toContain("bad\nnode");
+    expect(text).not.toContain("red\nblue");
     expect(text).not.toContain("label\nspoof");
   });
 });
