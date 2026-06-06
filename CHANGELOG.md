@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_note` and `get_daily_note` body and fragment marker labels are now generic; clients should use the requested tool arguments for note identity and read returned note text from inside the untrusted block body.
 - Failed-path warning marker labels for write, tag-rename, and semantic-index summaries are now generic; clients should read the failed path and error from inside the untrusted block body.
 - Link context and target marker labels are now generic; clients should read backlink context, outlink targets, and broken-link targets from inside the untrusted block body.
+- Canvas summary marker labels and trust metadata are now generic; clients should read Canvas paths, node ids, node previews, colors, endpoints, and edge labels from inside the untrusted block body.
 - Read-tool inventory outputs now mark listed note paths, recent-note rows, vault-stat most-recent paths, and alias-resolution path groups as untrusted vault content.
 - Search outputs now mark matching note path headings from `search_notes` and `search_by_frontmatter` as untrusted vault content.
 - Semantic outputs now mark ranked note result paths from `search_semantic` and `find_similar_notes`, plus failed note rows from `index_vault`, as untrusted vault content.

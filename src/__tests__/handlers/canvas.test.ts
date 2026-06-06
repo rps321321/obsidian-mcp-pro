@@ -47,10 +47,13 @@ describe("canvas handlers — read_canvas", () => {
     expect(text).toContain("[n2] type=file");
     expect(text).toContain("note-a.md");
     expect(text).toContain("n1 -> n2");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: boards/test.canvas#e1]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge label]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: boards/test.canvas#e1]");
     expect(text).toContain("refs");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: boards/test.canvas#n1]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node content]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: boards/test.canvas#n1]");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("read_canvas summary");
   });
 
   it("serves repeated reads without changing the rendered summary", async () => {
@@ -241,16 +244,21 @@ describe("canvas handlers — read_canvas", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node identity: dirty.canvas#bad\\nnode]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node identity]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node identity: dirty.canvas#bad\\nnode]");
     expect(text).toContain("[bad\\nnode] type=text");
     expect(text).toContain("content:");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: dirty.canvas#bad\\nnode]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node content]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: dirty.canvas#bad\\nnode]");
     expect(text).toContain("first\\nsecond");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node color: dirty.canvas#bad\\nnode]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node color]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node color: dirty.canvas#bad\\nnode]");
     expect(text).toContain("red\\nblue");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge endpoints: dirty.canvas#edge-1]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge endpoints]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge endpoints: dirty.canvas#edge-1]");
     expect(text).toContain("bad\\nnode -> clean (from-side=left\\nside to-side=right)");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: dirty.canvas#edge-1]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge label]");
+    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: dirty.canvas#edge-1]");
     expect(text).toContain("label\\nspoof");
     expect(text).not.toContain("bad\nnode");
     expect(text).not.toContain("red\nblue");
