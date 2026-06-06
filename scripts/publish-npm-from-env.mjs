@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const args = process.argv.slice(2);
 
 function usage() {
@@ -50,22 +51,6 @@ function run(command, commandArgs, options = {}) {
 
 function runQuiet(command, commandArgs) {
   return run(command, commandArgs, { encoding: "utf-8", stdio: "pipe" }).stdout.trim();
-}
-
-function npmArgs(commandArgs) {
-  if (process.platform !== "win32") {
-    return { command: "npm", args: commandArgs };
-  }
-
-  return {
-    command: "powershell.exe",
-    args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "npm", ...commandArgs],
-  };
-}
-
-function runNpm(commandArgs, options = {}) {
-  const npm = npmArgs(commandArgs);
-  return run(npm.command, npm.args, options);
 }
 
 function withoutUserconfig(commandArgs) {
@@ -122,17 +107,17 @@ writeFileSync(
 
 try {
   console.log("> npm run verify");
-  runNpm(["run", "verify"]);
+  run(npmCommand, ["run", "verify"]);
 
   console.log("> npm whoami");
-  runNpm(["whoami", "--userconfig", userconfig], { env: publishEnv });
+  run(npmCommand, ["whoami", "--userconfig", userconfig], { env: publishEnv });
 
   const publishArgs = ["publish", "--access", "public", "--userconfig", userconfig];
   if (distTag) publishArgs.push("--tag", distTag);
   if (dryRun) publishArgs.push("--dry-run");
 
   console.log(`> npm ${withoutUserconfig(publishArgs).join(" ")}`);
-  runNpm(publishArgs, { env: publishEnv });
+  run(npmCommand, publishArgs, { env: publishEnv });
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }

@@ -67,7 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Token-based npm release helper now invokes npm through PowerShell on Windows, avoiding direct `npm.cmd` spawn failures.
 - Updated the transitive Hono lockfile entry to 4.12.23, clearing the moderate audit advisories in the MCP HTTP dependency path.
 - HTTP server tests now retry OS-assigned ports that Node's `fetch` rejects, avoiding a flaky `bad port` failure during the verify gate.
 - `obsidian://tags` now escapes control characters in generated tag keys and note-path values before returning its JSON index.
