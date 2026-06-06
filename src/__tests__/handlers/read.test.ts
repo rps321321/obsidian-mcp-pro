@@ -422,10 +422,13 @@ describe("read handlers — list_notes", () => {
       arguments: {},
     });
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     // Fixture has 7 .md files (6 + nested)
     expect(text).toMatch(/Found 7 note/);
     expect(text).toContain("note-a.md");
     expect(text).toContain("nested/note-d.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_notes paths]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("filters by folder", async () => {
@@ -465,6 +468,7 @@ describe("read handlers — list_notes", () => {
     expect(isError(result)).toBe(false);
     expect(text).toContain('Found 1 note(s) in "list\\x7ffolder"');
     expect(text).toContain("list\\x7ffolder/note\\x7fname.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_notes paths]");
     expect(text).not.toContain(dirtyFolder);
     expect(text).not.toContain(dirtyPath);
   });
@@ -663,9 +667,12 @@ describe("read handlers — get_recent_notes", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     // All fixture notes are present; the header reports the total.
     expect(text).toMatch(/note-a\.md/);
     expect(text).toMatch(/orphan\.md/);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_recent_notes paths]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("respects the limit", async () => {
@@ -696,6 +703,26 @@ describe("read handlers — get_recent_notes", () => {
     expect(isError(result)).toBe(false);
     const noteLines = textContent(result).split("\n").filter((l) => l.startsWith("- "));
     expect(noteLines[0]).toContain("recent-refresh.md");
+  });
+
+  it("escapes and marks recent note paths as untrusted", async () => {
+    const dirtyPath = "recent\x7fnote.md";
+    await fs.writeFile(path.join(env.vaultDir, dirtyPath), "fresh note\n", "utf-8");
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(path.join(env.vaultDir, dirtyPath), future, future);
+
+    const result = await env.client.callTool({
+      name: "get_recent_notes",
+      arguments: { limit: 1 },
+    });
+
+    const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_recent_notes paths]");
+    expect(text).toContain("recent\\x7fnote.md");
+    expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("filters with relative since spans", async () => {
@@ -752,7 +779,8 @@ describe("read handlers — get_vault_stats", () => {
     expect(text).toMatch(/Total words:\s+\d/);
     expect(text).toMatch(/Unique tags:\s+\d/);
     expect(text).toMatch(/Untagged notes:\s+\d/);
-    expect(text).toMatch(/Most recent:\s+\S+\.md/);
+    expect(text).toContain("Most recent:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_vault_stats most recent path]");
   });
 
   it("reflects note mtime changes between repeated stats calls", async () => {
@@ -771,7 +799,10 @@ describe("read handlers — get_vault_stats", () => {
       arguments: {},
     });
     expect(isError(result)).toBe(false);
-    expect(textContent(result)).toMatch(/Most recent:\s+stats-refresh\.md/);
+    const text = textContent(result);
+    expect(text).toContain("Most recent:");
+    expect(text).toContain("stats-refresh.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_vault_stats most recent path]");
   });
 
   it("scopes to a folder", async () => {
@@ -799,11 +830,14 @@ describe("read handlers — get_vault_stats", () => {
     });
 
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
     expect(text).toContain("Vault stats (folder: stats\\x7ffolder)");
-    expect(text).toContain("Most recent:     stats\\x7ffolder/recent\\x7fnote.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_vault_stats most recent path]");
+    expect(text).toContain("stats\\x7ffolder/recent\\x7fnote.md");
     expect(text).not.toContain(dirtyFolder);
     expect(text).not.toContain(dirtyPath);
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("escapes folder labels in empty-folder output", async () => {
@@ -838,8 +872,11 @@ describe("read handlers — resolve_alias", () => {
       name: "resolve_alias",
       arguments: { name: "Jane Doe", includeBasename: false },
     });
+    const block = r1.content[0] as { _meta?: Record<string, unknown> };
     expect(textContent(r1)).toMatch(/people\/jane\.md/);
     expect(textContent(r1)).toMatch(/Alias matches \(1\)/);
+    expect(textContent(r1)).toContain("[BEGIN UNTRUSTED VAULT CONTENT: resolve_alias alias paths]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
 
     // Case-insensitive
     const r2 = await env.client.callTool({
@@ -856,6 +893,7 @@ describe("read handlers — resolve_alias", () => {
     });
     expect(textContent(result)).toMatch(/Basename matches/);
     expect(textContent(result)).toMatch(/note-a\.md/);
+    expect(textContent(result)).toContain("[BEGIN UNTRUSTED VAULT CONTENT: resolve_alias basename paths]");
   });
 
   it("reflects alias edits between repeated lookups", async () => {

@@ -66,7 +66,9 @@ describe("get_vault_stats - M13 single-pass mtime aggregation", () => {
     // The picker has to land on gamma even though gamma sits in the middle
     // alphabetically - this catches a refactor that accidentally falls back
     // to "last note in the list".
-    expect(text).toMatch(/Most recent:\s+gamma\.md/);
+    expect(text).toContain("Most recent:");
+    expect(text).toContain("gamma.md");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_vault_stats most recent path]");
     expect(text).toMatch(/Notes:\s+5/);
   });
 
