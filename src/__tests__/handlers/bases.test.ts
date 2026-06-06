@@ -49,7 +49,9 @@ describe("base handlers — read_base", () => {
     });
 
     expect(isError(result)).toBe(false);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: base: dirty.base]");
     expect(text).toContain("bad\\tkey");
     expect(text).toContain("Display\\nName");
     expect(text).toContain("Main\\nView");
@@ -58,6 +60,7 @@ describe("base handlers — read_base", () => {
     expect(text).not.toContain("Display\nName");
     expect(text).not.toContain("Main\nView");
     expect(text).not.toContain("table\tview");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 });
 
@@ -144,12 +147,15 @@ describe("base handlers — query_base", () => {
     });
 
     expect(isError(result)).toBe(false);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
     expect(text).toContain("Base: query.base (view: dirty\\nview)");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: base row frontmatter: note.md]");
     expect(text).toContain('    bad\\tkey: "dirty\\nvalue"');
     expect(text).not.toContain("dirty\nview");
     expect(text).not.toContain("bad\tkey");
     expect(text).not.toContain("dirty\nvalue");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("fails closed for missing views instead of returning base-level rows", async () => {

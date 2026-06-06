@@ -33,6 +33,7 @@ describe("canvas handlers — read_canvas", () => {
       arguments: { path: "boards/test.canvas" },
     });
     expect(isError(result)).toBe(false);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
     expect(text).toContain("Canvas: boards/test.canvas");
     expect(text).toMatch(/Nodes: 2 \| Edges: 1/);
@@ -41,6 +42,8 @@ describe("canvas handlers — read_canvas", () => {
     expect(text).toContain("[n2] type=file");
     expect(text).toContain("note-a.md");
     expect(text).toContain("n1 -> n2 [refs]");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: boards/test.canvas#n1]");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
   it("serves repeated reads without changing the rendered summary", async () => {
@@ -229,7 +232,9 @@ describe("canvas handlers — read_canvas", () => {
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     expect(text).toContain("[bad\\nnode] type=text");
-    expect(text).toContain("content: first\\nsecond");
+    expect(text).toContain("content:");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: dirty.canvas#bad\\nnode]");
+    expect(text).toContain("first\\nsecond");
     expect(text).toContain("bad\\nnode -> clean [label\\nspoof]");
     expect(text).not.toContain("bad\nnode");
     expect(text).not.toContain("label\nspoof");

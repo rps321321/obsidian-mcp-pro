@@ -24,6 +24,10 @@ import {
   verifyImageMagicBytes,
 } from "../lib/mime.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
+import {
+  formatUntrustedVaultContent,
+  untrustedVaultContentMeta,
+} from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
 
 /** Cap on attachment size returned by `get_attachment` — base64 inflates by
@@ -519,6 +523,7 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
         // plain text instead of as an image embed.
         if (mime === "image/svg+xml") {
           const svgText = bytes.toString("utf-8");
+          const trustLabel = `attachment text: ${relPath}`;
           return {
             content: [
               {
@@ -531,8 +536,10 @@ export function registerAttachmentTools(server: McpServer, vaultPath: string): v
                 resource: {
                   uri: vaultResourceUri(relPath),
                   mimeType: "text/plain",
-                  text: svgText,
+                  text: formatUntrustedVaultContent(trustLabel, svgText),
+                  _meta: untrustedVaultContentMeta(trustLabel),
                 },
+                _meta: untrustedVaultContentMeta(trustLabel),
               },
             ],
           };

@@ -79,8 +79,11 @@ describe("link handlers — get_backlinks", () => {
       arguments: { path: "note-a.md" },
     });
     const text = textContent(result);
+    const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(text).toContain("Links to [[note-a]]\\twith tab.");
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: backlink context: tab-backlink.md:");
     expect(text).not.toContain("note-a]]\twith tab");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 });
 

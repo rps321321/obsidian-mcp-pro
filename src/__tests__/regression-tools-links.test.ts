@@ -147,7 +147,8 @@ describe("H6: get_backlinks resolves alias references with line + context", () =
     // resolves to null, relevantLinks is empty, and the source is rendered
     // as `- linker.md` with no `:N → context` suffix.
     expect(text).toMatch(/linker\.md:\d+/);
-    expect(text).toMatch(/→ I reference \[\[My Project\]\]/);
+    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: backlink context: linker.md:");
+    expect(text).toContain("I reference [[My Project]]");
   });
 });
 
