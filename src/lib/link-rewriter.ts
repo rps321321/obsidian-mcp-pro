@@ -31,6 +31,13 @@ function assertCanvasApplyFileSize(relativePath: string, size: number): void {
   }
 }
 
+function assertCanvasJsonObject(parsed: unknown, relativePath: string): Record<string, unknown> {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Invalid canvas file (expected JSON object): ${relativePath}`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 /** A single in-place edit on a referrer file, expressed as a byte-offset slice
  *  to replace. Edits within a file are listed in increasing-offset order.
  *
@@ -413,7 +420,7 @@ export async function applyRewrites(
         } catch {
           throw new Error(`Invalid canvas file (malformed JSON): ${cp}`);
         }
-        const obj = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+        const obj = assertCanvasJsonObject(parsed, cp);
         const nodes = Array.isArray(obj.nodes) ? (obj.nodes as Array<Record<string, unknown>>) : [];
         let mutated = false;
         const oldLower = plan.oldPath.toLowerCase();
