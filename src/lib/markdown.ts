@@ -652,7 +652,7 @@ export function extractTags(content: string): string[] {
   // Extract inline tags from body
   const lines = body.split("\n");
   const isInsideCodeBlock = createCodeBlockTracker();
-  const tagRegex = /(?:^|\s)#([a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_][a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_/-]*)/g;
+  const tagRegex = /(?:^|\s)#([a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_][a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_/-]*)/g;
 
   for (const line of lines) {
     if (isInsideCodeBlock(line)) continue;
@@ -665,7 +665,8 @@ export function extractTags(content: string): string[] {
     tagRegex.lastIndex = 0;
 
     while ((match = tagRegex.exec(cleaned)) !== null) {
-      tagSet.add(match[1]!);
+      const tag = normalizeFrontmatterTag(match[1]!);
+      if (tag) tagSet.add(tag);
     }
   }
 
