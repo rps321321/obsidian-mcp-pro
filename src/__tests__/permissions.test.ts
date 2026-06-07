@@ -45,6 +45,18 @@ describe("permissions", () => {
     expect(() => assertAllowed("projects/sub/a.md", "read")).not.toThrow();
   });
 
+  it("normalizes dot segments in configured allowlist folders", () => {
+    setPermissions({ readPaths: ["./projects", "archive/./logs"], writePaths: null });
+    expect(() => assertAllowed("projects/a.md", "read")).not.toThrow();
+    expect(() => assertAllowed("archive/logs/a.md", "read")).not.toThrow();
+    expect(() => assertAllowed("private/a.md", "read")).toThrow(/Access denied/);
+  });
+
+  it("does not turn above-root allowlist folders into vault-root access", () => {
+    setPermissions({ readPaths: ["../private"], writePaths: null });
+    expect(() => assertAllowed("private/a.md", "read")).toThrow(/Access denied/);
+  });
+
   it("does not echo configured allowlist folders in denial errors", () => {
     setPermissions({ readPaths: ["sensitive/clients", "public/notes"], writePaths: null });
     expect(() => assertAllowed("other/note.md", "read")).toThrow(/OBSIDIAN_READ_PATHS/);
