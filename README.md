@@ -328,9 +328,9 @@ The semantic-search tools (`index_vault`, `search_semantic`, `find_similar_notes
 
 | Env var | Default | Notes |
 |---------|---------|-------|
-| `OBSIDIAN_EMBEDDING_PROVIDER` | `ollama` | `ollama`, `openai`, or `none` to disable. |
-| `OBSIDIAN_EMBEDDING_MODEL` | `nomic-embed-text` (Ollama), `text-embedding-3-small` (OpenAI) | Provider-specific model identifier. |
-| `OBSIDIAN_EMBEDDING_URL` | `http://localhost:11434` (Ollama), `https://api.openai.com/v1` (OpenAI) | Base URL without credentials, query strings, or fragments. |
+| `OBSIDIAN_EMBEDDING_PROVIDER` | `ollama` if unset or blank | `ollama`, `openai`, or `none` to disable. |
+| `OBSIDIAN_EMBEDDING_MODEL` | `nomic-embed-text` (Ollama), `text-embedding-3-small` (OpenAI) if unset or blank | Provider-specific model identifier. |
+| `OBSIDIAN_EMBEDDING_URL` | `http://localhost:11434` (Ollama), `https://api.openai.com/v1` (OpenAI) if unset or blank | Base URL without credentials, query strings, or fragments. |
 | `OBSIDIAN_EMBEDDING_API_KEY` | `OPENAI_API_KEY` falls back if unset or blank | Required for hosted providers. |
 
 For local Ollama: install [Ollama](https://ollama.com/), then `ollama pull nomic-embed-text`. The semantic tools register even when no provider is configured, so they're discoverable; calls return a configuration hint until set up.
