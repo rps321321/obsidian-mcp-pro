@@ -171,4 +171,22 @@ describe("MCP resources", () => {
     expect(message).toContain("daily\\nnotes/");
     expect(message).not.toContain(dirtyFolder);
   });
+
+  it("reports canonical missing daily resource paths for dot-segment folders", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "./missing/./", format: "YYYY-MM-DD" }),
+    );
+
+    let message = "";
+    try {
+      await env.client.readResource({ uri: "obsidian://daily" });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(message).toContain("[BEGIN UNTRUSTED VAULT CONTENT: daily note resource expected path]");
+    expect(message).toContain("missing/");
+    expect(message).not.toContain("./missing/./");
+  });
 });

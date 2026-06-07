@@ -114,4 +114,24 @@ describe("getDailyNoteConfig", () => {
       format: "YYYY-MM-DD",
     });
   });
+
+  it("normalizes dot segments in daily-note folder config", async () => {
+    await writeDailyConfig(JSON.stringify({
+      folder: "./daily/../journal/./",
+      format: "YYYY-MM-DD",
+    }));
+
+    const config = await getDailyNoteConfig(vaultDir);
+    expect(config.folder).toBe("journal");
+  });
+
+  it("does not turn above-root daily-note folders into vault-root access", async () => {
+    await writeDailyConfig(JSON.stringify({
+      folder: "daily/../../outside",
+      format: "YYYY-MM-DD",
+    }));
+
+    const config = await getDailyNoteConfig(vaultDir);
+    expect(config.folder).toBe("daily/../../outside");
+  });
 });
