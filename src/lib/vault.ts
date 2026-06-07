@@ -8,6 +8,7 @@ import { mapConcurrent } from "./concurrency.js";
 import { assertAllowed, type AccessKind } from "./permissions.js";
 import { renameWithRetry, unlinkWithRetry } from "./fs-ops.js";
 import { MAX_BASE_FILE_BYTES } from "./bases.js";
+import { log } from "./logger.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 
 // Bounded fan-out for vault-wide scans. Higher values saturate the event loop
@@ -397,7 +398,7 @@ async function getRealVaultRoot(vaultPath: string): Promise<string> {
     // ENOENT: vault root doesn't exist (yet). Fall back to the resolved path
     // so callers can proceed with creation workflows. Log so the misconfiguration
     // is visible in server logs.
-    console.warn(`getRealVaultRoot: vault path does not exist, falling back to resolved path: ${key}`);
+    log.warn("Vault path does not exist, falling back to resolved path", { vaultPath: key });
     return key;
   }
 }

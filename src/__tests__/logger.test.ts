@@ -94,19 +94,18 @@ describe("logger", () => {
     expect(sendLoggingMessage).not.toHaveBeenCalled();
   });
 
-  it("strips absolute paths from forwarded MCP payload but keeps them in stderr", () => {
+  it("strips absolute paths from stderr and forwarded MCP payloads", () => {
     const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
     const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
     configureLogger({ level: "info", format: "text", mcpServer: fakeServer });
 
     log.info("vault configured", { vault: "/Users/alice/Documents/MyVault", configPath: "C:\\Users\\bob\\.obsidian" });
 
-    // Local stderr keeps the full path for operator diagnostics.
     const stderrOut = captured.join("");
-    expect(stderrOut).toContain("/Users/alice/Documents/MyVault");
-    expect(stderrOut).toContain("C:\\Users\\bob");
+    expect(stderrOut).not.toContain("/Users/alice/Documents/MyVault");
+    expect(stderrOut).not.toContain("C:\\Users\\bob");
+    expect(stderrOut).toContain("<path>");
 
-    // MCP-forwarded payload MUST NOT contain the absolute host paths.
     expect(sendLoggingMessage).toHaveBeenCalledTimes(1);
     const [params] = sendLoggingMessage.mock.calls[0];
     const dataStr = JSON.stringify(params.data);
@@ -128,10 +127,11 @@ describe("logger", () => {
     });
 
     const stderrOut = captured.join("");
-    expect(stderrOut).toContain("private/therapy.md");
-    expect(stderrOut).toContain("finance/taxes-2026.md");
-    expect(stderrOut).toContain("daily.md");
-    expect(stderrOut).toContain("projects/acquisition.md");
+    expect(stderrOut).not.toContain("private/therapy.md");
+    expect(stderrOut).not.toContain("finance/taxes-2026.md");
+    expect(stderrOut).not.toContain("daily.md");
+    expect(stderrOut).not.toContain("projects/acquisition.md");
+    expect(stderrOut).toContain("<vault path>");
 
     expect(sendLoggingMessage).toHaveBeenCalledTimes(1);
     const [params] = sendLoggingMessage.mock.calls[0];
@@ -193,11 +193,68 @@ describe("logger", () => {
 
     const err = new Error("ENOENT: no such file '/Users/alice/vault/secret.md'");
     log.error("tool failed", { err });
+    log.error("tool failed", { err: new Error("Note not found: private/therapy.md") });
+
+    const dataStr = JSON.stringify(sendLoggingMessage.mock.calls.map(([params]) => params.data));
+    expect(dataStr).not.toContain("alice");
+    expect(dataStr).not.toContain("secret.md");
+    expect(dataStr).not.toContain("therapy");
+    expect(dataStr).toContain("<vault path>");
+
+    const stderrOut = captured.join("");
+    expect(stderrOut).not.toContain("alice");
+    expect(stderrOut).not.toContain("secret.md");
+    expect(stderrOut).not.toContain("therapy");
+    expect(stderrOut).toContain("<vault path>");
+  });
+
+  it("redacts local JSON logs before writing to stderr", () => {
+    configureLogger({ level: "info", format: "json" });
+
+    log.error("provider rejected https://alice:pa55@example.internal/v1?token=abc\nnext", {
+      vault: "/Users/alice/Documents/MyVault",
+      note: "private/therapy.md",
+      err: new Error("Note not found: private/therapy.md"),
+    });
+
+    const parsed = JSON.parse(captured.join("").trim()) as {
+      msg: string;
+      vault: string;
+      note: string;
+      err: { message: string; stack?: string };
+    };
+    const serialized = JSON.stringify(parsed);
+    expect(parsed.msg).toBe("provider rejected https://<redacted-url>\\nnext");
+    expect(parsed.vault).toBe("<path>");
+    expect(parsed.note).toBe("<vault path>");
+    expect(parsed.err.message).toContain("<vault path>");
+    expect(serialized).not.toContain("alice");
+    expect(serialized).not.toContain("therapy");
+    expect(serialized).not.toContain("pa55");
+    expect(serialized).not.toContain("\nnext");
+  });
+
+  it("keeps non-path slashes in serialized error diagnostics", () => {
+    const sendLoggingMessage = vi.fn().mockResolvedValue(undefined);
+    const fakeServer = { server: { sendLoggingMessage } } as unknown as McpServer;
+    configureLogger({ level: "info", format: "json", mcpServer: fakeServer });
+
+    log.error("provider failed", {
+      err: new Error(
+        "OBSIDIAN_EMBEDDING_URL scheme/host not allowed. Only https:// URLs and http:// to localhost/127.0.0.1 are permitted.",
+      ),
+    });
+
+    const stderrOut = captured.join("");
+    expect(stderrOut).toContain("scheme/host");
+    expect(stderrOut).toContain("https:// URLs");
+    expect(stderrOut).toContain("localhost/127.0.0.1");
 
     const [params] = sendLoggingMessage.mock.calls[0];
     const dataStr = JSON.stringify(params.data);
-    expect(dataStr).not.toContain("alice");
-    expect(dataStr).not.toContain("secret.md");
+    expect(dataStr).toContain("scheme/host");
+    expect(dataStr).toContain("https:// URLs");
+    expect(dataStr).toContain("localhost/127.0.0.1");
   });
 
   it("escapes controls recursively in forwarded MCP payloads", () => {
@@ -231,6 +288,15 @@ describe("logger", () => {
       nested: { callback: "https://callback.example.test/path?sig=hidden" },
       err: new Error("bad https://bob:pw@host.test/path#frag"),
     });
+
+    const stderrOut = captured.join("");
+    expect(stderrOut).not.toContain("alice");
+    expect(stderrOut).not.toContain("pa55");
+    expect(stderrOut).not.toContain("api_key");
+    expect(stderrOut).not.toContain("bob");
+    expect(stderrOut).not.toContain("host.test");
+    expect(stderrOut).not.toContain("sig=hidden");
+    expect(stderrOut).toContain("https://<redacted-url>");
 
     const [params] = sendLoggingMessage.mock.calls[0];
     const dataStr = JSON.stringify(params.data);
