@@ -314,6 +314,25 @@ describe("canvas handlers — add_canvas_node", () => {
     await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(before);
   });
 
+  it("rejects non-object canvas JSON before mutation", async () => {
+    const fullPath = path.join(env.vaultDir, "array.canvas");
+    const before = "[]";
+    await fs.writeFile(fullPath, before, "utf-8");
+
+    const result = await env.client.callTool({
+      name: "add_canvas_node",
+      arguments: {
+        canvasPath: "array.canvas",
+        type: "text",
+        content: "should not write",
+      },
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(textContent(result)).toMatch(/expected JSON object/i);
+    await expect(fs.readFile(fullPath, "utf-8")).resolves.toBe(before);
+  });
+
   it("validates file-type references stay inside the vault", async () => {
     const result = await env.client.callTool({
       name: "add_canvas_node",

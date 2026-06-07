@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { resolveWikilink, extractTags, extractAliases } from "../lib/markdown.js";
 import { formatMomentDate } from "../lib/dates.js";
-import { writeCanvasFile, updateCanvasFile, readCanvasFile, MAX_CANVAS_FILE_BYTES } from "../lib/vault.js";
+import { writeCanvasFile, updateCanvasFile, MAX_CANVAS_FILE_BYTES } from "../lib/vault.js";
 import type { CanvasData } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -169,11 +169,18 @@ describe("updateCanvasFile — round-trip fidelity", () => {
     expect(roundTripped.nodes).toHaveLength(1);
   });
 
-  it("falls back gracefully when file is a bare array (invalid canvas)", async () => {
+  it("rejects bare array JSON before updating a canvas", async () => {
     const canvasPath = "broken.canvas";
-    // Not an object — writeCanvasFile then read via updateCanvasFile.
-    await writeCanvasFile(vaultDir, canvasPath, { nodes: [], edges: [] });
-    await expect(readCanvasFile(vaultDir, canvasPath)).resolves.toBeDefined();
+    const before = "[]";
+    await fs.writeFile(path.join(vaultDir, canvasPath), before, "utf-8");
+
+    await expect(
+      updateCanvasFile(vaultDir, canvasPath, (data) => ({
+        nodes: data.nodes,
+        edges: data.edges,
+      })),
+    ).rejects.toThrow("Invalid canvas file (expected JSON object)");
+    await expect(fs.readFile(path.join(vaultDir, canvasPath), "utf-8")).resolves.toBe(before);
   });
 
   it("rejects oversized existing canvas files before update parsing", async () => {
