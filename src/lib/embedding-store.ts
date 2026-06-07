@@ -521,6 +521,16 @@ export interface SearchOptions {
   filterNote?: (notePath: string) => boolean;
 }
 
+function normalizeSearchFolder(folder: string | undefined): string | null {
+  if (!folder) return null;
+  const slashed = folder.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!slashed) return null;
+  const normalized = path.posix.normalize(slashed).replace(/^\/+|\/+$/g, "");
+  if (normalized === "." || normalized === "") return null;
+  if (normalized === ".." || normalized.startsWith("../")) return slashed;
+  return normalized;
+}
+
 export function searchEmbeddings(
   vaultPath: string,
   queryVector: number[],
@@ -528,9 +538,7 @@ export function searchEmbeddings(
 ): SearchHit[] {
   const state = stateFor(vaultPath);
   const limit = options.limit ?? 10;
-  const folder = options.folder
-    ? options.folder.replace(/^\/+|\/+$/g, "")
-    : null;
+  const folder = normalizeSearchFolder(options.folder);
   const exclude = options.excludeNotes ?? null;
   const filterNote = options.filterNote ?? null;
 
