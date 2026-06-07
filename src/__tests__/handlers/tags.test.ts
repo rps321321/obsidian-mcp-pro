@@ -55,6 +55,38 @@ describe("tag handlers — list_tags", () => {
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
+  it("ignores numeric-only frontmatter tags in list and search", async () => {
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "numeric-frontmatter-tag.md",
+        content: "Body.",
+        frontmatter: JSON.stringify({ tags: [1984, "y1984"] }),
+      },
+    });
+
+    const list = await env.client.callTool({
+      name: "list_tags",
+      arguments: { sortBy: "name" },
+    });
+    const listText = textContent(list);
+    expect(isError(list)).toBe(false);
+    expect(listText).not.toMatch(/#1984\s+\(/);
+    expect(listText).toContain("#y1984 (1 note)");
+
+    const invalidSearch = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "1984" },
+    });
+    expect(textContent(invalidSearch)).toMatch(/No notes found/i);
+
+    const validSearch = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "y1984" },
+    });
+    expect(textContent(validSearch)).toContain("numeric-frontmatter-tag.md");
+  });
+
   it("sorts by count desc by default (review appears in 2 notes)", async () => {
     const result = await env.client.callTool({ name: "list_tags", arguments: {} });
     const text = textContent(result);
