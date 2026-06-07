@@ -153,6 +153,28 @@ describe("setNoteChunks / searchEmbeddings", () => {
     expect(hits.map((h) => h.notePath)).toEqual(["projects/alpha.md"]);
   });
 
+  it("normalizes dot segments in folder filters", async () => {
+    await loadStore(vaultDir);
+    setNoteChunks(vaultDir, "projects/alpha.md", hashText("a"), [
+      { notePath: "projects/alpha.md", chunkIndex: 1, headingPath: [], text: "p", hash: "h", vector: [1, 0] },
+    ], "test", "m");
+    setNoteChunks(vaultDir, "archive/beta.md", hashText("b"), [
+      { notePath: "archive/beta.md", chunkIndex: 1, headingPath: [], text: "a", hash: "h", vector: [1, 0] },
+    ], "test", "m");
+
+    const projects = searchEmbeddings(vaultDir, [1, 0], {
+      limit: 5,
+      folder: "./projects/./",
+    });
+    expect(projects.map((h) => h.notePath)).toEqual(["projects/alpha.md"]);
+
+    const archive = searchEmbeddings(vaultDir, [1, 0], {
+      limit: 5,
+      folder: "projects/../archive",
+    });
+    expect(archive.map((h) => h.notePath)).toEqual(["archive/beta.md"]);
+  });
+
   it("excludes the source note when find-similar passes excludeNotes", async () => {
     await loadStore(vaultDir);
     setNoteChunks(vaultDir, "self.md", hashText("s"), [
