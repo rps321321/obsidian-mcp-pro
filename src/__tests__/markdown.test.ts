@@ -364,6 +364,22 @@ Body.`;
     expect(tags).toContain("project/1984");
   });
 
+  it("should ignore frontmatter tags containing whitespace", () => {
+    const content = `---
+tags:
+  - "project alpha"
+  - "project\tbeta"
+  - project-alpha
+  - project_alpha
+---
+Body.`;
+    const tags = extractTags(content);
+    expect(tags).not.toContain("project alpha");
+    expect(tags).not.toContain("project\tbeta");
+    expect(tags).toContain("project-alpha");
+    expect(tags).toContain("project_alpha");
+  });
+
   it("should strip leading hashes from frontmatter tags", () => {
     const content = `---
 tags:

@@ -19,6 +19,7 @@ delete stopped experiments; mark them `stopped` so the negative result stays on 
 
 | Experiment | Track | Status | Decision |
 |---|---|---|---|
+| [Tag Whitespace Quality](tag-whitespace-quality.md) | retrieval quality | shipped | Whitespace-bearing frontmatter tag leakage in `list_tags` and `search_by_tag` fell from 1 to 0 while valid tag list and search recall stayed at 1.000. |
 | [Tag Validity Quality](tag-validity-quality.md) | retrieval quality | shipped | Numeric-only frontmatter tag leakage in `list_tags` and `search_by_tag` fell from 1 to 0 while valid tag list and search recall stayed at 1.000. |
 | [Frontmatter Key Quality](frontmatter-key-quality.md) | retrieval quality | shipped | `search_by_frontmatter` recall across `status` / `Status` / `STATUS` key variants rose from 0.333 to 1.000, with zero wrong-key matches and zero duplicate paths. |
 | [Search Snippet Length](search-snippet-length.md) | retrieval quality | shipped | Max snippet chars fell from 2152 to 237, total snippet chars fell from 2285 to 370, oversized snippet rows fell to zero, and every snippet still contains the query. |
