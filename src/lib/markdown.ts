@@ -621,6 +621,7 @@ export function formatWikilinkTarget(
 function normalizeFrontmatterTag(value: unknown): string | null {
   const tag = String(value).trim().replace(/^#+/, "");
   if (!tag) return null;
+  if (/\s/u.test(tag)) return null;
   if (!/[^\d/]/u.test(tag)) return null;
   return tag;
 }
