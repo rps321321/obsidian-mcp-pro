@@ -739,6 +739,13 @@ export interface ResolveWikilinkOptions {
   aliasMap?: Map<string, string>;
 }
 
+export function normalizeWikilinkTargetPath(link: string): string {
+  const slashed = link.replace(/\\/g, "/");
+  const withoutExt = slashed.replace(/\.md$/i, "");
+  if (!withoutExt) return "";
+  return path.posix.normalize(withoutExt).replace(/\/+$/g, "");
+}
+
 /**
  * Resolve a wikilink target to an actual file path.
  *
@@ -765,7 +772,7 @@ export function resolveWikilink(
   const cleanLink = link.split("#")[0]!.split("^")[0]!.trim();
   if (!cleanLink) return null;
 
-  const normalizedLink = cleanLink.replace(/\.md$/i, "");
+  const normalizedLink = normalizeWikilinkTargetPath(cleanLink);
   const normalizedLinkLower = normalizedLink.toLowerCase();
 
   // 1. Exact relative-path match

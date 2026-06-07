@@ -3,7 +3,11 @@ import path from "path";
 import { z } from "zod";
 import { listNotes, getNoteStats, getVaultRootRealPath } from "../lib/vault.js";
 import { readAllCached } from "../lib/index-cache.js";
-import { extractWikilinks, extractAliases } from "../lib/markdown.js";
+import {
+  extractWikilinks,
+  extractAliases,
+  normalizeWikilinkTargetPath,
+} from "../lib/markdown.js";
 import { escapeControlChars, sanitizeError } from "../lib/errors.js";
 import {
   formatUntrustedVaultContent,
@@ -228,7 +232,7 @@ function resolveWikilinkWithIndex(
   const cleanLink = link.split("#")[0]!.split("^")[0]!.trim();
   if (!cleanLink) return null;
 
-  const normalizedLink = cleanLink.replace(/\.md$/i, "");
+  const normalizedLink = normalizeWikilinkTargetPath(cleanLink);
   const normalizedLinkLower = normalizedLink.toLowerCase();
 
   const exact = index.exact.get(normalizedLinkLower);

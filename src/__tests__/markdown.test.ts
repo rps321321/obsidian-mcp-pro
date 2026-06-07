@@ -544,6 +544,14 @@ describe("resolveWikilink", () => {
     const result = resolveWikilink("sub/deep", "any.md", allPaths);
     expect(result).toBe("folder/sub/deep.md");
   });
+
+  it("normalizes path dot segments before basename fallback", () => {
+    const paths = ["archive/idea.md", "projects/idea.md"];
+    expect(resolveWikilink("./projects/idea", "ref.md", paths)).toBe("projects/idea.md");
+    expect(resolveWikilink("archive/../projects/idea#Heading", "ref.md", paths)).toBe(
+      "projects/idea.md",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
