@@ -174,6 +174,20 @@ function isExternalMarkdownTarget(target: string): boolean {
   return /^(?:data|file|http|https|mailto|obsidian|tel):/i.test(target);
 }
 
+function normalizeLocalMarkdownTarget(target: string): string {
+  const slashed = target.replace(/\\/g, "/");
+  const normalized = path.posix.normalize(slashed);
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.startsWith("/")
+  ) {
+    return slashed;
+  }
+  return normalized.replace(/\/+$/g, "");
+}
+
 /**
  * Resolve the set of attachment paths referenced by a single note. Considers:
  *   - `![[file.png]]` and `![[file.png|alt]]` wikilink embeds
@@ -195,7 +209,9 @@ function collectReferencedAttachments(
     const trimmedTarget = rawTarget.trim();
     if (isExternalMarkdownTarget(trimmedTarget)) return;
 
-    const t = trimmedTarget.split("#")[0]!.split("^")[0]!.trim();
+    const t = normalizeLocalMarkdownTarget(
+      trimmedTarget.split("#")[0]!.split("^")[0]!.trim(),
+    );
     if (!t) return;
 
     // 1) Exact relative-path match (case-insensitive on case-insensitive FS,
