@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `install` command now rejects existing client config files whose JSON root or `mcpServers` field is not an object, instead of crashing or reporting success without writing the server entry.
+
 ## [4.0.0] - 2026-06-07
 
 ### Migration
