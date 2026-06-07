@@ -348,6 +348,36 @@ Body.`;
     expect(tags).toContain("solo");
   });
 
+  it("should ignore numeric-only frontmatter tags", () => {
+    const content = `---
+tags:
+  - 1984
+  - 1984/2020
+  - y1984
+  - project/1984
+---
+Body.`;
+    const tags = extractTags(content);
+    expect(tags).not.toContain("1984");
+    expect(tags).not.toContain("1984/2020");
+    expect(tags).toContain("y1984");
+    expect(tags).toContain("project/1984");
+  });
+
+  it("should strip leading hashes from frontmatter tags", () => {
+    const content = `---
+tags:
+  - "#idea"
+  - "##review"
+---
+Body.`;
+    const tags = extractTags(content);
+    expect(tags).toContain("idea");
+    expect(tags).toContain("review");
+    expect(tags).not.toContain("#idea");
+    expect(tags).not.toContain("##review");
+  });
+
   it("should ignore tags inside code blocks", () => {
     const content = "```\n#hidden\n```\n#visible";
     const tags = extractTags(content);

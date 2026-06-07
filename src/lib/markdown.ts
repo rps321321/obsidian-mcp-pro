@@ -618,6 +618,13 @@ export function formatWikilinkTarget(
  * Returns deduplicated tags without the `#` prefix.
  * Ignores tags inside code blocks and inline code.
  */
+function normalizeFrontmatterTag(value: unknown): string | null {
+  const tag = String(value).trim().replace(/^#+/, "");
+  if (!tag) return null;
+  if (!/[^\d/]/u.test(tag)) return null;
+  return tag;
+}
+
 export function extractTags(content: string): string[] {
   const tagSet = new Set<string>();
 
@@ -630,12 +637,12 @@ export function extractTags(content: string): string[] {
   if (tagFieldValue) {
     if (Array.isArray(tagFieldValue)) {
       for (const tag of tagFieldValue) {
-        const t = String(tag).trim();
+        const t = normalizeFrontmatterTag(tag);
         if (t) tagSet.add(t);
       }
     } else if (typeof tagFieldValue === "string") {
       for (const tag of tagFieldValue.split(",")) {
-        const t = tag.trim();
+        const t = normalizeFrontmatterTag(tag);
         if (t) tagSet.add(t);
       }
     }
