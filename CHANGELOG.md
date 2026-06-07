@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- R&D experiment for numeric-leading tag quality, with a synthetic inline tag fixture in `scripts/bench-tag-leading-number-quality.mjs` and ship/kill metric in `docs/rnd/tag-leading-number-quality.md`.
 - R&D experiment for tag whitespace quality, with a synthetic frontmatter tag fixture in `scripts/bench-tag-whitespace-quality.mjs` and ship/kill metric in `docs/rnd/tag-whitespace-quality.md`.
 - R&D experiment for tag validity quality, with a synthetic frontmatter/inline tag fixture in `scripts/bench-tag-validity-quality.mjs` and ship/kill metric in `docs/rnd/tag-validity-quality.md`.
 - R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs` and ship/kill metric in `docs/rnd/frontmatter-key-quality.md`.
@@ -47,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Inline tag extraction and `rename_tag` validation now accept numeric-leading tags such as `#1a` and `#2026-goals` while still ignoring numeric-only tags.
 - Frontmatter tag extraction now ignores tag values containing whitespace, matching Obsidian's tag format while preserving hyphenated, underscored, nested, and inline tags.
 - Frontmatter tag extraction now drops leading hashes and ignores numeric-only tag values, matching Obsidian's tag format while preserving valid mixed, nested, and inline tags.
 - `get_note` line fragments now reject unsafe line numbers and cap line-range scan/output bytes, while still allowing small targeted fragments from notes over the full-read cap.

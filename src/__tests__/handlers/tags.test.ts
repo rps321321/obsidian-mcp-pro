@@ -177,6 +177,33 @@ describe("tag handlers — search_by_tag", () => {
     expect(textContent(withoutHash)).toContain("note-a.md");
   });
 
+  it("finds numeric-leading inline tags with non-numeric characters", async () => {
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "numeric-leading-inline.md",
+        content: "#1a #2026-goals #1984 #1984/2020",
+      },
+    });
+
+    const oneA = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "1a" },
+    });
+    const yearGoals = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "2026-goals" },
+    });
+    const numericOnly = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "1984" },
+    });
+
+    expect(textContent(oneA)).toContain("numeric-leading-inline.md");
+    expect(textContent(yearGoals)).toContain("numeric-leading-inline.md");
+    expect(textContent(numericOnly)).toMatch(/No notes found/i);
+  });
+
   it("matches nested child tags when querying the parent", async () => {
     // note-d.md has #nested/archive — searching for `nested` should find it.
     const result = await env.client.callTool({
@@ -293,6 +320,30 @@ describe("tag handlers — rename_tag", () => {
     });
     expect(textContent(search)).toContain("note-a.md");
     expect(textContent(search)).toContain("note-b.md");
+  });
+
+  it("rewrites numeric-leading tags with non-numeric characters", async () => {
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "numeric-leading-rename.md",
+        content: "#1a",
+        frontmatter: JSON.stringify({ tags: ["1a"] }),
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "rename_tag",
+      arguments: { oldName: "1a", newName: "2026-goals", confirmTag: "2026-goals" },
+    });
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toMatch(/Rewrote #1a/);
+
+    const search = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "2026-goals" },
+    });
+    expect(textContent(search)).toContain("numeric-leading-rename.md");
   });
 
   it("dryRun reports counts without writing", async () => {
