@@ -38,6 +38,10 @@ function assertCanvasJsonObject(parsed: unknown, relativePath: string): Record<s
   return parsed as Record<string, unknown>;
 }
 
+function isExternalMarkdownUrl(url: string): boolean {
+  return url.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(url);
+}
+
 /** A single in-place edit on a referrer file, expressed as a byte-offset slice
  *  to replace. Edits within a file are listed in increasing-offset order.
  *
@@ -157,7 +161,7 @@ export async function planMoveRewrites(
       if (notePath === oldPath) continue;
       const url = span.urlPath;
       // Skip absolute / external URLs — only intra-vault references rewrite.
-      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) || url.startsWith("/")) continue;
+      if (isExternalMarkdownUrl(url)) continue;
       const decoded = safeDecode(url);
       const resolved = resolveMarkdownLinkPath(decoded, notePath, preMoveNotes, aliasMap);
       if (resolved !== oldPath) continue;
@@ -311,7 +315,7 @@ export async function planDeleteRewrites(
     for (const span of extractMarkdownLinkSpans(content)) {
       const url = span.urlPath;
       // Skip absolute / external URLs — only intra-vault refs strip.
-      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) || url.startsWith("/")) continue;
+      if (isExternalMarkdownUrl(url)) continue;
       const decoded = safeDecode(url);
       const resolved = resolveMarkdownLinkPath(decoded, notePath, preDeleteNotes, aliasMap);
       if (resolved !== deletedPath) continue;
