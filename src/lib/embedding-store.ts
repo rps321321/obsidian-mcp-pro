@@ -132,6 +132,25 @@ function key(notePath: string, chunkIndex: number): string {
   return `${notePath}::${chunkIndex}`;
 }
 
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) > 0;
+}
+
+function isSnapshotEntry(entry: unknown): entry is ChunkEmbedding {
+  if (!entry || typeof entry !== "object") return false;
+  const candidate = entry as Partial<ChunkEmbedding>;
+  return (
+    typeof candidate.notePath === "string" &&
+    candidate.notePath.length > 0 &&
+    isPositiveInteger(candidate.chunkIndex) &&
+    Array.isArray(candidate.headingPath) &&
+    candidate.headingPath.every((part): part is string => typeof part === "string") &&
+    typeof candidate.text === "string" &&
+    typeof candidate.hash === "string" &&
+    Array.isArray(candidate.vector)
+  );
+}
+
 export function validateEmbeddingVector(vector: unknown, expectedDimension: number | null): string | null {
   if (!Array.isArray(vector) || vector.length === 0) return "vector must be a non-empty number array";
   for (const value of vector) {
@@ -204,7 +223,7 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       !Array.isArray(snapshot.embeddings) ||
       typeof snapshot.providerId !== "string" ||
       typeof snapshot.model !== "string" ||
-      typeof snapshot.dimension !== "number"
+      !isPositiveInteger(snapshot.dimension)
     ) {
       log.warn("embedding-store: snapshot has unexpected shape; ignoring");
       state.loaded = true;
@@ -225,7 +244,7 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
     state.model = snapshot.model;
     state.dimension = snapshot.dimension;
     for (const entry of snapshot.embeddings) {
-      if (!entry || !Array.isArray(entry.vector)) continue;
+      if (!isSnapshotEntry(entry)) continue;
       // Silently drop entries whose vector length doesn't match the snapshot's
       // declared dimension. Guards against hand-edited or partially-corrupted
       // snapshots where one row's length drifted from the rest.
