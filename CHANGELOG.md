@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `move_note` now rejects relative symlink moves whose copied destination link would resolve to a different target.
 - Direct note reads, note read-modify-write helpers, and direct attachment reads now require regular files before reading content.
 - Direct vault reads now use revalidated open file handles, so a symlink retargeted after containment validation is rejected before note, section, Base, Canvas, cache, attachment, or rewrite content is returned.
+- Local stderr logs now redact absolute paths, vault-relative path fields, secret-bearing URLs, and control characters before writing text or JSON diagnostics.
 - `read_base` and `query_base` now require `.base` file paths instead of accepting arbitrary readable vault files.
 - Daily-note config-derived paths in `get_daily_note`, `create_daily_note`, and `obsidian://daily` output now use explicit untrusted-content markers, and note/daily resource metadata labels are generic.
 - Note and daily resources now wrap returned markdown bodies in visible untrusted-content markers instead of relying only on `_meta` trust metadata.

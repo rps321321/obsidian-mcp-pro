@@ -6,6 +6,9 @@
 // Level + mode are resolved once from env at module load (`LOG_LEVEL`,
 // `LOG_FORMAT`). Tests can override via `configureLogger`.
 //
+// Local stderr is redacted before write, so paths, secret-bearing URLs, and
+// control characters do not leak into shared terminal/session logs.
+//
 // When an `McpServer` is wired in via `configureLogger({ mcpServer })` the
 // logger ALSO forwards each message to the connected MCP client(s) via
 // `notifications/message`. The MCP Server declares a `logging` capability
@@ -19,6 +22,7 @@ import { stripPaths, escapeControlChars, redactUrlSecrets } from "./errors.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 export type LogFormat = "text" | "json";
+type VaultPathRedactionMode = "field" | "message";
 
 const LEVEL_RANK: Record<LogLevel, number> = {
   debug: 10,
@@ -130,8 +134,8 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
     const payload: Record<string, unknown> = {
       ts: new Date().toISOString(),
       level,
-      msg,
-      ...serialized,
+      msg: sanitizeLogString(msg),
+      ...sanitizeLogData(serialized),
     };
     process.stderr.write(JSON.stringify(payload) + "\n");
   } else {
@@ -139,7 +143,7 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
     const suffix = fields && Object.keys(fields).length > 0
       ? " " + formatFieldsText(fields)
       : "";
-    process.stderr.write(`${prefix} ${level} ${msg}${suffix}\n`);
+    process.stderr.write(`${prefix} ${level} ${sanitizeLogString(msg)}${suffix}\n`);
   }
 
   // Forward to the MCP client too when a server is wired in. Fire-and-forget:
@@ -148,13 +152,12 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>): v
   // messages below the session's `logging/setLevel` on its own.
   //
   // The MCP `data` payload goes verbatim to the client in `notifications/
-  // message` — no SDK sanitization. Scrub absolute paths out of string values
-  // so remote clients (or clients running on a different host than the server)
-  // never see the operator's host filesystem layout. Stderr still gets full
-  // detail because the operator is reading it on their own machine.
+  // message` — no SDK sanitization. Scrub paths and secret-bearing URLs out of
+  // string values so remote clients never see the operator's host filesystem
+  // layout or vault note names from structured path fields.
   if (mcpServer && level !== "silent") {
     const mcpLevel = MCP_LEVEL[level];
-    const data: Record<string, unknown> = { msg: sanitizeForwardedString(msg) };
+    const data: Record<string, unknown> = { msg: sanitizeLogString(msg) };
     if (fields && Object.keys(fields).length > 0) {
       Object.assign(data, sanitizeLogData(serialized));
     }
@@ -176,8 +179,14 @@ function sanitizeLogData(input: Record<string, unknown>): Record<string, unknown
   return out;
 }
 
-function sanitizeForwardedString(value: string): string {
-  return escapeControlChars(stripPaths(redactUrlSecrets(value)));
+function sanitizeLogString(
+  value: string,
+  redactVaultPaths?: VaultPathRedactionMode,
+): string {
+  const stripped = stripPaths(redactUrlSecrets(value));
+  return escapeControlChars(
+    redactVaultPaths ? redactVaultPathText(stripped, redactVaultPaths) : stripped,
+  );
 }
 
 function isVaultPathField(key: string): boolean {
@@ -200,28 +209,66 @@ function looksLikeVaultPath(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
   if (trimmed.includes("/") || trimmed.includes("\\")) return true;
-  const dot = trimmed.lastIndexOf(".");
-  if (dot <= 0) return false;
-  return VAULT_PATH_EXTENSIONS.has(trimmed.slice(dot).toLowerCase());
+  return containsVaultPathExtension(trimmed);
 }
 
-function sanitizeValue(key: string, v: unknown, redactVaultPath = false): unknown {
-  const shouldRedactVaultPath = redactVaultPath || isVaultPathField(key);
+function containsVaultPathExtension(value: string): boolean {
+  const lower = value.toLowerCase();
+  return [...VAULT_PATH_EXTENSIONS].some((ext) =>
+    lower.endsWith(ext) ||
+    lower.includes(`${ext}:`) ||
+    lower.includes(`${ext}/`) ||
+    lower.includes(`${ext}\\`),
+  );
+}
+
+function looksLikeVaultPathMessageToken(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("<path>") || trimmed.includes("<redacted-url>")) return false;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/?$/.test(trimmed)) return false;
+  return containsVaultPathExtension(trimmed);
+}
+
+function redactVaultPathText(value: string, mode: VaultPathRedactionMode): string {
+  return value.replace(/[^\s"'`<>(){}[\],;]+/g, (token) => {
+    const trailing = token.match(/[.:!?]+$/)?.[0] ?? "";
+    const core = trailing ? token.slice(0, -trailing.length) : token;
+    const shouldRedact = mode === "field"
+      ? looksLikeVaultPath(core)
+      : looksLikeVaultPathMessageToken(core);
+    return shouldRedact ? `<vault path>${trailing}` : token;
+  });
+}
+
+function isSerializedErrorObject(obj: Record<string, unknown>): boolean {
+  return typeof obj.message === "string" &&
+    (typeof obj.name === "string" || typeof obj.stack === "string");
+}
+
+function sanitizeValue(
+  key: string,
+  v: unknown,
+  redactVaultPath?: VaultPathRedactionMode,
+): unknown {
+  const redactionMode = redactVaultPath ?? (isVaultPathField(key) ? "field" : undefined);
   if (typeof v === "string") {
     const stripped = stripPaths(redactUrlSecrets(v));
-    if (stripped !== v) return escapeControlChars(stripped);
-    return shouldRedactVaultPath && looksLikeVaultPath(stripped)
-      ? "<vault path>"
-      : escapeControlChars(stripped);
+    const redacted = redactionMode
+      ? redactVaultPathText(stripped, redactionMode)
+      : stripped;
+    return escapeControlChars(redacted);
   }
   if (Array.isArray(v)) {
-    return v.map((inner) => sanitizeValue(key, inner, shouldRedactVaultPath));
+    return v.map((inner) => sanitizeValue(key, inner, redactionMode));
   }
   if (v && typeof v === "object") {
     const obj = v as Record<string, unknown>;
+    const childRedactVaultPath = redactionMode ??
+      (isSerializedErrorObject(obj) ? "message" : undefined);
     const out: Record<string, unknown> = {};
     for (const [k, inner] of Object.entries(obj)) {
-      out[k] = sanitizeValue(k, inner, shouldRedactVaultPath);
+      out[k] = sanitizeValue(k, inner, childRedactVaultPath);
     }
     return out;
   }
@@ -243,11 +290,13 @@ function formatFieldsText(fields: Record<string, unknown>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(fields)) {
     if (v instanceof Error) {
-      parts.push(`${k}=${escapeControlChars(v.message)}`);
+      parts.push(`${k}=${sanitizeLogString(v.message, "message")}`);
     } else if (typeof v === "string") {
-      parts.push(`${k}=${escapeControlChars(v)}`);
+      const sanitized = sanitizeValue(k, v);
+      parts.push(`${k}=${typeof sanitized === "string" ? sanitized : String(sanitized)}`);
     } else {
-      parts.push(`${k}=${escapeControlChars(JSON.stringify(v))}`);
+      const sanitized = sanitizeValue(k, v);
+      parts.push(`${k}=${escapeControlChars(JSON.stringify(sanitized) ?? String(sanitized))}`);
     }
   }
   return parts.join(" ");
