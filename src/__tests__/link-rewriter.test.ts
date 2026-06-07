@@ -122,6 +122,15 @@ describe("moveNote — wikilink rewriting", () => {
     );
   });
 
+  it("does not rewrite scheme-style markdown URLs that match an alias", async () => {
+    await seed("inbox/idea.md", "---\naliases:\n  - \"mailto:idea\"\n---\nx");
+    await seed("ref.md", "[mail](mailto:idea)");
+
+    await moveNote(vaultDir, "inbox/idea.md", "archive/idea.md");
+
+    expect(await readNote(vaultDir, "ref.md")).toBe("[mail](mailto:idea)");
+  });
+
   it("does not rewrite wikilinks inside fenced code blocks", async () => {
     await seed("inbox/idea.md", "x");
     const body = ["normal [[inbox/idea]]", "```", "[[inbox/idea]]", "```"].join("\n");
@@ -596,6 +605,20 @@ describe("planDeleteRewrites", () => {
 
     expect(result.updated).toEqual(["ref.md"]);
     expect(await readNote(vaultDir, "ref.md")).toBe("Read the topic carefully.");
+  });
+
+  it("does not strip scheme-style markdown URLs that match an alias", async () => {
+    await seed("notes/topic.md", "---\naliases:\n  - \"mailto:topic\"\n---\n# Topic");
+    await seed("ref.md", "Mail [the topic](mailto:topic) later.");
+
+    const preDeleteNotes = await listNotes(vaultDir);
+    const plan = await planDeleteRewrites(vaultDir, "notes/topic.md", preDeleteNotes);
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual([]);
+    expect(await readNote(vaultDir, "ref.md")).toBe(
+      "Mail [the topic](mailto:topic) later.",
+    );
   });
 
   it("strips explicitly relative markdown links to the deleted file", async () => {
