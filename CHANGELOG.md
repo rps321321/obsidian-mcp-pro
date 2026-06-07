@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `find_unused_attachments` now normalizes local markdown attachment paths with dot segments before basename matching, preventing duplicate filenames from being marked referenced together.
 - Vault-wide link cleanup now skips scheme-style markdown URLs such as `mailto:` before alias resolution, preventing move/delete reference rewrites from editing external links that resemble note aliases.
 - Link graph tools now canonicalize caller-provided note paths with dot segments before basename fallback, so duplicate basenames do not make `get_backlinks`, `get_outlinks`, or `get_graph_neighbors` inspect the wrong note.
+- Base `file.linksTo()` and `file.hasLink()` filters now strip link fragments and require folder-qualified targets to match by path before falling back to basename-only shorthand.
 - Embedding provider setup now treats blank provider, model, and base-URL env vars as unset, so documented defaults still apply in empty shell or dotenv entries.
 - Embedding snapshot loading now ignores malformed dimensions and malformed entry fields before rehydrating the semantic index.
 - OpenAI embedding responses now reject missing, duplicate, or out-of-range row indexes before vectors are paired with input chunks.
