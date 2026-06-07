@@ -316,6 +316,15 @@ describe("extractTags", () => {
     expect(tags).toContain("project/alpha");
   });
 
+  it("should extract numeric-leading inline tags with non-numeric characters", () => {
+    const tags = extractTags("#1a #2026-goals #1984 #1984/2020 #a1");
+    expect(tags).toContain("1a");
+    expect(tags).toContain("2026-goals");
+    expect(tags).toContain("a1");
+    expect(tags).not.toContain("1984");
+    expect(tags).not.toContain("1984/2020");
+  });
+
   it("should extract tags from frontmatter tags array", () => {
     const content = `---
 tags:
