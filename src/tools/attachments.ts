@@ -168,6 +168,12 @@ async function noteStatsFingerprint(
   return parts.join("\0");
 }
 
+function isExternalMarkdownTarget(target: string): boolean {
+  if (target.startsWith("//")) return true;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) return true;
+  return /^(?:data|file|http|https|mailto|obsidian|tel):/i.test(target);
+}
+
 /**
  * Resolve the set of attachment paths referenced by a single note. Considers:
  *   - `![[file.png]]` and `![[file.png|alt]]` wikilink embeds
@@ -186,7 +192,10 @@ function collectReferencedAttachments(
   const unresolved: string[] = [];
 
   const consider = (rawTarget: string): void => {
-    const t = rawTarget.split("#")[0]!.split("^")[0]!.trim();
+    const trimmedTarget = rawTarget.trim();
+    if (isExternalMarkdownTarget(trimmedTarget)) return;
+
+    const t = trimmedTarget.split("#")[0]!.split("^")[0]!.trim();
     if (!t) return;
 
     // 1) Exact relative-path match (case-insensitive on case-insensitive FS,
