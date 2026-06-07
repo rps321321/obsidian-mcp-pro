@@ -3,6 +3,7 @@ import {
   rewriteInlineTags,
   rewriteFrontmatterTags,
   rewriteAllTags,
+  isValidTagName,
 } from "../lib/tag-rewriter.js";
 
 const opts = (oldName: string, newName: string, hierarchical = true) => ({
@@ -23,6 +24,13 @@ describe("rewriteInlineTags", () => {
     const input = "x #project/alpha y";
     const { body, count } = rewriteInlineTags(input, opts("project", "client"));
     expect(body).toBe("x #client/alpha y");
+    expect(count).toBe(1);
+  });
+
+  it("renames numeric-leading inline tags with non-numeric characters", () => {
+    const input = "#1a #2026-goals #1984 #1984/2020";
+    const { body, count } = rewriteInlineTags(input, opts("1a", "2026-goals"));
+    expect(body).toBe("#2026-goals #2026-goals #1984 #1984/2020");
     expect(count).toBe(1);
   });
 
@@ -53,6 +61,15 @@ describe("rewriteInlineTags", () => {
     const { body, count } = rewriteInlineTags(input, opts("project", "client"));
     expect(body).toBe("outside #client, inside `#project` text\n");
     expect(count).toBe(1);
+  });
+});
+
+describe("isValidTagName", () => {
+  it("allows numeric-leading names only when they include a non-numeric character", () => {
+    expect(isValidTagName("1a")).toBe(true);
+    expect(isValidTagName("2026-goals")).toBe(true);
+    expect(isValidTagName("1984")).toBe(false);
+    expect(isValidTagName("1984/2020")).toBe(false);
   });
 });
 

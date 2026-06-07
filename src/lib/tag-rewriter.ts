@@ -19,11 +19,11 @@ import {
 // renames the parser wouldn't see. Anchored to start-of-line or whitespace
 // so `#anchor` inside a heading isn't matched as a tag.
 const TAG_CHAR = "[a-zA-Z0-9\\u00C0-\\u024F\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u309F\\u30A0-\\u30FF\\uAC00-\\uD7AF_/-]";
-const TAG_HEAD = "[a-zA-Z\\u00C0-\\u024F\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u309F\\u30A0-\\u30FF\\uAC00-\\uD7AF_]";
+const TAG_HEAD = "[a-zA-Z0-9\\u00C0-\\u024F\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u309F\\u30A0-\\u30FF\\uAC00-\\uD7AF_]";
 const TAG_NAME_RE = new RegExp(`^${TAG_HEAD}${TAG_CHAR}*$`);
 
 export function isValidTagName(name: string): boolean {
-  return TAG_NAME_RE.test(name);
+  return TAG_NAME_RE.test(name) && /[^\d/]/u.test(name);
 }
 
 interface FenceState {
@@ -147,6 +147,7 @@ export function rewriteInlineTags(
       const tagStart = m.index + leading.length;
       // Skip if the `#` (one byte before tag start) is inside inline code.
       if (mask[tagStart] || mask[m.index]) continue;
+      if (!isValidTagName(matchedTag)) continue;
       const renamed = applyRename(matchedTag, opts);
       if (renamed === null) continue;
       result += line.slice(cursor, tagStart);
