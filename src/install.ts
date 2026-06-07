@@ -16,6 +16,10 @@ interface McpConfigFile {
   [key: string]: unknown;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function claudeDesktopConfigPath(): string {
   const platform = os.platform();
   if (platform === "darwin") {
@@ -46,16 +50,24 @@ function getConfigPath(client: InstallClient): string {
 
 function readConfig(configPath: string): McpConfigFile {
   if (!fs.existsSync(configPath)) return {};
+  let parsed: unknown;
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
     if (!raw.trim()) return {};
-    return JSON.parse(raw) as McpConfigFile;
+    parsed = JSON.parse(raw);
   } catch (err) {
     throw new Error(
       `Existing config at ${configPath} is not valid JSON. Fix or delete it before re-running install. (${sanitizeError(err)})`,
       { cause: err },
     );
   }
+  if (!isPlainObject(parsed)) {
+    throw new Error(`Existing config at ${configPath} must be a JSON object. Fix or delete it before re-running install.`);
+  }
+  if (parsed.mcpServers !== undefined && parsed.mcpServers !== null && !isPlainObject(parsed.mcpServers)) {
+    throw new Error(`Existing config at ${configPath} has invalid mcpServers; expected a JSON object.`);
+  }
+  return parsed;
 }
 
 function backupConfig(configPath: string): string | null {
