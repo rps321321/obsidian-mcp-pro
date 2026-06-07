@@ -89,6 +89,19 @@ describe("O2: extended file.* properties", () => {
     expect(result.rows.map((r) => r.path)).toEqual(["Projects/alpha.md"]);
   });
 
+  it("file.inFolder normalizes dot segments in the folder argument", () => {
+    const rows = [
+      buildRow("Projects/alpha.md", noteWithFrontmatter({})),
+      buildRow("Archive/beta.md", noteWithFrontmatter({})),
+    ];
+
+    const projects = queryBase(rows, { filters: ['file.inFolder("./Projects/./")'] });
+    expect(projects.rows.map((r) => r.path)).toEqual(["Projects/alpha.md"]);
+
+    const archive = queryBase(rows, { filters: ['file.inFolder("Projects/../Archive")'] });
+    expect(archive.rows.map((r) => r.path)).toEqual(["Archive/beta.md"]);
+  });
+
   it("file.ext exposes the file extension", () => {
     const rows = [
       buildRow("notes/a.md", noteWithFrontmatter({})),
