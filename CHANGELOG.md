@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Embedding provider base URLs now reject embedded credentials, query strings, and fragments before provider setup, without echoing the rejected URL.
 - HTTP transport now requires the actual `application/json` media type for MCP POST bodies instead of accepting `Content-Type` values that only mention it in parameters.
 - Global Obsidian config auto-detection now ignores non-file or oversized `obsidian.json` files before parsing, preventing startup from spending unbounded memory on malformed local config data.
 - The `install` command now rejects existing client config files whose JSON root or `mcpServers` field is not an object, instead of crashing or reporting success without writing the server entry.
