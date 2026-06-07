@@ -166,6 +166,29 @@ function buildSourceLookup(notes: string[]): Map<string, string> {
   return lookup;
 }
 
+function normalizeGraphInputPath(input: string): string {
+  const slashed = input.replace(/\\/g, "/");
+  const withoutExt = slashed.replace(/\.md$/i, "");
+  const normalized = path.posix.normalize(withoutExt);
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.startsWith("/")
+  ) {
+    return withoutExt.toLowerCase();
+  }
+  return normalized.replace(/\/+$/g, "").toLowerCase();
+}
+
+function resolveGraphInputPath(graph: LinkGraphData, input: string): string | null {
+  const normalized = normalizeGraphInputPath(input);
+  const basename = normalized.split("/").pop() ?? normalized;
+  return graph.sourceLookup.get(`exact:${normalized}`) ??
+    graph.sourceLookup.get(`base:${basename}`) ??
+    null;
+}
+
 function sharedPathDepth(a: string, b: string): number {
   const as = a.toLowerCase().split("/");
   const bs = b.toLowerCase().split("/");
@@ -444,34 +467,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
       try {
         const graph = await buildLinkGraph(vaultPath);
 
-        // Normalize target for comparison
-        const targetNormalized = targetPath.replace(/\.md$/i, "").toLowerCase();
-        const targetBasename = targetNormalized.split("/").pop() ?? targetNormalized;
-
-        // Find the actual note path that matches the target
-        let resolvedTarget: string | null = null;
-        for (const notePath of graph.allNotes) {
-          const noteNormalized = notePath.replace(/\.md$/i, "").toLowerCase();
-          if (noteNormalized === targetNormalized) {
-            resolvedTarget = notePath;
-            break;
-          }
-        }
-
-        // Also try basename matching if exact match failed
-        if (!resolvedTarget) {
-          for (const notePath of graph.allNotes) {
-            const noteBasename = notePath
-              .replace(/\.md$/i, "")
-              .split("/")
-              .pop()
-              ?.toLowerCase();
-            if (noteBasename === targetBasename) {
-              resolvedTarget = notePath;
-              break;
-            }
-          }
-        }
+        const resolvedTarget = resolveGraphInputPath(graph, targetPath);
 
         if (!resolvedTarget) {
           return errorResult(`No note found matching path: ${displayLinkValue(targetPath)}`);
@@ -599,15 +595,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
         // calls. The graph already indexes raw links per source.
         const graph = await buildLinkGraph(vaultPath);
 
-        // Resolve caller-provided path to its canonical form in the graph
-        // (handles trailing-or-missing .md and basename-only inputs the way
-        // get_backlinks does).
-        const targetNormalized = notePath.replace(/\.md$/i, "").toLowerCase();
-        const targetBasename = targetNormalized.split("/").pop() ?? targetNormalized;
-        const resolvedSource =
-          graph.sourceLookup.get(`exact:${targetNormalized}`) ??
-          graph.sourceLookup.get(`base:${targetBasename}`) ??
-          null;
+        const resolvedSource = resolveGraphInputPath(graph, notePath);
         if (!resolvedSource) {
           return errorResult(`No note found matching path: ${displayLinkValue(notePath)}`);
         }
@@ -910,33 +898,7 @@ export function registerLinkTools(server: McpServer, vaultPath: string): void {
       try {
         const graph = await buildLinkGraph(vaultPath);
 
-        // Resolve the start path
-        const startNormalized = startPath.replace(/\.md$/i, "").toLowerCase();
-        let resolvedStart: string | null = null;
-
-        for (const notePath of graph.allNotes) {
-          const noteNormalized = notePath.replace(/\.md$/i, "").toLowerCase();
-          if (noteNormalized === startNormalized) {
-            resolvedStart = notePath;
-            break;
-          }
-        }
-
-        if (!resolvedStart) {
-          // Try basename matching
-          const startBasename = startNormalized.split("/").pop() ?? startNormalized;
-          for (const notePath of graph.allNotes) {
-            const noteBasename = notePath
-              .replace(/\.md$/i, "")
-              .split("/")
-              .pop()
-              ?.toLowerCase();
-            if (noteBasename === startBasename) {
-              resolvedStart = notePath;
-              break;
-            }
-          }
-        }
+        const resolvedStart = resolveGraphInputPath(graph, startPath);
 
         if (!resolvedStart) {
           return errorResult(`No note found matching path: ${displayLinkValue(startPath)}`);

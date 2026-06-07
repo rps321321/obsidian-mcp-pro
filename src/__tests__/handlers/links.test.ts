@@ -57,6 +57,29 @@ describe("link handlers — get_backlinks", () => {
     expect(textContent(withExt)).toEqual(textContent(withoutExt));
   });
 
+  it("canonicalizes target path dot segments before basename fallback", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "archive/idea.md": "# Archive idea\n",
+        "projects/idea.md": "# Project idea\n",
+        "ref.md": "Links to [[projects/idea]].\n",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "get_backlinks",
+      arguments: { path: "./projects/idea.md" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("ref.md");
+    expect(text).toContain("projects/idea.md");
+    expect(text).not.toContain("No backlinks found");
+  });
+
   it("escapes control characters in missing target paths", async () => {
     const result = await env.client.callTool({
       name: "get_backlinks",
@@ -114,6 +137,30 @@ describe("link handlers — get_outlinks", () => {
     expect(text).toContain("note-b.md");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks source path]");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: get_outlinks resolved path]");
+  });
+
+  it("canonicalizes source path dot segments before basename fallback", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "archive/idea.md": "# Archive idea\n",
+        "projects/idea.md": "# Project idea\n\nLinks to [[target]].\n",
+        "target.md": "# Target\n",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "get_outlinks",
+      arguments: { path: "./projects/idea.md" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toMatch(/1 valid, 0 broken/);
+    expect(text).toContain("projects/idea.md");
+    expect(text).toContain("target.md");
+    expect(text).not.toContain("No outgoing links");
   });
 
   it("refreshes a warm graph before resolving a new source note", async () => {
