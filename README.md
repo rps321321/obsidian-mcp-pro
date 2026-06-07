@@ -215,7 +215,7 @@ Operational endpoints (no auth required):
 | `GET /health` | `{ status: "ok", version: <string> }` — liveness for monitoring. |
 | `GET /version` | `{ version: <string> }` — package version, for rollout auditing. |
 
-Structured logging is controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`, default `info`) and `LOG_FORMAT` (`text`/`json`, default `text`). All logs go to stderr so the stdio transport on stdout is never polluted.
+Structured logging is controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`, default `info`) and `LOG_FORMAT` (`text`/`json`, default `text`). All logs go to stderr so the stdio transport on stdout is never polluted, with absolute paths, vault-relative path fields, secret-bearing URLs, and control characters redacted before write.
 
 ---
 
@@ -345,7 +345,7 @@ This latch is per call so scripted index refreshes have to keep the privacy deci
 
 ### Observability
 
-Logs stream to stderr as either plain text (default) or single-line JSON, controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`) and `LOG_FORMAT` (`text`/`json`).
+Logs stream to stderr as either plain text (default) or single-line JSON, controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`silent`) and `LOG_FORMAT` (`text`/`json`). Local stderr and MCP-forwarded log payloads both redact absolute paths, vault-relative path fields, secret-bearing URLs, and control characters.
 
 The server also declares the MCP [`logging` capability](https://modelcontextprotocol.io/specification), so every log line is forwarded to the connected client as a `notifications/message` frame alongside tool responses. Clients that honor `logging/setLevel` can filter server-side logs at runtime without restarting. Claude Desktop surfaces these in its MCP DevTools pane; most other clients currently ignore them, so this is useful primarily for self-hosters and tooling authors.
 
@@ -361,7 +361,7 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 - **Attachment safety** — executable extensions are blocked, SVGs are returned as `text/plain`, and active text formats such as HTML/XML/CSS are served with `text/plain` resource metadata.
 - **Canvas link safety** — Canvas link nodes added through the server accept only absolute `http://` and `https://` URLs, preventing local file and application-protocol links from being persisted by tool calls.
 - **Regex edit safety** — `replace_in_note` caps regex pattern/input size and rejects backtracking-prone repeated groups before matching.
-- **Error and log sanitization** — filesystem error messages are stripped of absolute host paths before being returned to MCP clients, ASCII control bytes and Unicode bidi controls are escaped in displayed values, and note-derived duplicate-alias text is not copied into graph warnings. Uncaught HTTP errors respond with a generic `Internal server error` body; full detail stays in the server log.
+- **Error and log sanitization** — filesystem error messages are stripped of absolute host paths before being returned to MCP clients, local stderr and MCP-forwarded logs redact paths and secret-bearing URLs, ASCII control bytes and Unicode bidi controls are escaped in displayed values, and note-derived duplicate-alias text is not copied into graph warnings. Uncaught HTTP errors respond with a generic `Internal server error` body while server logs keep sanitized diagnostics.
 - **Untrusted vault text boundaries** — tool outputs that include note bodies, read, search result, semantic result, semantic index failure, write rewrite-warning, link-graph, attachment, Base, and Canvas path summaries, attachment extension summaries, search snippets, semantic snippets and heading paths, tag lists, tag search result paths and previews, tag rename skipped-note rows, frontmatter values, Base data, wikilink targets in link-analysis output, SVG attachment text, section headings, Canvas node identities, colors, previews, edge endpoints, and edge labels, or backlink context wrap those vault-authored portions in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers before they enter an MCP client's model context. Note and daily resources use the same visible boundaries for markdown bodies and carry `_meta["obsidian-mcp-pro/contentTrust"] = "untrusted-vault-content"`.
 - **YAML parser boundaries** — Obsidian properties are parsed only from `---` YAML delimiter lines; non-YAML gray-matter language blocks stay as body text, oversized frontmatter is skipped on reads and refused for metadata updates, and note/Base YAML containing anchors or aliases is not parsed.
 - **Semantic index freshness** — `search_semantic` and `find_similar_notes` re-check current note content hashes before returning stored snippets or source-note embeddings, pruning stale cache entries instead of surfacing old note text.

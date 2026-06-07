@@ -93,9 +93,8 @@ function resolveVaultFromEnv(): string | null {
 
   const resolved = path.resolve(envPath);
   if (!isValidVaultPath(resolved)) {
-    // Log the configured path (not sanitized) because this is an operator-
-    // facing diagnostic — they already know the path, and hiding it would
-    // make the error useless. This never goes into a tool response.
+    // The logger redacts the path before writing to stderr or forwarding to
+    // MCP clients, so this stays useful without leaking host layout.
     log.warn("OBSIDIAN_VAULT_PATH is not a valid vault (missing .obsidian dir)", {
       vaultPath: resolved,
     });

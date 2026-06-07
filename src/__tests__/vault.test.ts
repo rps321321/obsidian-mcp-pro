@@ -24,6 +24,7 @@ import {
   getVaultRootRealPath,
 } from "../lib/vault.js";
 import { setPermissions } from "../lib/permissions.js";
+import { configureLogger } from "../lib/logger.js";
 
 let vaultDir: string;
 const itWin32 = process.platform === "win32" ? it : it.skip;
@@ -38,6 +39,7 @@ afterEach(async () => {
   setMaxNoteFileBytesForTests(null);
   setMaxNoteLineRangeBytesForTests(null);
   setPermissions({ readPaths: null, writePaths: null });
+  configureLogger({ level: "info", format: "text", mcpServer: null });
   await fs.rm(vaultDir, { recursive: true, force: true });
 });
 
@@ -53,6 +55,28 @@ describe("resolveVaultPath", () => {
   it("should allow the vault root itself", () => {
     const result = resolveVaultPath(vaultDir, ".");
     expect(result).toBe(path.resolve(vaultDir));
+  });
+
+  it("redacts missing vault root paths in the fallback log", async () => {
+    const missingRoot = path.join(vaultDir, "missing-root");
+    const captured: string[] = [];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      captured.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    });
+
+    try {
+      configureLogger({ level: "warn", format: "text", mcpServer: null });
+      await expect(getVaultRootRealPath(missingRoot)).resolves.toBe(path.resolve(missingRoot));
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    const out = captured.join("");
+    expect(out).toContain("Vault path does not exist");
+    expect(out).toContain("vaultPath=<path>");
+    expect(out).not.toContain(missingRoot);
   });
 
   it("should block ../ traversal", () => {
