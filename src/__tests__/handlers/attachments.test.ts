@@ -150,6 +150,28 @@ describe("attachments handlers — find_unused_attachments", () => {
     expect(textContent(result)).toMatch(/orphan-image\.png/);
   });
 
+  it("normalizes local markdown link dot segments before basename fallback", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "assets/used.png": "referenced",
+        "other/used.png": "unused duplicate basename",
+        "note.md": "Local path: ![img](./assets/used.png)\n",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "find_unused_attachments",
+      arguments: {},
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).not.toMatch(/assets\/used\.png/);
+    expect(text).toMatch(/other\/used\.png/);
+  });
+
   it("serves repeated unused scans without changing output", async () => {
     const first = await env.client.callTool({
       name: "find_unused_attachments",
