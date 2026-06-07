@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Base `file.inFolder()` filters now normalize slash and dot segments in folder arguments before matching note paths.
 - Trash deletes now use no-replace semantics for the selected `.trash` destination, preventing races from overwriting a newly created trashed file.
 - Semantic search folder filters now normalize slash and dot segments before matching stored note paths.
+- Daily-note folder settings now normalize slash and dot segments before building tool and resource paths.
 - Embedding provider setup now treats blank provider, model, and base-URL env vars as unset, so documented defaults still apply in empty shell or dotenv entries.
 - Embedding snapshot loading now ignores malformed dimensions and malformed entry fields before rehydrating the semantic index.
 - OpenAI embedding responses now reject missing, duplicate, or out-of-range row indexes before vectors are paired with input chunks.

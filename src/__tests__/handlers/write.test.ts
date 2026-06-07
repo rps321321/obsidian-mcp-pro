@@ -325,6 +325,27 @@ describe("write handlers — create_daily_note", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("reports canonical paths when configured daily-note folders contain dot segments", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "daily/../journal/./", format: "YYYY-MM-DD" }),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "create_daily_note",
+      arguments: { date: "2026-05-09", content: "May 9 entry." },
+    });
+
+    expect(isError(result)).toBe(false);
+    const text = textContent(result);
+    expect(text).toContain("journal/2026-05-09.md");
+    expect(text).not.toContain("daily/../journal/./2026-05-09.md");
+    await expect(
+      fs.access(path.join(env.vaultDir, "journal", "2026-05-09.md")),
+    ).resolves.toBeUndefined();
+  });
+
   it("marks configured daily-note paths in already-exists output as untrusted", async () => {
     const dirtyFolder = "daily\x7fnotes";
     await fs.writeFile(
