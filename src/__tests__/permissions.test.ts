@@ -45,6 +45,18 @@ describe("permissions", () => {
     expect(() => assertAllowed("projects/sub/a.md", "read")).not.toThrow();
   });
 
+  it("does not echo configured allowlist folders in denial errors", () => {
+    setPermissions({ readPaths: ["sensitive/clients", "public/notes"], writePaths: null });
+    expect(() => assertAllowed("other/note.md", "read")).toThrow(/OBSIDIAN_READ_PATHS/);
+    try {
+      assertAllowed("other/note.md", "read");
+    } catch (err) {
+      const message = (err as Error).message;
+      expect(message).not.toContain("sensitive/clients");
+      expect(message).not.toContain("public/notes");
+    }
+  });
+
   it("loads allowlists from env vars", () => {
     process.env.OBSIDIAN_READ_PATHS = "a,b:c";
     process.env.OBSIDIAN_WRITE_PATHS = "drafts";

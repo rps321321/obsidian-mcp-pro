@@ -134,18 +134,17 @@ export function assertAllowed(relativePath: string, kind: AccessKind): void {
   const list = kind === "read" ? active.readPaths : active.writePaths;
   if (!list || list.length === 0) return;
   const envName = kind === "read" ? "OBSIDIAN_READ_PATHS" : "OBSIDIAN_WRITE_PATHS";
-  const list_ = list.map((f) => f || "<vault root>").join(", ");
   const rel = normalizeRel(relativePath);
   if (rel === null) {
     throw new Error(
-      `Access denied: "${relativePath}" escapes the configured ${envName} allowlist (${list_})`,
+      `Access denied: "${relativePath}" escapes the configured ${envName} allowlist`,
     );
   }
   for (const folder of list) {
     if (isUnder(rel, folder)) return;
   }
   throw new Error(
-    `Access denied: "${relativePath}" is outside the configured ${envName} allowlist (${list_})`,
+    `Access denied: "${relativePath}" is outside the configured ${envName} allowlist`,
   );
 }
 
