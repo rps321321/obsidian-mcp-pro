@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - OpenAI embedding setup now treats blank `OBSIDIAN_EMBEDDING_API_KEY` values as unset, falling back to `OPENAI_API_KEY` when present instead of sending a whitespace bearer token.
 - Permission allowlist folders now normalize config-side dot segments, so entries such as `./projects` and `archive/./logs` match their intended vault folders.
+- Folder-scoped `list_notes` calls now return canonical note paths when the folder argument contains `.` or `..` segments.
 - Embedding provider setup now treats blank provider, model, and base-URL env vars as unset, so documented defaults still apply in empty shell or dotenv entries.
 - Embedding snapshot loading now ignores malformed dimensions and malformed entry fields before rehydrating the semantic index.
 - OpenAI embedding responses now reject missing, duplicate, or out-of-range row indexes before vectors are paired with input chunks.
