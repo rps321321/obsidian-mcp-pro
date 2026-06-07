@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local stderr logs now redact absolute paths, vault-relative path fields, secret-bearing URLs, and control characters before writing text or JSON diagnostics.
 - `search_by_frontmatter` now matches frontmatter property names case-insensitively, so a query for `status` also finds `Status` and `STATUS` keys while preserving value matching, folder filtering, result shape, and displayed frontmatter.
 - Canvas write tools now reject non-object `.canvas` JSON before mutation, matching `read_canvas` and leaving invalid files untouched instead of replacing them with a new object.
+- Canvas reference rewrites now report a failed referrer when a planned `.canvas` file becomes non-object JSON before apply, instead of silently skipping the stale reference.
 - `read_base` and `query_base` now require `.base` file paths instead of accepting arbitrary readable vault files.
 - Daily-note config-derived paths in `get_daily_note`, `create_daily_note`, and `obsidian://daily` output now use explicit untrusted-content markers, and note/daily resource metadata labels are generic.
 - Note and daily resources now wrap returned markdown bodies in visible untrusted-content markers instead of relying only on `_meta` trust metadata.

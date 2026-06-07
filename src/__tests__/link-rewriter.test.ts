@@ -455,6 +455,38 @@ describe("applyRewrites — TOCTOU safety", () => {
       oversizedCanvas,
     );
   });
+
+  it("fails when a planned canvas referrer becomes non-object JSON before apply", async () => {
+    await seed("inbox/idea.md", "# Idea");
+    await seed(
+      "board.canvas",
+      JSON.stringify({
+        nodes: [{ id: "n1", type: "file", file: "inbox/idea.md" }],
+        edges: [],
+      }),
+    );
+
+    const preMoveNotes = await listNotes(vaultDir);
+    const plan = await planMoveRewrites(
+      vaultDir,
+      "inbox/idea.md",
+      "archive/idea.md",
+      preMoveNotes,
+    );
+
+    const racedCanvas = "[]";
+    await fs.writeFile(path.join(vaultDir, "board.canvas"), racedCanvas, "utf-8");
+
+    const result = await applyRewrites(vaultDir, plan);
+
+    expect(result.updated).toEqual([]);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].path).toBe("board.canvas");
+    expect(result.failed[0].error).toContain("Invalid canvas file (expected JSON object)");
+    expect(await fs.readFile(path.join(vaultDir, "board.canvas"), "utf-8")).toBe(
+      racedCanvas,
+    );
+  });
 });
 
 describe("moveNote — concurrent serialization", () => {
