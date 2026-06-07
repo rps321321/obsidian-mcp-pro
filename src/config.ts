@@ -72,6 +72,17 @@ function boundedDailyConfigString(value: unknown): string | undefined {
   return value;
 }
 
+function normalizeDailyNoteFolder(folder: string | undefined): string | undefined {
+  if (folder === undefined) return undefined;
+  const slashed = folder.replace(/\/+$/g, "");
+  if (slashed === "") return "";
+  if (slashed.startsWith("/")) return folder;
+  const normalized = path.posix.normalize(slashed).replace(/\/+$/g, "");
+  if (normalized === ".") return "";
+  if (normalized === ".." || normalized.startsWith("../")) return slashed;
+  return normalized;
+}
+
 function isValidVaultPath(vaultPath: string): boolean {
   try {
     const obsidianDir = path.join(vaultPath, ".obsidian");
@@ -269,7 +280,7 @@ export async function getDailyNoteConfig(vaultPath?: string): Promise<DailyNoteC
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!isPlainObject(parsed)) return defaults;
-    const folder = boundedDailyConfigString(parsed.folder);
+    const folder = normalizeDailyNoteFolder(boundedDailyConfigString(parsed.folder));
     const format = boundedDailyConfigString(parsed.format);
     const template = boundedDailyConfigString(parsed.template);
     return {
