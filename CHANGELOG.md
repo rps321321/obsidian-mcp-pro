@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- R&D experiment for tag whitespace quality, with a synthetic frontmatter tag fixture in `scripts/bench-tag-whitespace-quality.mjs` and ship/kill metric in `docs/rnd/tag-whitespace-quality.md`.
 - R&D experiment for tag validity quality, with a synthetic frontmatter/inline tag fixture in `scripts/bench-tag-validity-quality.mjs` and ship/kill metric in `docs/rnd/tag-validity-quality.md`.
 - R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs` and ship/kill metric in `docs/rnd/frontmatter-key-quality.md`.
 - R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs` and ship/kill metric in `docs/rnd/search-ranking-quality.md`.
@@ -46,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Frontmatter tag extraction now ignores tag values containing whitespace, matching Obsidian's tag format while preserving hyphenated, underscored, nested, and inline tags.
 - Frontmatter tag extraction now drops leading hashes and ignores numeric-only tag values, matching Obsidian's tag format while preserving valid mixed, nested, and inline tags.
 - `get_note` line fragments now reject unsafe line numbers and cap line-range scan/output bytes, while still allowing small targeted fragments from notes over the full-read cap.
 - `list_sections` now rejects non-markdown files and notes over the configured note-size cap before parsing headings.
