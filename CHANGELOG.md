@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `search_semantic` now validates live query vectors before scoring, so malformed embedding provider responses cannot produce `NaN` ranks or low-level cosine errors.
 - Embedding provider base URLs now reject embedded credentials, query strings, and fragments before provider setup, without echoing the rejected URL.
 - HTTP transport now requires the actual `application/json` media type for MCP POST bodies instead of accepting `Content-Type` values that only mention it in parameters.
 - Global Obsidian config auto-detection now ignores non-file or oversized `obsidian.json` files before parsing, preventing startup from spending unbounded memory on malformed local config data.
