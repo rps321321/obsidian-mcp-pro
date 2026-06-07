@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-06-07
+
 ### Migration
 
 - `get_note`, `get_daily_note`, `search_notes`, `search_by_frontmatter`, `list_notes`, `get_recent_notes`, `get_vault_stats`, `resolve_alias`, `list_tags`, `search_by_tag` result paths and previews, `rename_tag` skipped note rows, `index_vault` failed note rows, `search_semantic` result paths and snippets, semantic heading paths, `find_similar_notes` result paths, `move_note`/`delete_note` failed referrers, `get_backlinks`, `get_outlinks`, `find_orphans`, `find_broken_links`, `get_graph_neighbors`, `list_attachments` paths and extension summaries, `find_unused_attachments`, `list_bases`, `list_canvases`, `read_canvas` paths, node identities, node colors, edge endpoints, node previews, and edge labels, `read_base`, `query_base`, SVG attachment text, section-heading output, backlink context output, and note/daily resource bodies now wrap vault-authored text or path summaries in `[BEGIN UNTRUSTED VAULT CONTENT: ...]` / `[END UNTRUSTED VAULT CONTENT: ...]` markers. Clients that parsed raw note fragments, path rows, attachment extension summaries, failed-referrer rows, skipped-note rows, failed-note rows, search result headings, tag values, headings, link targets, canvas labels, canvas identifiers, resource bodies, or snippets should extract the text between those markers.
