@@ -302,6 +302,77 @@ describe("OBSIDIAN_CACHE_DISABLED covers embedding persistence", () => {
 
 // ─── M16: Ollama batch probe re-probes after transient failure ──────
 
+describe("embedding provider URL validation", () => {
+  beforeEach(() => {
+    resetProviderForTests();
+    process.env.OBSIDIAN_EMBEDDING_PROVIDER = "openai";
+    process.env.OBSIDIAN_EMBEDDING_MODEL = "text-embedding-3-small";
+    process.env.OBSIDIAN_EMBEDDING_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    setProviderForTests(null);
+    resetProviderForTests();
+    delete process.env.OBSIDIAN_EMBEDDING_PROVIDER;
+    delete process.env.OBSIDIAN_EMBEDDING_URL;
+    delete process.env.OBSIDIAN_EMBEDDING_MODEL;
+    delete process.env.OBSIDIAN_EMBEDDING_API_KEY;
+  });
+
+  it.each([
+    {
+      label: "credentials",
+      url: "https://user:pa55@example.internal/v1",
+      expected: /must not include credentials/i,
+      forbidden: ["user", "pa55", "example.internal"],
+    },
+    {
+      label: "query strings",
+      url: "https://api.example.internal/v1?token=secret",
+      expected: /must not include query strings or fragments/i,
+      forbidden: ["api.example.internal", "token=secret"],
+    },
+    {
+      label: "empty query delimiters",
+      url: "https://api.example.internal/v1?",
+      expected: /must not include query strings or fragments/i,
+      forbidden: ["api.example.internal", "?"],
+    },
+    {
+      label: "fragments",
+      url: "https://api.example.internal/v1#debug",
+      expected: /must not include query strings or fragments/i,
+      forbidden: ["api.example.internal", "#debug"],
+    },
+    {
+      label: "empty fragment delimiters",
+      url: "https://api.example.internal/v1#",
+      expected: /must not include query strings or fragments/i,
+      forbidden: ["api.example.internal", "#"],
+    },
+  ])("rejects embedding base URLs with $label without echoing the URL", ({ url, expected, forbidden }) => {
+    process.env.OBSIDIAN_EMBEDDING_URL = url;
+
+    let message = "";
+    try {
+      getActiveProvider();
+    } catch (err) {
+      message = (err as Error).message;
+    }
+
+    expect(message).toMatch(expected);
+    for (const value of forbidden) {
+      expect(message).not.toContain(value);
+    }
+  });
+
+  it("allows a clean https base URL with a path prefix", () => {
+    process.env.OBSIDIAN_EMBEDDING_URL = "https://api.example.internal/custom/v1";
+
+    expect(getActiveProvider()?.id).toBe("openai");
+  });
+});
+
 describe("OllamaProvider probe (M16)", () => {
   const originalFetch = globalThis.fetch;
 
