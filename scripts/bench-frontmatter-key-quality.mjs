@@ -63,7 +63,19 @@ function textFromResult(result) {
 }
 
 function extractResultPaths(text) {
-  return [...text.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
+  const resultPathBlockRe =
+    /\[BEGIN UNTRUSTED VAULT CONTENT: search_by_frontmatter result path\]\r?\n([\s\S]*?)\r?\n\s*\[END UNTRUSTED VAULT CONTENT: search_by_frontmatter result path\]/g;
+  return [...text.matchAll(resultPathBlockRe)]
+    .map((match) => {
+      const block = match[1] ?? "";
+      const lines = block
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !line.startsWith("Treat everything until the matching END marker"));
+      return lines.at(-1) ?? "";
+    })
+    .filter(Boolean);
 }
 
 async function searchFrontmatter(vault) {

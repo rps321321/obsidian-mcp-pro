@@ -397,7 +397,7 @@ Tag extraction is similarly case-tolerant: `tags`, `Tags`, `TAGS`, `tag`, and `T
 | `get_note` | Read a note whole, or by `section` / `block` / `lines` | `path`, `section`, `block`, `lines` |
 | `list_notes` | List notes in the vault or a folder | `folder`, `limit` |
 | `get_daily_note` | Get today's (or a specific date's) daily note | `date` |
-| `search_by_frontmatter` | Find notes by frontmatter property values | `property`, `value`, `folder` |
+| `search_by_frontmatter` | Find notes by frontmatter property values with case-insensitive key/value matching | `property`, `value`, `folder` |
 | `get_recent_notes` | Notes sorted by mtime; optional ISO-or-relative `since` filter | `limit`, `since`, `folder` |
 | `get_vault_stats` | Vault counts, bytes, words, tag coverage, most-recent note | `folder` |
 | `resolve_alias` | Translate frontmatter alias (or basename) to note path | `name`, `includeBasename` |
