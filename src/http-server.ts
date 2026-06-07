@@ -62,6 +62,12 @@ function declaredBodyTooLarge(req: IncomingMessage): boolean {
   return BigInt(contentLength) > BigInt(MAX_BODY_BYTES);
 }
 
+function isJsonContentType(contentType: string | string[] | undefined): boolean {
+  if (typeof contentType !== "string") return false;
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/json";
+}
+
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -423,8 +429,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         // non-JSON data just to produce a parse error, and gives clients
         // a clearer 415 ("the server understands the request method but
         // the media type is unsupported") than a generic 400.
-        const contentType = req.headers["content-type"] ?? "";
-        if (!contentType.toLowerCase().includes("application/json")) {
+        if (!isJsonContentType(req.headers["content-type"])) {
           sendJson(res, 415, { error: "Unsupported Media Type: expected application/json" });
           return;
         }

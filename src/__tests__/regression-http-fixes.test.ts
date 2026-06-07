@@ -319,6 +319,23 @@ describe("regression: M1 — POST with non-JSON Content-Type returns 415", () =>
     expect(res.status).toBe(415);
   });
 
+  it("rejects media types that only mention application/json in parameters", async () => {
+    const handle = await startOnEphemeral();
+    handles.push(handle);
+
+    const res = await rawRequest(handle.port, {
+      method: "POST",
+      path: "/mcp",
+      headers: {
+        ...AUTH_HEADERS,
+        "Content-Type": "text/plain; profile=application/json",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+
+    expect(res.status).toBe(415);
+  });
+
   it("still accepts application/json with charset suffix", async () => {
     const handle = await startOnEphemeral();
     handles.push(handle);
