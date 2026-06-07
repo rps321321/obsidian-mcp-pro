@@ -216,6 +216,54 @@ describe("semantic handlers — search_semantic", () => {
     expect(textContent(result)).toMatch(/index_vault/i);
   });
 
+  it("rejects non-finite query vectors before scoring stored chunks", async () => {
+    await indexVault();
+    class BadQueryProvider implements EmbeddingProvider {
+      readonly id = "mock";
+      readonly model = "topic-counter";
+      embed(texts: string[]): Promise<number[][]> {
+        return Promise.resolve(texts.map(() => [Number.NaN, 0, 0, 0]));
+      }
+    }
+    setProviderForTests(new BadQueryProvider());
+
+    const result = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "cats", limit: 3 },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(true);
+    expect(text).toContain("Provider returned an invalid query vector");
+    expect(text).toContain("non-finite");
+    expect(text).not.toContain("NaN");
+    expect(text).not.toContain("cats.md");
+  });
+
+  it("rejects wrong-dimension query vectors before cosine scoring", async () => {
+    await indexVault();
+    class WrongDimensionProvider implements EmbeddingProvider {
+      readonly id = "mock";
+      readonly model = "topic-counter";
+      embed(texts: string[]): Promise<number[][]> {
+        return Promise.resolve(texts.map(() => [1, 0]));
+      }
+    }
+    setProviderForTests(new WrongDimensionProvider());
+
+    const result = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "cats", limit: 3 },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(true);
+    expect(text).toContain("Provider returned an invalid query vector");
+    expect(text).toContain("dimension mismatch");
+    expect(text).not.toContain("cosineSimilarity");
+    expect(text).not.toContain("cats.md");
+  });
+
   it("respects the folder filter", async () => {
     await indexVault();
     // Force the search to a folder that contains nothing.
