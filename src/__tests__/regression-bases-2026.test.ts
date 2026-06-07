@@ -136,6 +136,28 @@ describe("O3: file.hasProperty() and file.linksTo()", () => {
     const noMatch = queryBase([row], { filters: ['file.linksTo("Other")'] });
     expect(noMatch.rows).toHaveLength(0);
   });
+
+  it("file.linksTo keeps path targets from falling back to basename-only matches", () => {
+    const archiveRow = buildRow("archive-source.md", noteWithFrontmatter({}));
+    archiveRow.links = ["archive/idea"];
+    const projectRow = buildRow("project-source.md", noteWithFrontmatter({}));
+    projectRow.links = ["projects/idea"];
+
+    const result = queryBase([archiveRow, projectRow], {
+      filters: ['file.linksTo("projects/idea")'],
+    });
+
+    expect(result.rows.map((r) => r.path)).toEqual(["project-source.md"]);
+  });
+
+  it("file.hasLink ignores heading fragments when matching linked files", () => {
+    const row = buildRow("a.md", noteWithFrontmatter({}));
+    row.links = ["projects/idea#Heading"];
+
+    const result = queryBase([row], { filters: ['file.hasLink("projects/idea")'] });
+
+    expect(result.rows.map((r) => r.path)).toEqual(["a.md"]);
+  });
 });
 
 describe("C4: ReDoS hardening", () => {
