@@ -1509,6 +1509,13 @@ function canvasDataFromObject(data: Record<string, unknown>, relativePath: strin
   return { nodes, edges };
 }
 
+function assertCanvasJsonObject(parsed: unknown, relativePath: string): Record<string, unknown> {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Invalid canvas file (expected JSON object): ${relativePath}`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 function serializeCanvasFile(data: Record<string, unknown>, relativePath: string): string {
   const serialized = JSON.stringify(data, null, 2);
   assertCanvasFileSize(Buffer.byteLength(serialized, "utf-8"), relativePath);
@@ -1536,10 +1543,7 @@ export async function readCanvasFile(
   // BUG-14: runtime validation before casting. JSON.parse can return any JSON
   // primitive (string, number, boolean, null, array) - only a non-null object
   // is a valid canvas structure.
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Invalid canvas file (expected JSON object): ${relativePath}`);
-  }
-  const data = parsed as Record<string, unknown>;
+  const data = assertCanvasJsonObject(parsed, relativePath);
   if (!Array.isArray(data.nodes)) {
     return { nodes: [], edges: [] };
   }
@@ -1591,7 +1595,7 @@ export async function updateCanvasFile(
     } catch {
       throw new Error(`Invalid canvas file (malformed JSON): ${relativePath}`);
     }
-    const obj = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+    const obj = assertCanvasJsonObject(parsed, relativePath);
     const current = canvasDataFromObject(obj, relativePath);
     const next = await transform(current);
     assertCanvasDataCounts(next.nodes, next.edges, relativePath);
