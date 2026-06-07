@@ -22,6 +22,8 @@ import {
 //          was deterministic per-PID so concurrent saves could collide.
 //   - #24 (LOW): loadStore accepted any vector; mismatched-dimension entries
 //          must be silently dropped to guard against hand-edited snapshots.
+//          Malformed dimensions and entry fields are also ignored before they
+//          reach search state.
 //   - M16: OllamaProvider probed batch with the full input, so a transient
 //          error retried the full batch every call instead of re-probing
 //          cheaply.
@@ -185,6 +187,68 @@ describe("snapshot dimension validation (finding #24)", () => {
     const allNotes = new Set(hits.map((h) => h.notePath));
     expect(allNotes.has("bad.md")).toBe(false);
     expect(noteIsCurrent(vaultDir, "bad.md", "h2")).toBe(false);
+  });
+
+  it("drops snapshot entries with malformed path, chunk, or text fields", async () => {
+    const file = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-embeddings.json");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+
+    const snapshot = {
+      version: 1,
+      vaultRoot: path.resolve(vaultDir),
+      providerId: "test",
+      model: "m",
+      dimension: 3,
+      noteHashes: { "good.md": "h1", "bad.md": "h2" },
+      embeddings: [
+        { notePath: "good.md", chunkIndex: 1, headingPath: [], text: "g", hash: "gh", vector: [1, 0, 0] },
+        { notePath: null, chunkIndex: 1, headingPath: [], text: "bad", hash: "bh", vector: [1, 0, 0] },
+        { notePath: "bad.md", chunkIndex: 0, headingPath: [], text: "bad", hash: "bh", vector: [1, 0, 0] },
+        { notePath: "bad.md", chunkIndex: 2, headingPath: [], text: 123, hash: "bh", vector: [1, 0, 0] },
+      ],
+    };
+    await fs.writeFile(file, JSON.stringify(snapshot), "utf-8");
+
+    await loadStore(vaultDir);
+
+    expect(snapshotForTests(vaultDir).totalChunks).toBe(1);
+    expect(() => searchEmbeddings(vaultDir, [1, 0, 0], { limit: 10, folder: "good.md" })).not.toThrow();
+    const hits = searchEmbeddings(vaultDir, [1, 0, 0], { limit: 10, folder: "good.md" });
+    expect(hits.map((h) => h.notePath)).toEqual(["good.md"]);
+    expect(noteIsCurrent(vaultDir, "bad.md", "h2")).toBe(false);
+  });
+
+  it("ignores snapshots with invalid dimension values", async () => {
+    const file = path.join(vaultDir, ".obsidian", "cache", "mcp-pro-embeddings.json");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+
+    await fs.writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        vaultRoot: path.resolve(vaultDir),
+        providerId: "test",
+        model: "m",
+        dimension: -1,
+        noteHashes: {},
+        embeddings: [],
+      }),
+      "utf-8",
+    );
+
+    await loadStore(vaultDir);
+
+    expect(snapshotForTests(vaultDir).dimension).toBeNull();
+    expect(() =>
+      setNoteChunks(
+        vaultDir,
+        "fresh.md",
+        "h",
+        [{ notePath: "fresh.md", chunkIndex: 1, headingPath: [], text: "x", hash: "th", vector: [1, 0, 0] }],
+        "test",
+        "m",
+      ),
+    ).not.toThrow();
   });
 });
 
