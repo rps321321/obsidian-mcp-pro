@@ -237,6 +237,7 @@ describe("semantic handlers — index_vault", () => {
     expect(isError(result)).toBe(false);
     expect(text).toMatch(/Notes unchanged:\s+3/);
     expect(text).toMatch(/Notes embedded:\s+0/);
+    expect(text).toMatch(/Chunks embedded:\s+0/);
     expect(text).toContain("Failures:        1");
     expect(text).toContain("dimension mismatch");
   });
