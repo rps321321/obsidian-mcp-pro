@@ -17,6 +17,7 @@ import {
   buildSimilarNotesQueryVector,
   snapshotForTests,
   invalidateIfIncompatible,
+  validateEmbeddingVector,
   type ChunkEmbedding,
   type SearchHit,
 } from "../lib/embedding-store.js";
@@ -477,6 +478,10 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         const [vector] = await provider.embed([query]);
         if (!Array.isArray(vector)) {
           return errorResult("Provider did not return a vector for the query.");
+        }
+        const vectorError = validateEmbeddingVector(vector, snap.dimension);
+        if (vectorError !== null) {
+          return errorResult(`Provider returned an invalid query vector: ${vectorError}.`);
         }
         const { hits } = await searchFreshEmbeddings(vaultPath, vector, {
           limit,

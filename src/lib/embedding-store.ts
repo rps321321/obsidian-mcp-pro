@@ -132,7 +132,7 @@ function key(notePath: string, chunkIndex: number): string {
   return `${notePath}::${chunkIndex}`;
 }
 
-function validateVector(vector: unknown, expectedDimension: number | null): string | null {
+export function validateEmbeddingVector(vector: unknown, expectedDimension: number | null): string | null {
   if (!Array.isArray(vector) || vector.length === 0) return "vector must be a non-empty number array";
   for (const value of vector) {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -229,7 +229,7 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       // Silently drop entries whose vector length doesn't match the snapshot's
       // declared dimension. Guards against hand-edited or partially-corrupted
       // snapshots where one row's length drifted from the rest.
-      if (validateVector(entry.vector, snapshot.dimension) !== null) continue;
+      if (validateEmbeddingVector(entry.vector, snapshot.dimension) !== null) continue;
       state.byKey.set(key(entry.notePath, entry.chunkIndex), entry);
       let owned = state.byNote.get(entry.notePath);
       if (!owned) {
@@ -387,7 +387,7 @@ export function setNoteChunks(
   const state = stateFor(vaultPath);
   let nextDimension = state.dimension;
   for (const ch of chunks) {
-    const error = validateVector(ch.vector, nextDimension);
+    const error = validateEmbeddingVector(ch.vector, nextDimension);
     if (error !== null) {
       throw new Error(`Invalid embedding vector at chunk ${ch.chunkIndex}: ${error}`);
     }
