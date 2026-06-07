@@ -35,14 +35,15 @@ export interface EmbeddingProvider {
  *  past 30s is almost certainly a hung connection or a misconfigured URL. */
 const EMBED_REQUEST_TIMEOUT_MS = 30_000;
 
-/** SEC-3: Validate that an embedding URL uses an allowed scheme.
+/** SEC-3: Validate that an embedding URL uses an allowed scheme and base shape.
  *  Only https:// and http:// to loopback addresses are permitted.
  *  This prevents SSRF and API-key exfiltration if an attacker can
  *  influence the OBSIDIAN_EMBEDDING_URL environment variable. */
 function validateEmbeddingUrl(raw: string): string {
+  const value = raw.trim();
   let parsed: URL;
   try {
-    parsed = new URL(raw);
+    parsed = new URL(value);
   } catch {
     throw new Error(
       "OBSIDIAN_EMBEDDING_URL is not a valid URL. " +
@@ -65,7 +66,21 @@ function validateEmbeddingUrl(raw: string): string {
     );
   }
 
-  return raw;
+  if (parsed.username || parsed.password) {
+    throw new Error(
+      "OBSIDIAN_EMBEDDING_URL must not include credentials. " +
+        "Provide the provider base URL without embedded credentials.",
+    );
+  }
+
+  if (parsed.search || value.includes("?") || parsed.hash || value.includes("#")) {
+    throw new Error(
+      "OBSIDIAN_EMBEDDING_URL must not include query strings or fragments. " +
+        "Provide only the provider base URL.",
+    );
+  }
+
+  return value;
 }
 
 /** SEC-15: Validate that a model name looks reasonable.
