@@ -87,6 +87,38 @@ describe("tag handlers — list_tags", () => {
     expect(textContent(validSearch)).toContain("numeric-frontmatter-tag.md");
   });
 
+  it("ignores whitespace frontmatter tags in list and search", async () => {
+    await env.client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "whitespace-frontmatter-tag.md",
+        content: "Body.",
+        frontmatter: JSON.stringify({ tags: ["project alpha", "project-alpha"] }),
+      },
+    });
+
+    const list = await env.client.callTool({
+      name: "list_tags",
+      arguments: { sortBy: "name" },
+    });
+    const listText = textContent(list);
+    expect(isError(list)).toBe(false);
+    expect(listText).not.toMatch(/#project alpha\s+\(/);
+    expect(listText).toContain("#project-alpha (1 note)");
+
+    const invalidSearch = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "project alpha" },
+    });
+    expect(textContent(invalidSearch)).toMatch(/No notes found/i);
+
+    const validSearch = await env.client.callTool({
+      name: "search_by_tag",
+      arguments: { tag: "project-alpha" },
+    });
+    expect(textContent(validSearch)).toContain("whitespace-frontmatter-tag.md");
+  });
+
   it("sorts by count desc by default (review appears in 2 notes)", async () => {
     const result = await env.client.callTool({ name: "list_tags", arguments: {} });
     const text = textContent(result);
