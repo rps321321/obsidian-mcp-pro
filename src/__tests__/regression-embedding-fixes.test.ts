@@ -373,6 +373,52 @@ describe("embedding provider URL validation", () => {
   });
 });
 
+describe("OpenAI provider API key resolution", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    resetProviderForTests();
+    process.env.OBSIDIAN_EMBEDDING_PROVIDER = "openai";
+    process.env.OBSIDIAN_EMBEDDING_URL = "https://api.example.com/v1";
+    process.env.OBSIDIAN_EMBEDDING_MODEL = "text-embedding-3-small";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setProviderForTests(null);
+    resetProviderForTests();
+    delete process.env.OBSIDIAN_EMBEDDING_PROVIDER;
+    delete process.env.OBSIDIAN_EMBEDDING_URL;
+    delete process.env.OBSIDIAN_EMBEDDING_MODEL;
+    delete process.env.OBSIDIAN_EMBEDDING_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  it("falls back to OPENAI_API_KEY when the provider-specific key is blank", async () => {
+    process.env.OBSIDIAN_EMBEDDING_API_KEY = " \t ";
+    process.env.OPENAI_API_KEY = " fallback-key \n";
+    globalThis.fetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.Authorization).toBe("Bearer fallback-key");
+      return new Response(JSON.stringify({ data: [{ index: 0, embedding: [1, 2, 3] }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = getActiveProvider();
+    expect(provider?.id).toBe("openai");
+    await expect(provider!.embed(["hello"])).resolves.toEqual([[1, 2, 3]]);
+  });
+
+  it("treats whitespace-only OpenAI API keys as missing", () => {
+    process.env.OBSIDIAN_EMBEDDING_API_KEY = " ";
+    process.env.OPENAI_API_KEY = "\t";
+
+    expect(getActiveProvider()).toBeNull();
+  });
+});
+
 describe("OllamaProvider probe (M16)", () => {
   const originalFetch = globalThis.fetch;
 

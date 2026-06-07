@@ -113,6 +113,14 @@ function validateModelName(name: string, context: string): string {
   return name;
 }
 
+function firstNonBlankEnvValue(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
+
 class OllamaProvider implements EmbeddingProvider {
   readonly id = "ollama";
   readonly model: string;
@@ -280,7 +288,10 @@ export function getActiveProvider(): EmbeddingProvider | null {
     return cachedProvider;
   }
   if (kind === "openai") {
-    const apiKey = process.env.OBSIDIAN_EMBEDDING_API_KEY ?? process.env.OPENAI_API_KEY;
+    const apiKey = firstNonBlankEnvValue(
+      process.env.OBSIDIAN_EMBEDDING_API_KEY,
+      process.env.OPENAI_API_KEY,
+    );
     if (!apiKey) {
       cachedProvider = null;
       return null;
