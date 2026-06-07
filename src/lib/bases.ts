@@ -506,9 +506,17 @@ function matchesTag(row: BaseRow, want: string | null): boolean {
   });
 }
 
+function normalizeBaseFolderTarget(folder: string): string {
+  const slashed = folder.trim().replace(/\\/g, "/");
+  const trimmed = slashed.replace(/^\/+|\/+$/g, "");
+  if (!trimmed) return "";
+  const normalized = path.posix.normalize(trimmed).replace(/\/+$/g, "");
+  return normalized === "." ? "" : normalized;
+}
+
 function matchesFolder(row: BaseRow, folder: string | null): boolean {
   if (folder === null) return false;
-  const norm = folder.replace(/^\/+|\/+$/g, "");
+  const norm = normalizeBaseFolderTarget(folder);
   if (norm === "") return true;
   return row.path.startsWith(norm + "/") || row.path === norm;
 }
