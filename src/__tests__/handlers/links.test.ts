@@ -163,6 +163,29 @@ describe("link handlers — get_outlinks", () => {
     expect(text).not.toContain("No outgoing links");
   });
 
+  it("canonicalizes wikilink target dot segments before basename fallback", async () => {
+    await env.cleanup();
+    env = await createTestEnv({
+      skipFixtures: true,
+      extraFiles: {
+        "archive/idea.md": "# Archive idea\n",
+        "projects/idea.md": "# Project idea\n",
+        "ref.md": "Links to [[./projects/idea]].\n",
+      },
+    });
+
+    const result = await env.client.callTool({
+      name: "get_outlinks",
+      arguments: { path: "ref.md" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toMatch(/1 valid, 0 broken/);
+    expect(text).toContain("projects/idea.md");
+    expect(text).not.toContain("archive/idea.md");
+  });
+
   it("refreshes a warm graph before resolving a new source note", async () => {
     const warmed = await env.client.callTool({
       name: "get_outlinks",
