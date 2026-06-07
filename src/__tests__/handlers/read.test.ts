@@ -617,6 +617,36 @@ describe("read handlers — search_by_frontmatter", () => {
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
+  it("matches frontmatter property key case variants", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, "title-status.md"),
+      "---\nStatus: active\n---\n# Title Status\n",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(env.vaultDir, "upper-status.md"),
+      "---\nSTATUS: active\n---\n# Upper Status\n",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(env.vaultDir, "owner-active.md"),
+      "---\nowner: active\n---\n# Owner Active\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "search_by_frontmatter",
+      arguments: { property: "status", value: "ACTIVE", maxResults: 10 },
+    });
+    const text = textContent(result);
+    expect(text).toContain("note-a.md");
+    expect(text).toContain("title-status.md");
+    expect(text).toContain("upper-status.md");
+    expect(text).not.toContain("owner-active.md");
+    expect(text.match(/title-status\.md/g)).toHaveLength(1);
+    expect(text.match(/upper-status\.md/g)).toHaveLength(1);
+  });
+
   it("matches within array-valued frontmatter (e.g., tags: [review])", async () => {
     const result = await env.client.callTool({
       name: "search_by_frontmatter",

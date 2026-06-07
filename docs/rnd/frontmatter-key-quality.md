@@ -1,7 +1,7 @@
 # Frontmatter Key Quality
 
-_Status: active_
-_Started: 2026-06-05 - Decided: _
+_Status: shipped_
+_Started: 2026-06-05 - Decided: 2026-06-06_
 
 ## Hypothesis
 
@@ -43,18 +43,18 @@ exact lowercase-key hit still present. Existing scalar, array, folder,
 
 | | before | after |
 |---|---:|---:|
-| case-variant recall | 0.333 | |
-| matched relevant notes | 1 / 3 | |
-| case-variant misses | 2 | |
-| wrong-key matches | 0 | |
-| duplicate paths | 0 | |
+| case-variant recall | 0.333 | 1.000 |
+| matched relevant notes | 1 / 3 | 3 / 3 |
+| case-variant misses | 2 | 0 |
+| wrong-key matches | 0 | 0 |
+| duplicate paths | 0 | 0 |
 
-Current rows:
+Final rows:
 
 | result | paths |
 |---|---|
-| matched | `lower-status.md` |
-| missed variants | `title-status.md`, `upper-status.md` |
+| matched | `lower-status.md`, `title-status.md`, `upper-status.md` |
+| missed variants | _none_ |
 | wrong-key matches | _none_ |
 
 ## Safety review
@@ -65,10 +65,11 @@ secrets, network calls, or persistent cache files are used.
 
 Writes performed: temporary fixture vault creation and deletion only.
 
-Logs emitted: normal stdio server startup logging with the temporary vault path.
+Logs emitted: normal stdio server startup logging with the temporary vault path
+redacted by the shared logger sanitizer.
 
-Rollback path: delete the benchmark and mark this experiment stopped; no runtime
-behavior changes are part of the baseline.
+Rollback path: restore exact-key lookup in `search_by_frontmatter`, keep the
+benchmark parser update, and mark this experiment stopped.
 
 ## Kill criterion
 
@@ -78,6 +79,8 @@ rendering of returned frontmatter.
 
 ## Decision
 
-Active. The baseline shows `search_by_frontmatter` finds the exact lowercase
-`status` key but misses `Status` and `STATUS`, leaving recall at 0.333 with zero
-wrong-key matches.
+Shipped. The benchmark parser was first updated to read the current
+untrusted-content result-path block format; that restored the measured baseline
+to recall 0.333. Case-normalized key lookup then raised recall to 1.000,
+matching all three relevant notes with zero wrong-key matches and zero
+duplicates in two repeated runs.

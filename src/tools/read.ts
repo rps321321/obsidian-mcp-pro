@@ -31,6 +31,20 @@ function displayReadValue(value: string): string {
   return escapeControlChars(value);
 }
 
+function frontmatterValueForProperty(
+  data: Record<string, unknown>,
+  property: string,
+): unknown {
+  if (Object.prototype.hasOwnProperty.call(data, property)) {
+    return data[property];
+  }
+  const requested = property.toLowerCase();
+  for (const [key, value] of Object.entries(data)) {
+    if (key.toLowerCase() === requested) return value;
+  }
+  return undefined;
+}
+
 function parseRequestedLine(value: string): number | null {
   const line = Number(value);
   if (!Number.isSafeInteger(line) || line < 0) return null;
@@ -432,7 +446,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
     {
       title: "Search by Frontmatter",
       description:
-        "Find notes whose YAML frontmatter contains a given property/value pair. Comparison is case-insensitive; for array-valued properties, a match is declared if any element matches. Returns matching note paths with their full frontmatter. Use to filter notes by metadata like status, type, or tags stored in frontmatter.",
+        "Find notes whose YAML frontmatter contains a given property/value pair. Property names and values are matched case-insensitively; for array-valued properties, a match is declared if any element matches. Returns matching note paths with their full frontmatter. Use to filter notes by metadata like status, type, or tags stored in frontmatter.",
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -443,7 +457,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           .string()
           .min(1)
           .max(200)
-          .describe("Frontmatter key to look up (e.g., 'status', 'type', 'author')"),
+          .describe("Frontmatter key to look up, case-insensitively (e.g., 'status', 'type', 'author')"),
         value: z
           .string()
           .min(1)
@@ -478,7 +492,7 @@ export function registerReadTools(server: McpServer, vaultPath: string): void {
           const content = contents.get(notePath);
           if (content === undefined) continue;
           const { data: frontmatterData } = parseFrontmatter(content);
-          const propValue = frontmatterData[property];
+          const propValue = frontmatterValueForProperty(frontmatterData, property);
           if (propValue === undefined) continue;
 
           const stringified = Array.isArray(propValue)

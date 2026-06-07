@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Active R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs` and ship/kill metric in `docs/rnd/frontmatter-key-quality.md`.
+- R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs` and ship/kill metric in `docs/rnd/frontmatter-key-quality.md`.
 - R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs` and ship/kill metric in `docs/rnd/search-ranking-quality.md`.
 - R&D experiment for lexical search snippet quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-quality.mjs` and ship/kill metric in `docs/rnd/search-snippet-quality.md`.
 - R&D experiment for lexical search snippet length, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-length.mjs` and ship/kill metric in `docs/rnd/search-snippet-length.md`.
@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Direct note reads, note read-modify-write helpers, and direct attachment reads now require regular files before reading content.
 - Direct vault reads now use revalidated open file handles, so a symlink retargeted after containment validation is rejected before note, section, Base, Canvas, cache, attachment, or rewrite content is returned.
 - Local stderr logs now redact absolute paths, vault-relative path fields, secret-bearing URLs, and control characters before writing text or JSON diagnostics.
+- `search_by_frontmatter` now matches frontmatter property names case-insensitively, so a query for `status` also finds `Status` and `STATUS` keys while preserving value matching, folder filtering, result shape, and displayed frontmatter.
 - `read_base` and `query_base` now require `.base` file paths instead of accepting arbitrary readable vault files.
 - Daily-note config-derived paths in `get_daily_note`, `create_daily_note`, and `obsidian://daily` output now use explicit untrusted-content markers, and note/daily resource metadata labels are generic.
 - Note and daily resources now wrap returned markdown bodies in visible untrusted-content markers instead of relying only on `_meta` trust metadata.
