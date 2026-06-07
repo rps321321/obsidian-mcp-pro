@@ -1,4 +1,5 @@
 import yaml from "js-yaml";
+import path from "path";
 import { parseFrontmatter, extractTags } from "./markdown.js";
 import { hasYamlAnchorOrAliasToken } from "./yaml.js";
 
@@ -512,14 +513,35 @@ function matchesFolder(row: BaseRow, folder: string | null): boolean {
   return row.path.startsWith(norm + "/") || row.path === norm;
 }
 
+function stripLinkFragment(target: string): string {
+  return target.split("#")[0]!.split("^")[0]!.trim();
+}
+
+function normalizeBaseLinkTarget(target: string): string {
+  const slashed = stripLinkFragment(target).replace(/\\/g, "/");
+  const withoutExt = slashed.replace(/\.md$/i, "");
+  if (!withoutExt) return "";
+  return path.posix.normalize(withoutExt).replace(/\/+$/g, "").toLowerCase();
+}
+
+function isPathQualifiedLinkTarget(target: string): boolean {
+  return stripLinkFragment(target).replace(/\\/g, "/").includes("/");
+}
+
 function matchesLink(links: readonly string[], target: string): boolean {
   // Loose match — Obsidian normalizes link targets in non-trivial ways
-  // (case, extension, fragment). Accept exact and basename-equal hits.
-  const t = target.toLowerCase();
-  const tBase = basenameWithoutExt(target).toLowerCase();
+  // (case, extension, fragment). Accept basename shorthand only when the
+  // filter target itself is basename-only.
+  const t = normalizeBaseLinkTarget(target);
+  if (!t) return false;
+  const targetHasPath = isPathQualifiedLinkTarget(target);
+  const tBase = basenameWithoutExt(t).toLowerCase();
   return links.some((l) => {
-    const ll = l.toLowerCase();
-    return ll === t || basenameWithoutExt(l).toLowerCase() === tBase;
+    const ll = normalizeBaseLinkTarget(l);
+    if (!ll) return false;
+    if (ll === t) return true;
+    if (targetHasPath) return false;
+    return basenameWithoutExt(ll).toLowerCase() === tBase;
   });
 }
 
