@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as fs from "fs/promises";
+import * as os from "os";
+import * as path from "path";
 import { parseArgs } from "../index.js";
 import { runInstall } from "../install.js";
 
@@ -100,5 +103,68 @@ describe("runInstall serverName sanitization (H2)", () => {
         serverName: "\x1b[31mfake-server\x1b[0m",
       }),
     ).toThrow(/control characters/i);
+  });
+});
+
+describe("runInstall config shape validation", () => {
+  let tmpDir: string;
+  let configPath: string;
+  let originalAppData: string | undefined;
+  let originalXdgConfigHome: string | undefined;
+  let originalHome: string | undefined;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "install-config-test-"));
+    originalAppData = process.env.APPDATA;
+    originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    originalHome = process.env.HOME;
+
+    if (process.platform === "win32") {
+      process.env.APPDATA = tmpDir;
+      configPath = path.join(tmpDir, "Claude", "claude_desktop_config.json");
+    } else if (process.platform === "darwin") {
+      process.env.HOME = tmpDir;
+      configPath = path.join(tmpDir, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+    } else {
+      process.env.XDG_CONFIG_HOME = tmpDir;
+      configPath = path.join(tmpDir, "Claude", "claude_desktop_config.json");
+    }
+
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    if (originalAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = originalAppData;
+    if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function writeExistingConfig(content: string): Promise<void> {
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, content, "utf-8");
+  }
+
+  it("rejects a non-object config root before writing", async () => {
+    await writeExistingConfig("[]");
+
+    expect(() => runInstall({ client: "claude" })).toThrow(/must be a JSON object/i);
+    await expect(fs.readFile(configPath, "utf-8")).resolves.toBe("[]");
+  });
+
+  it("rejects a non-object mcpServers value before reporting success", async () => {
+    const existing = JSON.stringify({ mcpServers: [] });
+    await writeExistingConfig(existing);
+
+    expect(() => runInstall({ client: "claude" })).toThrow(/mcpServers.*JSON object/i);
+    await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(existing);
   });
 });
