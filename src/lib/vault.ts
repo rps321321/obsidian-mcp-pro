@@ -1070,7 +1070,8 @@ export async function deleteNote(
         // after parent creation but before the rename.
         await assertRealPathWithinVault(trashFullPath, vaultPath);
         const finalTrashPath = await chooseTrashPath(trashFullPath);
-        await renameWithRetry(fullPath, finalTrashPath);
+        const finalTrashRelPath = path.relative(resolvedVault, finalTrashPath).replace(/\\/g, "/");
+        await movePathNoReplace(vaultPath, fullPath, finalTrashPath, finalTrashRelPath);
       } else {
         await fs.unlink(fullPath);
       }
