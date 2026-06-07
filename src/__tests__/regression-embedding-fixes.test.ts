@@ -419,6 +419,76 @@ describe("OpenAI provider API key resolution", () => {
   });
 });
 
+describe("embedding provider blank env defaults", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    resetProviderForTests();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setProviderForTests(null);
+    resetProviderForTests();
+    delete process.env.OBSIDIAN_EMBEDDING_PROVIDER;
+    delete process.env.OBSIDIAN_EMBEDDING_URL;
+    delete process.env.OBSIDIAN_EMBEDDING_MODEL;
+    delete process.env.OBSIDIAN_EMBEDDING_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  it("uses default Ollama settings when provider, model, and URL env values are blank", async () => {
+    process.env.OBSIDIAN_EMBEDDING_PROVIDER = " \t ";
+    process.env.OBSIDIAN_EMBEDDING_MODEL = " \n ";
+    process.env.OBSIDIAN_EMBEDDING_URL = " ";
+    globalThis.fetch = vi.fn(async (input: unknown, init?: RequestInit) => {
+      expect(String(input)).toBe("http://localhost:11434/api/embed");
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string; input?: string[] };
+      expect(body.model).toBe("nomic-embed-text");
+      expect(body.input).toEqual(["hello"]);
+      return new Response(JSON.stringify({ embeddings: [[1, 2, 3]] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = getActiveProvider();
+    expect(provider?.id).toBe("ollama");
+    expect(provider?.model).toBe("nomic-embed-text");
+    await expect(provider!.embed(["hello"])).resolves.toEqual([[1, 2, 3]]);
+  });
+
+  it("uses default OpenAI model and URL when optional env values are blank", async () => {
+    process.env.OBSIDIAN_EMBEDDING_PROVIDER = "openai";
+    process.env.OBSIDIAN_EMBEDDING_API_KEY = "test-key";
+    process.env.OBSIDIAN_EMBEDDING_MODEL = " ";
+    process.env.OBSIDIAN_EMBEDDING_URL = "\t";
+    globalThis.fetch = vi.fn(async (input: unknown, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.openai.com/v1/embeddings");
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string; input?: string[] };
+      expect(body.model).toBe("text-embedding-3-small");
+      expect(body.input).toEqual(["hello"]);
+      return new Response(JSON.stringify({ data: [{ index: 0, embedding: [1, 2, 3] }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = getActiveProvider();
+    expect(provider?.id).toBe("openai");
+    expect(provider?.model).toBe("text-embedding-3-small");
+    await expect(provider!.embed(["hello"])).resolves.toEqual([[1, 2, 3]]);
+  });
+
+  it("still treats explicit none/off/disabled providers as disabled", () => {
+    for (const value of ["none", " off ", "disabled"]) {
+      resetProviderForTests();
+      process.env.OBSIDIAN_EMBEDDING_PROVIDER = value;
+      expect(getActiveProvider()).toBeNull();
+    }
+  });
+});
+
 describe("OllamaProvider probe (M16)", () => {
   const originalFetch = globalThis.fetch;
 

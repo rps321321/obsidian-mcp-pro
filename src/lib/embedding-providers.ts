@@ -271,18 +271,18 @@ let cachedProvider: EmbeddingProvider | null | undefined;
  */
 export function getActiveProvider(): EmbeddingProvider | null {
   if (cachedProvider !== undefined) return cachedProvider;
-  const kind = (process.env.OBSIDIAN_EMBEDDING_PROVIDER ?? "ollama").toLowerCase().trim();
+  const kind = (firstNonBlankEnvValue(process.env.OBSIDIAN_EMBEDDING_PROVIDER) ?? "ollama").toLowerCase();
   if (kind === "" || kind === "none" || kind === "off" || kind === "disabled") {
     cachedProvider = null;
     return null;
   }
   if (kind === "ollama") {
     const model = validateModelName(
-      process.env.OBSIDIAN_EMBEDDING_MODEL ?? "nomic-embed-text",
+      firstNonBlankEnvValue(process.env.OBSIDIAN_EMBEDDING_MODEL) ?? "nomic-embed-text",
       "ollama",
     );
     const url = validateEmbeddingUrl(
-      process.env.OBSIDIAN_EMBEDDING_URL ?? "http://localhost:11434",
+      firstNonBlankEnvValue(process.env.OBSIDIAN_EMBEDDING_URL) ?? "http://localhost:11434",
     );
     cachedProvider = new OllamaProvider(model, url);
     return cachedProvider;
@@ -297,11 +297,11 @@ export function getActiveProvider(): EmbeddingProvider | null {
       return null;
     }
     const model = validateModelName(
-      process.env.OBSIDIAN_EMBEDDING_MODEL ?? "text-embedding-3-small",
+      firstNonBlankEnvValue(process.env.OBSIDIAN_EMBEDDING_MODEL) ?? "text-embedding-3-small",
       "openai",
     );
     const url = validateEmbeddingUrl(
-      process.env.OBSIDIAN_EMBEDDING_URL ?? "https://api.openai.com/v1",
+      firstNonBlankEnvValue(process.env.OBSIDIAN_EMBEDDING_URL) ?? "https://api.openai.com/v1",
     );
     cachedProvider = new OpenAIProvider(model, url, apiKey);
     return cachedProvider;
