@@ -250,14 +250,30 @@ class OpenAIProvider implements EmbeddingProvider {
     if (!Array.isArray(data.data) || data.data.length !== texts.length) {
       throw new Error("OpenAI embeddings returned an unexpected shape");
     }
-    // Sort by index to be safe — the API guarantees order, but let's not
-    // rely on it.
-    const sorted = data.data.slice().sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-    return sorted.map((row, i) => {
-      if (!Array.isArray(row.embedding)) {
-        throw new Error(`OpenAI embeddings: missing vector at row ${i}`);
+    const vectors: Array<number[] | undefined> = Array.from({ length: texts.length }, () => undefined);
+    const seen = new Set<number>();
+    for (const [rowPosition, row] of data.data.entries()) {
+      const index = row.index;
+      if (
+        typeof index !== "number" ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= texts.length ||
+        seen.has(index)
+      ) {
+        throw new Error("OpenAI embeddings returned invalid row indexes");
       }
-      return row.embedding;
+      if (!Array.isArray(row.embedding)) {
+        throw new Error(`OpenAI embeddings: missing vector at row ${rowPosition}`);
+      }
+      seen.add(index);
+      vectors[index] = row.embedding;
+    }
+    return vectors.map((vector) => {
+      if (!vector) {
+        throw new Error("OpenAI embeddings returned invalid row indexes");
+      }
+      return vector;
     });
   }
 }

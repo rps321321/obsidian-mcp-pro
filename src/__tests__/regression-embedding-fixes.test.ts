@@ -419,6 +419,63 @@ describe("OpenAI provider API key resolution", () => {
   });
 });
 
+describe("OpenAI provider response index validation", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    resetProviderForTests();
+    process.env.OBSIDIAN_EMBEDDING_PROVIDER = "openai";
+    process.env.OBSIDIAN_EMBEDDING_URL = "https://api.example.com/v1";
+    process.env.OBSIDIAN_EMBEDDING_MODEL = "text-embedding-3-small";
+    process.env.OBSIDIAN_EMBEDDING_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setProviderForTests(null);
+    resetProviderForTests();
+    delete process.env.OBSIDIAN_EMBEDDING_PROVIDER;
+    delete process.env.OBSIDIAN_EMBEDDING_URL;
+    delete process.env.OBSIDIAN_EMBEDDING_MODEL;
+    delete process.env.OBSIDIAN_EMBEDDING_API_KEY;
+  });
+
+  it.each([
+    {
+      label: "duplicate indexes",
+      data: [
+        { index: 0, embedding: [1, 0, 0] },
+        { index: 0, embedding: [0, 1, 0] },
+      ],
+    },
+    {
+      label: "missing indexes",
+      data: [
+        { embedding: [1, 0, 0] },
+        { index: 1, embedding: [0, 1, 0] },
+      ],
+    },
+    {
+      label: "out-of-range indexes",
+      data: [
+        { index: 0, embedding: [1, 0, 0] },
+        { index: 2, embedding: [0, 1, 0] },
+      ],
+    },
+  ])("rejects OpenAI embedding responses with $label", async ({ data }) => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const provider = getActiveProvider();
+    expect(provider?.id).toBe("openai");
+    await expect(provider!.embed(["first", "second"])).rejects.toThrow(/row indexes/i);
+  });
+});
+
 describe("embedding provider blank env defaults", () => {
   const originalFetch = globalThis.fetch;
 
