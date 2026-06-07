@@ -612,17 +612,23 @@ export async function readVaultInternalTextFile(
   }
 }
 
+function normalizeListFolder(folder: string | undefined): string {
+  if (!folder) return "";
+  const slashed = folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (slashed === "") return "";
+  const normalized = path.posix.normalize(slashed);
+  if (normalized === ".") return "";
+  return normalized.replace(/^\/+|\/+$/g, "");
+}
+
 export async function listNotes(
   vaultPath: string,
   folder?: string,
 ): Promise<string[]> {
-  // Normalize folder before joining: callers may pass trailing slashes,
-  // backslashes, or mixed separators (e.g. `projects/`, `projects\nested`).
-  // Without normalization the prefix concatenation below produces malformed
-  // paths like `projects//note.md` or `projects\nested/note.md`.
-  const normalizedFolder = folder
-    ? folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")
-    : "";
+  // Normalize folder before joining and before prefixing returned entries:
+  // callers may pass trailing slashes, mixed separators, or dot segments.
+  // Returned note paths must stay canonical vault-relative paths.
+  const normalizedFolder = normalizeListFolder(folder);
 
   const baseDir = normalizedFolder
     ? await resolveVaultPathSafe(vaultPath, normalizedFolder)
