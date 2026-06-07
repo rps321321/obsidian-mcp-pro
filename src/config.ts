@@ -6,6 +6,7 @@ import { log } from "./lib/logger.js";
 import { openVaultInternalFileForRead } from "./lib/vault.js";
 
 const DAILY_NOTES_CONFIG_REL_PATH = ".obsidian/daily-notes.json";
+const MAX_OBSIDIAN_CONFIG_BYTES = 1024 * 1024;
 const MAX_DAILY_NOTES_CONFIG_BYTES = 64 * 1024;
 const MAX_DAILY_NOTES_CONFIG_FIELD_CHARS = 500;
 
@@ -115,6 +116,25 @@ function resolveVaultFromObsidianConfig(): string | null {
 
   if (!fs.existsSync(configPath)) {
     log.warn("Obsidian config not found", { configPath });
+    return null;
+  }
+
+  try {
+    const stats = fs.statSync(configPath);
+    if (!stats.isFile()) {
+      log.warn("Obsidian config path is not a regular file", { configPath });
+      return null;
+    }
+    if (stats.size > MAX_OBSIDIAN_CONFIG_BYTES) {
+      log.warn("Obsidian config exceeds size cap; ignoring", {
+        configPath,
+        bytes: stats.size,
+        max: MAX_OBSIDIAN_CONFIG_BYTES,
+      });
+      return null;
+    }
+  } catch (err) {
+    log.warn("Failed to inspect Obsidian config", { configPath, err: err as Error });
     return null;
   }
 
