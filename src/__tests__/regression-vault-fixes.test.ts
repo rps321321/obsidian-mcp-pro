@@ -65,6 +65,24 @@ describe("H12: listNotes folder normalization", () => {
     expect(notes).toEqual(["a/b/c/note.md"]);
   });
 
+  it("canonicalizes dot segments before prefixing folder-scoped results", async () => {
+    await fs.mkdir(path.join(vaultDir, "projects"), { recursive: true });
+    await fs.mkdir(path.join(vaultDir, "private"), { recursive: true });
+    await fs.writeFile(path.join(vaultDir, "projects", "active.md"), "x");
+    await fs.writeFile(path.join(vaultDir, "private", "secret.md"), "x");
+
+    await expect(listNotes(vaultDir, ".")).resolves.toEqual([
+      "private/secret.md",
+      "projects/active.md",
+    ]);
+    await expect(listNotes(vaultDir, "projects/sub/..")).resolves.toEqual([
+      "projects/active.md",
+    ]);
+    await expect(listNotes(vaultDir, "projects/../private")).resolves.toEqual([
+      "private/secret.md",
+    ]);
+  });
+
   it("still excludes nested .git/.obsidian/.trash inside the folder", async () => {
     await fs.mkdir(path.join(vaultDir, "projects", ".git"), { recursive: true });
     await fs.writeFile(
