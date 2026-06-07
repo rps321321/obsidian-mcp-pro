@@ -134,6 +134,22 @@ describe("attachments handlers — find_unused_attachments", () => {
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
   });
 
+  it("does not treat remote markdown URLs as local attachment references", async () => {
+    await fs.appendFile(
+      path.join(env.vaultDir, "embed-host.md"),
+      "\nRemote-only image: [remote](https://cdn.example/assets/orphan-image.png)\n",
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "find_unused_attachments",
+      arguments: {},
+    });
+
+    expect(isError(result)).toBe(false);
+    expect(textContent(result)).toMatch(/orphan-image\.png/);
+  });
+
   it("serves repeated unused scans without changing output", async () => {
     const first = await env.client.callTool({
       name: "find_unused_attachments",
