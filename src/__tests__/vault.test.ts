@@ -543,17 +543,49 @@ describe("deleteNote", () => {
     expect(await fs.readFile(path.join(trashDir, collisionCopy!), "utf-8")).toBe("second");
   });
 
-  itWin32("retries transient Windows rename failures while moving to trash", async () => {
-    await writeNote(vaultDir, "doomed.md", "bye");
+  it("does not overwrite a trash destination created after collision selection", async () => {
+    await writeNote(vaultDir, "raced.md", "source content");
+    const racedDest = path.join(vaultDir, ".trash", "raced.md");
+
+    const raceDestination = async (candidate: unknown): Promise<void> => {
+      const dest = String(candidate);
+      if (dest === racedDest) {
+        await fs.writeFile(dest, "racer content", "utf-8");
+      }
+    };
+
     const realRename = fs.rename.bind(fs);
-    const renameSpy = vi.spyOn(fs, "rename");
-    renameSpy
+    const realLink = fs.link.bind(fs);
+    vi.spyOn(fs, "rename").mockImplementation(async (...args: Parameters<typeof fs.rename>) => {
+      await raceDestination(args[1]);
+      return realRename(...args);
+    });
+    vi.spyOn(fs, "link").mockImplementation(async (...args: Parameters<typeof fs.link>) => {
+      await raceDestination(args[1]);
+      return realLink(...args);
+    });
+
+    await expect(deleteNote(vaultDir, "raced.md")).rejects.toThrow(
+      "Destination already exists: .trash/raced.md",
+    );
+
+    await expect(fs.readFile(path.join(vaultDir, "raced.md"), "utf-8")).resolves.toBe(
+      "source content",
+    );
+    await expect(fs.readFile(racedDest, "utf-8")).resolves.toBe("racer content");
+  });
+
+  itWin32("retries transient Windows unlink failures while moving to trash", async () => {
+    await writeNote(vaultDir, "doomed.md", "bye");
+    const realUnlink = fs.unlink.bind(fs);
+    const unlinkSpy = vi.spyOn(fs, "unlink");
+    unlinkSpy
       .mockRejectedValueOnce(Object.assign(new Error("simulated EPERM"), { code: "EPERM" }))
-      .mockImplementation(realRename);
+      .mockImplementation(realUnlink);
 
     await deleteNote(vaultDir, "doomed.md");
 
-    expect(renameSpy).toHaveBeenCalledTimes(2);
+    expect(unlinkSpy).toHaveBeenCalledTimes(2);
     await expect(fs.access(path.join(vaultDir, "doomed.md"))).rejects.toThrow();
     await expect(fs.access(path.join(vaultDir, ".trash", "doomed.md"))).resolves.toBeUndefined();
   });
