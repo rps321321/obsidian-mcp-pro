@@ -360,7 +360,6 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
               vector,
             });
             noteChunks.set(item.notePath, list);
-            stats.chunksEmbedded++;
           }
           await reportProgress(
             Math.min(i + batch.length, pending.length),
@@ -388,6 +387,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             failedNotes.add(notePath);
             continue;
           }
+          stats.chunksEmbedded += chunks.length;
           if (chunks.length > 0) stats.notesEmbedded++;
         }
 
