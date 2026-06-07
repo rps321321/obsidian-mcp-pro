@@ -67,7 +67,10 @@ function normalizeFolder(folder: string): string {
   while (f.startsWith("/")) f = f.slice(1);
   while (f.endsWith("/")) f = f.slice(0, -1);
   if (f === "." || f === "") return "";
-  return f;
+  const normalized = path.posix.normalize(f);
+  if (normalized === ".") return "";
+  if (normalized === ".." || normalized.startsWith("../")) return f;
+  return normalized.replace(/^\/+|\/+$/g, "");
 }
 
 export function loadPermissionsFromEnv(): PermissionConfig {
