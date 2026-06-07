@@ -559,6 +559,24 @@ describe("read handlers — get_daily_note", () => {
     expect(content._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("get_daily_note expected path");
   });
 
+  it("reports canonical paths when configured daily-note folders contain dot segments", async () => {
+    await fs.writeFile(
+      path.join(env.vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "./daily/./", format: "YYYY-MM-DD" }),
+      "utf-8",
+    );
+
+    const result = await env.client.callTool({
+      name: "get_daily_note",
+      arguments: { date: "2026-04-24" },
+    });
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toContain("Path: daily/2026-04-24.md");
+    expect(text).not.toContain("./daily/./2026-04-24.md");
+  });
+
   it("escapes generated daily-note frontmatter labels", async () => {
     const dirtyKey = "daily\x7fkey";
     const dirtyValue = "daily\x7fvalue";
