@@ -316,6 +316,7 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
         // Embed pending chunks in batches.
         const noteChunks = new Map<string, ChunkEmbedding[]>();
         const failedNotes = new Set<string>();
+        let expectedVectorDimension: number | null = null;
         for (let i = 0; i < pending.length; i += EMBED_BATCH_SIZE) {
           const batch = pending.slice(i, i + EMBED_BATCH_SIZE);
           let vectors: number[][];
@@ -337,6 +338,13 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
               failedNotes.add(item.notePath);
               continue;
             }
+            const vectorError = validateEmbeddingVector(vector, expectedVectorDimension);
+            if (vectorError !== null) {
+              stats.failed.push({ path: item.notePath, error: vectorError });
+              failedNotes.add(item.notePath);
+              continue;
+            }
+            expectedVectorDimension ??= vector.length;
             const list = noteChunks.get(item.notePath) ?? [];
             list.push({
               notePath: item.notePath,
@@ -373,7 +381,13 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
             }
             continue;
           }
-          setNoteChunks(vaultPath, notePath, contentHash, chunks, provider.id, provider.model);
+          try {
+            setNoteChunks(vaultPath, notePath, contentHash, chunks, provider.id, provider.model);
+          } catch (err) {
+            stats.failed.push({ path: notePath, error: (err as Error).message });
+            failedNotes.add(notePath);
+            continue;
+          }
           if (chunks.length > 0) stats.notesEmbedded++;
         }
 

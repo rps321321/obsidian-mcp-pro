@@ -191,6 +191,55 @@ describe("semantic handlers — index_vault", () => {
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
     expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("index_vault failed notes");
   });
+
+  it("records invalid live provider vectors as failed notes without aborting the index", async () => {
+    class InvalidVectorProvider extends MockProvider {
+      override embed(texts: string[]): Promise<number[][]> {
+        return Promise.resolve(
+          texts.map((text) =>
+            text.toLowerCase().includes("cat") ? [Number.NaN, 0, 0, 0] : [1, 0, 0, 0],
+          ),
+        );
+      }
+    }
+    setProviderForTests(new InvalidVectorProvider());
+
+    const result = await indexVault();
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toMatch(/Notes embedded:\s+3/);
+    expect(text).toContain("Failures:        1");
+    expect(text).toContain("vector contains a non-finite value");
+    expect(text).not.toContain("NaN");
+  });
+
+  it("records vectors that mismatch the stored dimension as failed notes", async () => {
+    await indexVault();
+    await fs.writeFile(
+      path.join(env.vaultDir, "cats.md"),
+      "# Cats\n\nCats changed enough to require a fresh embedding.",
+      "utf-8",
+    );
+
+    class WrongDimensionProvider implements EmbeddingProvider {
+      readonly id = "mock";
+      readonly model = "topic-counter";
+      embed(texts: string[]): Promise<number[][]> {
+        return Promise.resolve(texts.map(() => [1, 0]));
+      }
+    }
+    setProviderForTests(new WrongDimensionProvider());
+
+    const result = await indexVault();
+
+    const text = textContent(result);
+    expect(isError(result)).toBe(false);
+    expect(text).toMatch(/Notes unchanged:\s+3/);
+    expect(text).toMatch(/Notes embedded:\s+0/);
+    expect(text).toContain("Failures:        1");
+    expect(text).toContain("dimension mismatch");
+  });
 });
 
 describe("semantic handlers — search_semantic", () => {

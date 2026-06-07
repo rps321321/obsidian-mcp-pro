@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI embedding setup now treats blank `OBSIDIAN_EMBEDDING_API_KEY` values as unset, falling back to `OPENAI_API_KEY` when present instead of sending a whitespace bearer token.
 - Embedding provider setup now treats blank provider, model, and base-URL env vars as unset, so documented defaults still apply in empty shell or dotenv entries.
 - OpenAI embedding responses now reject missing, duplicate, or out-of-range row indexes before vectors are paired with input chunks.
+- `index_vault` now records invalid live embedding vectors as failed notes instead of aborting the whole indexing pass.
 - `search_semantic` now validates live query vectors before scoring, so malformed embedding provider responses cannot produce `NaN` ranks or low-level cosine errors.
 - Embedding provider base URLs now reject embedded credentials, query strings, and fragments before provider setup, without echoing the rejected URL.
 - HTTP transport now requires the actual `application/json` media type for MCP POST bodies instead of accepting `Content-Type` values that only mention it in parameters.
