@@ -124,6 +124,13 @@ function rejectWindowsAlternateDataStreams(relativePath: string): void {
   }
 }
 
+function rejectWindowsTraversalSeparators(relativePath: string): void {
+  const normalized = path.win32.normalize(relativePath);
+  if (normalized === ".." || normalized.startsWith(`..${path.win32.sep}`)) {
+    throw new Error(`Path traversal detected: ${relativePath}`);
+  }
+}
+
 function rejectWindowsTrailingDotOrSpace(relativePath: string): void {
   if (!IS_WIN32) return;
   const badSegment = relativePath
@@ -352,6 +359,7 @@ export function resolveVaultPath(
       `Invalid path: must be vault-relative, not absolute (${relativePath})`,
     );
   }
+  rejectWindowsTraversalSeparators(relativePath);
   rejectWindowsAlternateDataStreams(relativePath);
   rejectWindowsTrailingDotOrSpace(relativePath);
   assertAllowed(relativePath, access);
@@ -500,7 +508,7 @@ async function openResolvedVaultFileForRead(
   access: AccessKind | null,
   options?: { realVaultRoot?: string },
 ): Promise<ValidatedVaultFile> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 64; attempt++) {
     let handle: FileHandle | undefined;
     try {
       handle = await fs.open(fullPath, "r");
@@ -523,8 +531,8 @@ async function openResolvedVaultFileForRead(
 
       await handle.close();
       handle = undefined;
-      if (attempt === 0) continue;
-      throw new Error(`Path changed during validation: ${relativePath}`);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      continue;
     } catch (err) {
       await handle?.close();
       throw err;
@@ -582,6 +590,7 @@ export async function resolveVaultInternalPathSafe(
       `Invalid path: must be vault-relative, not absolute (${relativePath})`,
     );
   }
+  rejectWindowsTraversalSeparators(relativePath);
   rejectWindowsAlternateDataStreams(relativePath);
   const resolved = path.resolve(vaultPath, relativePath);
   const resolvedVault = path.resolve(vaultPath);

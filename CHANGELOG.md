@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Vault path validation now rejects Windows-style `..\\` traversal separators on every platform before POSIX path resolution.
+- Frontmatter parsing now uses the direct `js-yaml` dependency instead of `gray-matter`, removing the vulnerable transitive `js-yaml` 3.x path reported by `npm audit`.
+- Concurrent atomic-read validation now retries through short rename churn instead of surfacing transient `Path changed during validation` errors.
 - OpenAI embedding setup now treats blank `OBSIDIAN_EMBEDDING_API_KEY` values as unset, falling back to `OPENAI_API_KEY` when present instead of sending a whitespace bearer token.
 - Permission allowlist folders now normalize config-side dot segments, so entries such as `./projects` and `archive/./logs` match their intended vault folders.
 - Folder-scoped `list_notes` calls now return canonical note paths when the folder argument contains `.` or `..` segments.

@@ -1,15 +1,14 @@
-import matter from "gray-matter";
+import yaml from "js-yaml";
 import path from "path";
 import type { NoteMetadata, LinkInfo } from "../types.js";
 import { hasYamlAnchorOrAliasToken } from "./yaml.js";
 
 const MAX_FRONTMATTER_BYTES = 262_144;
-const YAML_MATTER_OPTIONS = { language: "yaml" };
 
 type FrontmatterScan =
   | { kind: "none" }
   | { kind: "oversized"; bytes?: number }
-  | { kind: "found"; bytes: number; yaml: string };
+  | { kind: "found"; bytes: number; yaml: string; contentStart: number };
 
 export interface ParsedFrontmatter {
   data: Record<string, unknown>;
@@ -51,7 +50,7 @@ function scanYamlFrontmatter(content: string): FrontmatterScan {
       if (bytes > MAX_FRONTMATTER_BYTES) {
         return { kind: "oversized", bytes };
       }
-      return { kind: "found", bytes, yaml };
+      return { kind: "found", bytes, yaml, contentStart: lineEnd === -1 ? content.length : lineEnd + 1 };
     }
 
     if (lineEnd === -1) return { kind: "none" };
@@ -70,7 +69,7 @@ function asFrontmatterObject(value: unknown): Record<string, unknown> {
 
 /**
  * Parse only Obsidian-style YAML frontmatter: an opening `---` line, a
- * closing `---` line, and no gray-matter language auto-detection. This keeps
+ * closing `---` line, and no language auto-detection. This keeps
  * `---js` and similar blocks as body text instead of invoking non-YAML
  * engines while still preserving tolerant read behavior for vault scans.
  */
@@ -100,10 +99,10 @@ export function parseStrictYamlFrontmatter(content: string): ParsedFrontmatter {
   }
 
   try {
-    const result = matter(content, YAML_MATTER_OPTIONS);
+    const data = scan.yaml.trim() === "" ? {} : yaml.load(scan.yaml, { json: true });
     return {
-      data: asFrontmatterObject(result.data),
-      content: result.content,
+      data: asFrontmatterObject(data),
+      content: content.slice(scan.contentStart),
       hasFrontmatter: true,
       bytes: scan.bytes,
     };
@@ -134,27 +133,18 @@ function parseFrontmatterForMutation(content: string): ParsedFrontmatter {
   return parsed;
 }
 
-function quoteWikilinksInDocumentFrontmatter(stringified: string): string {
-  // gray-matter emits `---\n<yaml>---\n<body>`. Find the two delimiter lines
-  // and post-process only the YAML region.
-  if (!stringified.startsWith("---\n")) return stringified;
-  const closeIdx = stringified.indexOf("\n---", 4);
-  if (closeIdx === -1) return stringified;
-  const yamlBlock = stringified.slice(4, closeIdx + 1); // include trailing \n
-  const fixed = quoteWikilinksInFrontmatter(yamlBlock);
-  return `---\n${fixed}${stringified.slice(closeIdx + 1)}`;
-}
-
 export function stringifyYamlFrontmatter(
   content: string,
   data: Record<string, unknown>,
 ): string {
-  const stringified = matter.stringify(
-    { content },
-    data,
-    YAML_MATTER_OPTIONS,
-  );
-  return quoteWikilinksInDocumentFrontmatter(stringified);
+  const yamlBlock = yaml.dump(data, {
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: false,
+  });
+  const fixed = quoteWikilinksInFrontmatter(yamlBlock);
+  const body = content.endsWith("\n") ? content : `${content}\n`;
+  return `---\n${fixed}---\n${body}`;
 }
 
 /**
