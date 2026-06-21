@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { indentBlock, formatUntrustedVaultContent } from "../../lib/tool-output.js";
+import { indentBlock, formatUntrustedVaultContent, untrustedVaultContentMeta } from "../../lib/tool-output.js";
 import { sanitizeError } from "../../lib/errors.js";
 import { log } from "../../lib/logger.js";
 import {
@@ -128,7 +128,7 @@ export function registerGetBacklinks(server: McpServer, vaultPath: string): void
           content: [{
             type: "text" as const,
             text: output,
-            _meta: (await import("../../lib/tool-output.js")).untrustedVaultContentMeta("get_backlinks paths and context"),
+            _meta: untrustedVaultContentMeta("get_backlinks paths and context"),
           }],
         };
       } catch (err) {
