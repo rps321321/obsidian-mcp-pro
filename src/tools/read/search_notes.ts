@@ -1,0 +1,111 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { searchInContents, listNotes } from "../../lib/vault.js";
+import { readAllCached } from "../../lib/index-cache.js";
+import { sanitizeError } from "../../lib/errors.js";
+import { log } from "../../lib/logger.js";
+import { formatUntrustedVaultContent, indentBlock, untrustedVaultContentMeta } from "../../lib/tool-output.js";
+import { displayReadValue, errorResult, untrustedReadBlock } from "./shared.js";
+
+export function registerSearchNotesTool(server: McpServer, vaultPath: string): void {
+  server.registerTool(
+    "search_notes",
+    {
+      title: "Search Notes",
+      description:
+        "Full-text search across all notes in the vault. Ranks literal matches with title/path focus and repeated-line dampening, then returns matching note paths grouped with the line numbers and query-centered snippet content of each matching line. Use to locate notes containing a phrase, keyword, or code fragment; pair with get_note to retrieve full bodies.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        query: z
+          .string()
+          .min(1)
+          .max(1000)
+          .describe("Literal search string matched against note body text (not regex)"),
+        caseSensitive: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("If true, match case exactly; otherwise case-insensitive (default: false)"),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(500)
+          .optional()
+          .default(20)
+          .describe("Maximum number of matching notes to return (1-500, default: 20)"),
+        folder: z
+          .string()
+          .max(500)
+          .optional()
+          .describe("Restrict search to this folder relative to the vault root (omit to search entire vault)"),
+      },
+    },
+    async ({ query, caseSensitive, maxResults, folder }) => {
+      try {
+        // Pull notes via the mtime cache so repeat searches with hot files
+        // skip re-reads. The pure matcher (`searchInContents`) does the
+        // line-level scan on the in-memory map.
+        const notes = await listNotes(vaultPath, folder);
+        const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
+          log.warn("search_notes: note read failed", { note, err });
+        });
+        const results = searchInContents(notes, contents, query, {
+          caseSensitive,
+          maxResults,
+        });
+
+        if (results.length === 0) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `No results found for "${displayReadValue(query)}"`,
+              },
+            ],
+          };
+        }
+
+        const lines: string[] = [
+          `Found ${results.length} result(s) for "${displayReadValue(query)}":`,
+          "",
+        ];
+
+        for (const result of results) {
+          lines.push("Result path:");
+          lines.push(untrustedReadBlock(
+            "search_notes result path",
+            displayReadValue(result.relativePath),
+            "  ",
+          ));
+          for (const match of result.matches) {
+            lines.push(`  Line ${match.line}:`);
+            lines.push(indentBlock(
+              formatUntrustedVaultContent(
+                "search_notes snippet",
+                displayReadValue(match.content),
+              ),
+              "    ",
+            ));
+          }
+          lines.push("");
+        }
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            _meta: untrustedVaultContentMeta("search_notes paths and snippets"),
+          }],
+        };
+      } catch (err) {
+        log.error("search_notes failed", { tool: "search_notes", err: err as Error });
+        return errorResult(`Error searching notes: ${sanitizeError(err)}`);
+      }
+    },
+  );
+}

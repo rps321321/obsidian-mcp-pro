@@ -85,7 +85,7 @@ export function categorizeMimeType(mime: string): MediaCategory {
 /* ------------------------------------------------------------------ */
 
 /** Extensions that are never safe to process as attachments. */
-export const BLOCKED_EXTENSIONS: ReadonlySet<string> = new Set([
+const BLOCKED_EXTENSIONS: ReadonlySet<string> = new Set([
   ".exe",
   ".bat",
   ".cmd",

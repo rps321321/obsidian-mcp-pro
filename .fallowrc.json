@@ -1,0 +1,5 @@
+{
+  "health": {
+    "ignore": ["scripts/**", "src/__tests__/**"]
+  }
+}
