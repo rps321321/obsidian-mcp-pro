@@ -37,10 +37,6 @@ import { log } from "./logger.js";
 const READ_CONCURRENCY = 16;
 const CACHE_REL_PATH = ".obsidian/cache/mcp-pro-index-cache.json";
 
-export function setMaxPersistedBytesForTests(bytes: number | null): void {
-  void bytes;
-}
-
 interface CacheEntry {
   /** Absolute path used as the cache key. */
   fullPath: string;
