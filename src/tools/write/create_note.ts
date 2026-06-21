@@ -32,7 +32,7 @@ export function registerCreateNote(server: McpServer, vaultPath: string): void {
           .string()
           .max(100_000)
           .optional()
-          .describe("JSON object string of frontmatter key-value pairs (e.g., '{\"status\":\"draft\",\"tags\":[\"idea\"]}' ). Rendered as YAML at the top of the note."),
+          .describe("JSON object string of frontmatter key-value pairs (e.g., '{\"status\":\"draft\",\"tags\":[\"idea\"]}'). Rendered as YAML at the top of the note."),
       },
     },
     async ({ path: notePath, content, frontmatter }) => {
