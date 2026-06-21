@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Global Obsidian config auto-detection now ignores non-file or oversized `obsidian.json` files before parsing, preventing startup from spending unbounded memory on malformed local config data.
 - The `install` command now rejects existing client config files whose JSON root or `mcpServers` field is not an object, instead of crashing or reporting success without writing the server entry.
 
+### Security
+
+- Bumped the transitively-resolved `hono` dependency to 4.12.26 (from 4.12.23), clearing the high-severity `npm audit` advisory GHSA-wwfh-h76j-fc44 (Windows `serve-static` path traversal via encoded backslash) and related findings. The bump stayed within `@modelcontextprotocol/sdk`'s existing dependency range, so no direct dependency changed.
+
 ## [4.0.0] - 2026-06-07
 
 ### Migration
