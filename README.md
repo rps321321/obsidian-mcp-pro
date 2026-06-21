@@ -221,7 +221,7 @@ Structured logging is controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`
 
 ## Usage
 
-Once installed, the server exposes 23 tools and 3 resources to whichever MCP client you configured. Below is a transcript of a Claude Desktop conversation showing what day-to-day use looks like.
+Once installed, the server exposes 41 tools, 5 prompts, and 3 resources to whichever MCP client you configured. Below is a transcript of a Claude Desktop conversation showing what day-to-day use looks like.
 
 > **You:** Find notes tagged `#project` I touched this week, then summarize the status of each and append today's date under a "Last reviewed" heading in each one.
 
@@ -277,6 +277,26 @@ The server locates your vault using the following priority:
 | 3 | Auto-detection | Reads Obsidian's global config (`obsidian.json`) and uses the first valid vault found |
 
 Auto-detection works on **macOS**, **Windows**, and **Linux** by reading the platform-specific Obsidian configuration directory.
+
+### Environment Variables
+
+Every setting is optional unless noted. The sections below explain the grouped ones in depth.
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `OBSIDIAN_VAULT_PATH` | Absolute path to the vault (highest-priority vault selector). | auto-detect |
+| `OBSIDIAN_VAULT_NAME` | Select a vault by folder name when several exist. | first valid vault |
+| `OBSIDIAN_READ_PATHS` | Comma/colon list of folders read tools may access (see [Folder-Scoped Permissions](#folder-scoped-permissions)). | unrestricted |
+| `OBSIDIAN_WRITE_PATHS` | Same shape, for mutating tools. | unrestricted |
+| `OBSIDIAN_CACHE_DISABLED` | Set truthy to disable the in-memory mtime cache (see [Caches](#caches)). | enabled |
+| `OBSIDIAN_EMBEDDING_PROVIDER` | Semantic-search provider, e.g. `openai` (see [Semantic Search Provider](#semantic-search-provider)). | unset (disabled) |
+| `OBSIDIAN_EMBEDDING_MODEL` | Embedding model name for the chosen provider. | provider default |
+| `OBSIDIAN_EMBEDDING_URL` | Override the embedding endpoint base URL. | provider default |
+| `OBSIDIAN_EMBEDDING_API_KEY` | API key for the embedding provider. | falls back to `OPENAI_API_KEY` |
+| `OPENAI_API_KEY` | Used as the embedding key when `OBSIDIAN_EMBEDDING_API_KEY` is unset. | unset |
+| `MCP_HTTP_TOKEN` | Bearer token required by the HTTP transport (see [HTTP Transport](#http-transport-remote-clients-cursor-chatgpt-web)). | unset |
+| `LOG_LEVEL` | Logger verbosity: `debug`, `info`, `warn`, `error`. | `info` |
+| `LOG_FORMAT` | Log output format: `text` or `json`. | `text` |
 
 ### Daily-Note Filename Format
 
@@ -620,7 +640,7 @@ src/
 npm test
 ```
 
-449 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
+952 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
 
 ```bash
 npm run lint       # eslint v9 + typescript-eslint v8 (flat config)
