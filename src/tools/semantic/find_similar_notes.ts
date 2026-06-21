@@ -1,0 +1,251 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { resolveVaultPath, readNote } from "../../lib/vault.js";
+import { chunkNote } from "../../lib/chunker.js";
+import { getActiveProvider } from "../../lib/embedding-providers.js";
+import {
+  loadStore,
+  saveStore,
+  hashText,
+  noteIsCurrent,
+  dropNoteChunks,
+  getNoteEmbeddings,
+  searchEmbeddings,
+  buildSimilarNotesQueryVector,
+  invalidateIfIncompatible,
+  type SearchHit,
+} from "../../lib/embedding-store.js";
+import { sanitizeError } from "../../lib/errors.js";
+import { log } from "../../lib/logger.js";
+import {
+  textResult,
+  errorResult,
+  displaySemanticValue,
+  semanticPathBlock,
+  semanticHeadingBlock,
+  untrustedVaultTextResult,
+} from "./shared.js";
+
+interface FreshSearchOptions {
+  limit: number;
+  folder?: string;
+  excludeNotes?: ReadonlySet<string>;
+  filterNote?: (notePath: string) => boolean;
+}
+
+async function searchFreshEmbeddings(
+  vaultPath: string,
+  queryVector: number[],
+  options: FreshSearchOptions,
+): Promise<{ hits: SearchHit[]; stalePruned: number }> {
+  const hits: SearchHit[] = [];
+  const accepted = new Set<string>();
+  const stale = new Set<string>();
+  let stalePruned = 0;
+
+  function headingPathsEqual(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((part, index) => part === b[index]);
+  }
+
+  function storedChunksMatchLiveChunks(
+    vaultPath: string,
+    notePath: string,
+    chunks: ReturnType<typeof chunkNote>,
+  ): boolean {
+    const stored = getNoteEmbeddings(vaultPath, notePath);
+    if (stored.length !== chunks.length) return false;
+    const storedByIndex = new Map(stored.map((chunk) => [chunk.chunkIndex, chunk]));
+    for (const chunk of chunks) {
+      const storedChunk = storedByIndex.get(chunk.index);
+      if (!storedChunk) return false;
+      if (storedChunk.text !== chunk.text) return false;
+      if (!headingPathsEqual(storedChunk.headingPath, chunk.headingPath)) return false;
+    }
+    return true;
+  }
+
+  async function storedNoteIsCurrent(vaultPath: string, notePath: string): Promise<boolean> {
+    try {
+      const content = await readNote(vaultPath, notePath);
+      const chunks = chunkNote(content);
+      return (
+        noteIsCurrent(vaultPath, notePath, hashText(content)) &&
+        storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async function pruneStaleStoredNote(vaultPath: string, notePath: string): Promise<boolean> {
+    const current = await storedNoteIsCurrent(vaultPath, notePath);
+    if (current) return false;
+    return dropNoteChunks(vaultPath, notePath);
+  }
+
+  for (let pass = 0; pass < 10 && hits.length < options.limit; pass++) {
+    const exclude = new Set<string>(options.excludeNotes);
+    for (const notePath of accepted) exclude.add(notePath);
+    for (const notePath of stale) exclude.add(notePath);
+    const batchLimit = Math.min(100, Math.max(options.limit - hits.length, 20));
+    const candidates = searchEmbeddings(vaultPath, queryVector, {
+      limit: batchLimit,
+      ...(options.folder ? { folder: options.folder } : {}),
+      ...(exclude.size > 0 ? { excludeNotes: exclude } : {}),
+      ...(options.filterNote ? { filterNote: options.filterNote } : {}),
+    });
+    if (candidates.length === 0) break;
+    let advanced = false;
+    for (const hit of candidates) {
+      if (accepted.has(hit.notePath)) continue;
+      if (await pruneStaleStoredNote(vaultPath, hit.notePath)) {
+        stale.add(hit.notePath);
+        stalePruned++;
+        advanced = true;
+        continue;
+      }
+      hits.push(hit);
+      accepted.add(hit.notePath);
+      advanced = true;
+      if (hits.length >= options.limit) break;
+    }
+    if (!advanced) break;
+  }
+  if (stalePruned > 0) await saveStore(vaultPath);
+  return { hits, stalePruned };
+}
+
+function canReadStoredEmbeddingNote(vaultPath: string, notePath: string): boolean {
+  try {
+    resolveVaultPath(vaultPath, notePath, "read");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function registerFindSimilarNotesTool(server: McpServer, vaultPath: string): void {
+  server.registerTool(
+    "find_similar_notes",
+    {
+      title: "Find Similar Notes",
+      description:
+        "Given a note path, return the K most semantically similar notes from the index (excluding the source note). Uses the source note's existing chunk embeddings and anchors the source query to chunks aligned with the note's opening topic — no live API call to the embedding provider, so this is fast and free. Run `index_vault` first to populate embeddings for both the source and the candidates.",
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .max(500)
+          .describe("Vault-relative path to the source note, e.g. 'projects/atlas.md'."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .default(10)
+          .describe("Maximum number of similar notes to return (1-100, default: 10)."),
+      },
+    },
+    async ({ path: notePath, limit }) => {
+      try {
+        await loadStore(vaultPath);
+        const provider = getActiveProvider();
+        if (provider) {
+          invalidateIfIncompatible(vaultPath, provider.id, provider.model);
+        }
+        resolveVaultPath(vaultPath, notePath, "read");
+        const ownChunks = getNoteEmbeddings(vaultPath, notePath);
+        if (ownChunks.length === 0) {
+          return errorResult(
+            `No embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` first (or check the path is correct).`,
+          );
+        }
+
+        async function storedNoteIsCurrent(vaultPath: string, notePath: string): Promise<boolean> {
+          try {
+            const content = await readNote(vaultPath, notePath);
+            const chunks = chunkNote(content);
+            return (
+              noteIsCurrent(vaultPath, notePath, hashText(content)) &&
+              storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
+            );
+          } catch {
+            return false;
+          }
+        }
+
+        function headingPathsEqual(a: readonly string[], b: readonly string[]): boolean {
+          return a.length === b.length && a.every((part, index) => part === b[index]);
+        }
+
+        function storedChunksMatchLiveChunks(
+          vaultPath: string,
+          notePath: string,
+          chunks: ReturnType<typeof chunkNote>,
+        ): boolean {
+          const stored = getNoteEmbeddings(vaultPath, notePath);
+          if (stored.length !== chunks.length) return false;
+          const storedByIndex = new Map(stored.map((chunk) => [chunk.chunkIndex, chunk]));
+          for (const chunk of chunks) {
+            const storedChunk = storedByIndex.get(chunk.index);
+            if (!storedChunk) return false;
+            if (storedChunk.text !== chunk.text) return false;
+            if (!headingPathsEqual(storedChunk.headingPath, chunk.headingPath)) return false;
+          }
+          return true;
+        }
+
+        async function pruneStaleStoredNote(vaultPath: string, notePath: string): Promise<boolean> {
+          const current = await storedNoteIsCurrent(vaultPath, notePath);
+          if (current) return false;
+          return dropNoteChunks(vaultPath, notePath);
+        }
+
+        if (await pruneStaleStoredNote(vaultPath, notePath)) {
+          await saveStore(vaultPath);
+          return errorResult(
+            `No current embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` to refresh it.`,
+          );
+        }
+        const queryVector = buildSimilarNotesQueryVector(ownChunks);
+        const exclude = new Set([notePath]);
+        const { hits } = await searchFreshEmbeddings(vaultPath, queryVector, {
+          limit,
+          excludeNotes: exclude,
+          filterNote: (hitPath) => canReadStoredEmbeddingNote(vaultPath, hitPath),
+        });
+        const ranked = hits.map((h) => ({
+          notePath: h.notePath,
+          score: h.score,
+          chunkIndex: h.chunkIndex,
+          headingPath: h.headingPath,
+          text: h.text,
+        }));
+
+        if (ranked.length === 0) {
+          return textResult(`No similar notes found for "${displaySemanticValue(notePath)}".`);
+        }
+        const lines: string[] = [`${ranked.length} note(s) similar to ${displaySemanticValue(notePath)}:`, ""];
+        for (const r of ranked) {
+          lines.push(`- score: ${r.score.toFixed(3)}`);
+          lines.push("    Path:");
+          lines.push(semanticPathBlock("find_similar_notes result path", r.notePath));
+          if (r.headingPath.length > 0) {
+            lines.push("    Heading:");
+            lines.push(semanticHeadingBlock(r.headingPath));
+          }
+        }
+        return untrustedVaultTextResult(lines.join("\n"), "find_similar_notes paths and headings");
+      } catch (err) {
+        log.error("find_similar_notes failed", { tool: "find_similar_notes", err: err as Error });
+        return errorResult(`Error finding similar notes: ${sanitizeError(err)}`);
+      }
+    },
+  );
+}
