@@ -224,12 +224,12 @@ export function rewriteFrontmatterTags(
 /**
  * Apply both inline and frontmatter renames to a note's content.
  *
- * Single round-trip through gray-matter: parse once, rewrite the
- * frontmatter data object and the body independently, then emit once.
- * Re-parsing the matter.stringify output between steps risks accumulating
- * blank lines between the frontmatter fence and the body (gray-matter
- * preserves leading whitespace in parsed.content while matter.stringify
- * also inserts its own separator).
+ * Single parse/emit round-trip: parse the frontmatter once, rewrite the
+ * frontmatter data object and the body independently, then re-emit once.
+ * Re-parsing the stringified output between steps risks accumulating blank
+ * lines between the frontmatter fence and the body, since the parser
+ * preserves leading whitespace in the body while the emitter inserts its
+ * own separator.
  */
 export function rewriteAllTags(
   content: string,

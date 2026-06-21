@@ -1,15 +1,14 @@
-import matter from "gray-matter";
+import yaml from "js-yaml";
 import path from "path";
 import type { NoteMetadata, LinkInfo } from "../types.js";
 import { hasYamlAnchorOrAliasToken } from "./yaml.js";
 
 const MAX_FRONTMATTER_BYTES = 262_144;
-const YAML_MATTER_OPTIONS = { language: "yaml" };
 
 type FrontmatterScan =
   | { kind: "none" }
   | { kind: "oversized"; bytes?: number }
-  | { kind: "found"; bytes: number; yaml: string };
+  | { kind: "found"; bytes: number; yaml: string; contentStart: number };
 
 export interface ParsedFrontmatter {
   data: Record<string, unknown>;
@@ -43,15 +42,19 @@ function scanYamlFrontmatter(content: string): FrontmatterScan {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 
     if (line === "---") {
-      const yaml = content.slice(yamlStart, lineStart);
+      const yamlText = content.slice(yamlStart, lineStart);
       const bytes = Buffer.byteLength(
-        yaml,
+        yamlText,
         "utf8",
       );
       if (bytes > MAX_FRONTMATTER_BYTES) {
         return { kind: "oversized", bytes };
       }
-      return { kind: "found", bytes, yaml };
+      // Body begins just past the closing `---` line's newline. gray-matter
+      // stripped exactly one line break (a `\r`, then a `\n`) after the close;
+      // pointing at lineEnd + 1 reproduces that for both LF and CRLF inputs.
+      const contentStart = lineEnd === -1 ? content.length : lineEnd + 1;
+      return { kind: "found", bytes, yaml: yamlText, contentStart };
     }
 
     if (lineEnd === -1) return { kind: "none" };
@@ -100,10 +103,15 @@ export function parseStrictYamlFrontmatter(content: string): ParsedFrontmatter {
   }
 
   try {
-    const result = matter(content, YAML_MATTER_OPTIONS);
+    // js-yaml 4.x `load` uses the same safe schema gray-matter reached through
+    // js-yaml 3.x `safeLoad`, so frontmatter values parse identically
+    // (timestamps load as Date, etc.). Anchors/aliases are refused above and the
+    // scan already bounded the block, so `load` can't be driven into alias-graph
+    // expansion or an unbounded allocation here.
+    const data = yaml.load(scan.yaml);
     return {
-      data: asFrontmatterObject(result.data),
-      content: result.content,
+      data: asFrontmatterObject(data),
+      content: content.slice(scan.contentStart),
       hasFrontmatter: true,
       bytes: scan.bytes,
     };
@@ -135,8 +143,8 @@ function parseFrontmatterForMutation(content: string): ParsedFrontmatter {
 }
 
 function quoteWikilinksInDocumentFrontmatter(stringified: string): string {
-  // gray-matter emits `---\n<yaml>---\n<body>`. Find the two delimiter lines
-  // and post-process only the YAML region.
+  // stringifyYamlFrontmatter emits `---\n<yaml>\n---\n<body>`. Find the two
+  // delimiter lines and post-process only the YAML region.
   if (!stringified.startsWith("---\n")) return stringified;
   const closeIdx = stringified.indexOf("\n---", 4);
   if (closeIdx === -1) return stringified;
@@ -149,11 +157,14 @@ export function stringifyYamlFrontmatter(
   content: string,
   data: Record<string, unknown>,
 ): string {
-  const stringified = matter.stringify(
-    { content },
-    data,
-    YAML_MATTER_OPTIONS,
-  );
+  // Reproduce gray-matter's matter.stringify exactly: dump the data as YAML,
+  // wrap it in `---` fences, then append the body with a guaranteed trailing
+  // newline. Empty data dumps to "{}", in which case gray-matter emitted no
+  // fence at all; preserve that so a cleared frontmatter block doesn't leave
+  // a stray `--- {}` behind.
+  const body = content.endsWith("\n") ? content : `${content}\n`;
+  const dumped = yaml.dump(data).trim();
+  const stringified = dumped === "{}" ? body : `---\n${dumped}\n---\n${body}`;
   return quoteWikilinksInDocumentFrontmatter(stringified);
 }
 

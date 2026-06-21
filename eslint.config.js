@@ -66,7 +66,7 @@ export default [
       // reports.
       "no-unused-vars": "off",
       // The codebase intentionally uses `unknown` casts at boundaries
-      // (gray-matter results, JSON parse, etc.) and validates structurally
+      // (YAML parse results, JSON parse, etc.) and validates structurally
       // afterwards. Keep the rule but allow `any` where it's the only
       // honest type — flag explicit `any`, allow when justified inline.
       "@typescript-eslint/no-explicit-any": "warn",

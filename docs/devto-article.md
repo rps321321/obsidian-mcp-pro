@@ -30,7 +30,7 @@ The stack is intentionally minimal:
 - **TypeScript** with strict mode
 - **@modelcontextprotocol/sdk** for the MCP server scaffold
 - **Zod** for input validation on every tool
-- **gray-matter** for YAML frontmatter parsing
+- **js-yaml** for YAML frontmatter parsing
 
 Three production dependencies. That is it.
 
@@ -264,7 +264,7 @@ During a security audit before publishing, I found and fixed several issues:
 
 - **Path traversal via prefix bypass**: The initial `startsWith(resolvedVault)` check without `+ path.sep` would allow access to sibling directories sharing a name prefix. A vault at `/vault` would mistakenly grant access to `/vault-backup`. Fixed by requiring the separator.
 - **Null byte injection**: Passing `\0` in a path can truncate strings in certain filesystem operations. Added an explicit null byte check before any path resolution.
-- **YAML injection via frontmatter**: The `update_frontmatter` tool uses `gray-matter` for parsing and serialization, which handles YAML safely. But untrusted input in frontmatter values could still produce malformed YAML if concatenated as raw strings — the `matter.stringify` approach avoids this.
+- **YAML injection via frontmatter**: The `update_frontmatter` tool parses and serializes with `js-yaml` directly, which handles YAML safely. But untrusted input in frontmatter values could still produce malformed YAML if concatenated as raw strings, so emitting via `js-yaml`'s dumper avoids this.
 - **Trash path validation**: The delete-to-trash operation gets its own separate path traversal check to prevent writing to arbitrary locations via crafted relative paths.
 
 ## Results

@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Global Obsidian config auto-detection now ignores non-file or oversized `obsidian.json` files before parsing, preventing startup from spending unbounded memory on malformed local config data.
 - The `install` command now rejects existing client config files whose JSON root or `mcpServers` field is not an object, instead of crashing or reporting success without writing the server entry.
 
+### Security
+
+- Frontmatter parsing and serialization now use `js-yaml` 4.x directly instead of `gray-matter`, dropping the bundled `js-yaml` 3.x transitive dependency (and its known advisories) from the install tree. Parsing behavior is unchanged: non-YAML `---js`-style language blocks still stay as body text, oversized frontmatter is still skipped on reads and refused for updates, and YAML anchors or aliases are still refused.
+
 ## [4.0.0] - 2026-06-07
 
 ### Migration
