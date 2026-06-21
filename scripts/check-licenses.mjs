@@ -13,9 +13,14 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const modulesDir = join(root, "node_modules");
 
 // SPDX ids we accept for a package we redistribute under MIT.
+// MPL-2.0 is file-level weak copyleft and explicitly compatible with combining
+// into a larger permissively-licensed work; the only MPL-2.0 packages in the
+// tree are dev/test transitive deps (lightningcss via vite/vitest) that are not
+// part of the published `files`, so accepting it does not affect redistribution.
 const ALLOW = new Set([
   "MIT", "ISC", "0BSD", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0",
   "Unlicense", "CC0-1.0", "BlueOak-1.0.0", "Python-2.0", "WTFPL", "MIT-0",
+  "MPL-2.0",
 ]);
 
 // Hard fails: copyleft / source-available / non-commercial.
