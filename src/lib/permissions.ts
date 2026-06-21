@@ -82,10 +82,6 @@ export function loadPermissionsFromEnv(): PermissionConfig {
 
 let active: PermissionConfig = loadPermissionsFromEnv();
 
-export function getPermissions(): PermissionConfig {
-  return active;
-}
-
 export function setPermissions(config: PermissionConfig): void {
   active = {
     readPaths: config.readPaths ? config.readPaths.map(normalizeFolder) : null,

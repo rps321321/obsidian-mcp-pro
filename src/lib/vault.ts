@@ -25,8 +25,6 @@ const MAX_NOTE_FILE_BYTES_DEFAULT = 5 * 1024 * 1024;
 const MAX_NOTE_LINE_RANGE_BYTES_DEFAULT = MAX_NOTE_FILE_BYTES_DEFAULT;
 let maxNoteFileBytes = MAX_NOTE_FILE_BYTES_DEFAULT;
 let maxNoteLineRangeBytes = MAX_NOTE_LINE_RANGE_BYTES_DEFAULT;
-export const MAX_NOTE_FILE_BYTES = MAX_NOTE_FILE_BYTES_DEFAULT;
-export const MAX_NOTE_LINE_RANGE_BYTES = MAX_NOTE_LINE_RANGE_BYTES_DEFAULT;
 export const MAX_CANVAS_FILE_BYTES = 1_048_576;
 const MAX_CANVAS_NODES = 10_000;
 const MAX_CANVAS_EDGES = 20_000;
@@ -607,18 +605,6 @@ export async function openVaultInternalFileForRead(
 ): Promise<ValidatedVaultFile> {
   const fullPath = await resolveVaultInternalPathSafe(vaultPath, relativePath);
   return openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, null);
-}
-
-export async function readVaultInternalTextFile(
-  vaultPath: string,
-  relativePath: string,
-): Promise<{ fullPath: string; stats: Stats; content: string }> {
-  const { fullPath, handle, stats } = await openVaultInternalFileForRead(vaultPath, relativePath);
-  try {
-    return { fullPath, stats, content: await handle.readFile("utf-8") };
-  } finally {
-    await handle.close();
-  }
 }
 
 function normalizeListFolder(folder: string | undefined): string {

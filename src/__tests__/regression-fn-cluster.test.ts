@@ -80,7 +80,7 @@ describe("FN-H7: delete_note elicitation gate covers spec-compliant clients", ()
     // `elicitation: {}`, not just the SDK's `.form` extension. Asserting
     // on the source pins that contract.
     const src = await fs.readFile(
-      path.join(PROJECT_ROOT, "src", "tools", "write.ts"),
+      path.join(PROJECT_ROOT, "src", "tools", "write", "delete_note.ts"),
       "utf-8",
     );
     expect(src).toMatch(/caps\?\.elicitation\s*!==\s*undefined/);
