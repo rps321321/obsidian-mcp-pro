@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-06-21
+
+### Changed
+
+- Documentation: the README now reports the current surface (41 tools, 5 prompts, 3 resources, and 952 tests) and adds a consolidated Environment Variables reference table.
+- Added a `.nvmrc` pinning Node 24 so contributors and CI use the same major version declared in `engines`.
+- The license gate (`scripts/check-licenses.mjs`) now explicitly allows `MPL-2.0`, recording that the only MPL-2.0 packages are dev/test transitive dependencies excluded from the published package.
+- Refreshed dev dependencies to their latest in-range releases (`@types/node`, `eslint`, `typescript-eslint`, `vitest`).
+
 ### Fixed
 
 - Vault path validation now rejects Windows-style `..\\` traversal separators on every platform before POSIX path resolution.
