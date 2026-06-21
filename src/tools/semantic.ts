@@ -30,7 +30,6 @@ import {
   untrustedVaultContentMeta,
 } from "../lib/tool-output.js";
 import { log } from "../lib/logger.js";
-import { mapConcurrent } from "../lib/concurrency.js";
 
 const MISSING_PROVIDER_HINT =
   "Set OBSIDIAN_EMBEDDING_PROVIDER=ollama (default) and run an Ollama server with `ollama pull nomic-embed-text`. " +
@@ -618,7 +617,3 @@ export function registerSemanticTools(server: McpServer, vaultPath: string): voi
     },
   );
 }
-
-// keep this import alive for tests that reach into the store directly via
-// utility helpers without the indexer in between.
-export { mapConcurrent };
