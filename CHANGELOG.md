@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Removed maintainer-only strategy, experiment notes, and draft outreach copy from the tracked documentation while keeping contributor workflow configuration under `docs/agents/`.
+
 ## [4.0.1] - 2026-06-21
 
 ### Changed
@@ -61,35 +65,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- R&D experiment for numeric-leading tag quality, with a synthetic inline tag fixture in `scripts/bench-tag-leading-number-quality.mjs` and ship/kill metric in `docs/rnd/tag-leading-number-quality.md`.
-- R&D experiment for tag whitespace quality, with a synthetic frontmatter tag fixture in `scripts/bench-tag-whitespace-quality.mjs` and ship/kill metric in `docs/rnd/tag-whitespace-quality.md`.
-- R&D experiment for tag validity quality, with a synthetic frontmatter/inline tag fixture in `scripts/bench-tag-validity-quality.mjs` and ship/kill metric in `docs/rnd/tag-validity-quality.md`.
-- R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs` and ship/kill metric in `docs/rnd/frontmatter-key-quality.md`.
-- R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs` and ship/kill metric in `docs/rnd/search-ranking-quality.md`.
-- R&D experiment for lexical search snippet quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-quality.mjs` and ship/kill metric in `docs/rnd/search-snippet-quality.md`.
-- R&D experiment for lexical search snippet length, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-length.mjs` and ship/kill metric in `docs/rnd/search-snippet-length.md`.
-- R&D experiment for similar-note quality, with a synthetic embedding-store fixture in `scripts/bench-similar-notes-quality.mjs` and ship/kill metric in `docs/rnd/similar-notes-quality.md`.
-- R&D experiment for semantic ranking quality, with a synthetic embedding-store fixture in `scripts/bench-semantic-ranking-quality.mjs` and ship/kill metric in `docs/rnd/semantic-ranking-quality.md`.
-- R&D experiment for chunker boundary quality, with a synthetic fixture in `scripts/bench-chunker-quality.mjs` and ship/kill metric in `docs/rnd/chunker-boundary-quality.md`.
-- Active R&D experiment for `get_daily_note` warm-path performance, with a synthetic benchmark harness in `scripts/bench-daily-notes.mjs` and ship/kill metric in `docs/rnd/daily-note-warm-path.md`.
-- Active R&D experiment for `get_note` section-read performance, with a synthetic benchmark harness in `scripts/bench-section-reads.mjs` and ship/kill metric in `docs/rnd/section-read-warm-path.md`.
-- R&D experiment for `list_sections` warm-path performance, with a synthetic benchmark harness in `scripts/bench-sections.mjs` and ship/kill metric in `docs/rnd/section-list-warm-path.md`.
-- R&D experiment for `get_note` fragment-read performance, with a synthetic benchmark harness in `scripts/bench-note-fragments.mjs` and ship/kill metric in `docs/rnd/note-fragment-warm-path.md`.
-- R&D experiment for `get_outlinks` warm-path performance, with a synthetic benchmark harness in `scripts/bench-outlinks.mjs` and ship/kill metric in `docs/rnd/outlinks-warm-path.md`.
-- R&D experiment for `list_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-list-notes.mjs` and ship/kill metric in `docs/rnd/list-notes-warm-path.md`.
-- R&D experiment for `get_graph_neighbors` warm-path performance, with a synthetic benchmark harness in `scripts/bench-graph-neighbors.mjs` and ship/kill metric in `docs/rnd/graph-neighbors-warm-path.md`.
-- R&D experiment for `find_orphans` warm-path performance, with a synthetic benchmark harness in `scripts/bench-orphans.mjs` and ship/kill metric in `docs/rnd/orphan-discovery-warm-path.md`.
-- R&D experiment for `search_by_frontmatter` warm-path performance, with a synthetic benchmark harness in `scripts/bench-frontmatter-search.mjs` and ship/kill metric in `docs/rnd/frontmatter-search-warm-path.md`.
-- R&D experiment for `resolve_alias` warm-path performance, with a synthetic benchmark harness in `scripts/bench-resolve-alias.mjs` and ship/kill metric in `docs/rnd/resolve-alias-warm-path.md`.
-- R&D experiment for `get_vault_stats` warm-path performance, with a synthetic benchmark harness in `scripts/bench-vault-stats.mjs` and ship/kill metric in `docs/rnd/vault-stats-warm-path.md`.
-- R&D experiment for `get_recent_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-recent-notes.mjs` and ship/kill metric in `docs/rnd/recent-notes-warm-path.md`.
-- R&D experiment for attachment inventory warm-path performance, with a synthetic benchmark harness in `scripts/bench-attachments.mjs` and ship/kill metric in `docs/rnd/attachment-inventory-warm-path.md`.
-- R&D experiment for `read_canvas` warm-read performance, with a synthetic benchmark harness in `scripts/bench-canvas.mjs` and ship/kill metric in `docs/rnd/canvas-read-warm-path.md`.
-- R&D experiment for tag-index warm-query performance, with a synthetic benchmark harness in `scripts/bench-tags.mjs` and ship/kill metric in `docs/rnd/tag-index-warm-path.md`.
-- R&D experiment for `query_base` warm-query performance, with a synthetic benchmark harness in `scripts/bench-bases.mjs` and ship/kill metric in `docs/rnd/bases-query-warm-path.md`.
-- Active R&D experiment for `find_broken_links` warm-scan performance, with a synthetic benchmark harness in `scripts/bench-broken-links.mjs` and ship/kill metric in `docs/rnd/broken-link-warm-path.md`.
-- Active R&D experiment for link graph warm-cache performance, with a synthetic benchmark harness in `scripts/bench-links.mjs` and ship/kill metric in `docs/rnd/link-graph-warm-path.md`.
-- Active R&D experiment for `search_notes` warm-cache performance, with a baseline fixture and ship/kill metric in `docs/rnd/search-cache-warm-path.md`.
+- R&D experiment for numeric-leading tag quality, with a synthetic inline tag fixture in `scripts/bench-tag-leading-number-quality.mjs`.
+- R&D experiment for tag whitespace quality, with a synthetic frontmatter tag fixture in `scripts/bench-tag-whitespace-quality.mjs`.
+- R&D experiment for tag validity quality, with a synthetic frontmatter/inline tag fixture in `scripts/bench-tag-validity-quality.mjs`.
+- R&D experiment for frontmatter key quality, with a synthetic `search_by_frontmatter` fixture in `scripts/bench-frontmatter-key-quality.mjs`.
+- R&D experiment for lexical search ranking quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-ranking-quality.mjs`.
+- R&D experiment for lexical search snippet quality, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-quality.mjs`.
+- R&D experiment for lexical search snippet length, with a synthetic `searchInContents` fixture in `scripts/bench-search-snippet-length.mjs`.
+- R&D experiment for similar-note quality, with a synthetic embedding-store fixture in `scripts/bench-similar-notes-quality.mjs`.
+- R&D experiment for semantic ranking quality, with a synthetic embedding-store fixture in `scripts/bench-semantic-ranking-quality.mjs`.
+- R&D experiment for chunker boundary quality, with a synthetic fixture in `scripts/bench-chunker-quality.mjs`.
+- Active R&D experiment for `get_daily_note` warm-path performance, with a synthetic benchmark harness in `scripts/bench-daily-notes.mjs`.
+- Active R&D experiment for `get_note` section-read performance, with a synthetic benchmark harness in `scripts/bench-section-reads.mjs`.
+- R&D experiment for `list_sections` warm-path performance, with a synthetic benchmark harness in `scripts/bench-sections.mjs`.
+- R&D experiment for `get_note` fragment-read performance, with a synthetic benchmark harness in `scripts/bench-note-fragments.mjs`.
+- R&D experiment for `get_outlinks` warm-path performance, with a synthetic benchmark harness in `scripts/bench-outlinks.mjs`.
+- R&D experiment for `list_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-list-notes.mjs`.
+- R&D experiment for `get_graph_neighbors` warm-path performance, with a synthetic benchmark harness in `scripts/bench-graph-neighbors.mjs`.
+- R&D experiment for `find_orphans` warm-path performance, with a synthetic benchmark harness in `scripts/bench-orphans.mjs`.
+- R&D experiment for `search_by_frontmatter` warm-path performance, with a synthetic benchmark harness in `scripts/bench-frontmatter-search.mjs`.
+- R&D experiment for `resolve_alias` warm-path performance, with a synthetic benchmark harness in `scripts/bench-resolve-alias.mjs`.
+- R&D experiment for `get_vault_stats` warm-path performance, with a synthetic benchmark harness in `scripts/bench-vault-stats.mjs`.
+- R&D experiment for `get_recent_notes` warm-path performance, with a synthetic benchmark harness in `scripts/bench-recent-notes.mjs`.
+- R&D experiment for attachment inventory warm-path performance, with a synthetic benchmark harness in `scripts/bench-attachments.mjs`.
+- R&D experiment for `read_canvas` warm-read performance, with a synthetic benchmark harness in `scripts/bench-canvas.mjs`.
+- R&D experiment for tag-index warm-query performance, with a synthetic benchmark harness in `scripts/bench-tags.mjs`.
+- R&D experiment for `query_base` warm-query performance, with a synthetic benchmark harness in `scripts/bench-bases.mjs`.
+- Active R&D experiment for `find_broken_links` warm-scan performance, with a synthetic benchmark harness in `scripts/bench-broken-links.mjs`.
+- Active R&D experiment for link graph warm-cache performance, with a synthetic benchmark harness in `scripts/bench-links.mjs`.
+- Active R&D experiment for `search_notes` warm-cache performance, with a baseline fixture.
 
 ### Changed
 

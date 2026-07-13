@@ -5,10 +5,6 @@
       "description": "Project overview, setup, and intended workflows"
     },
     {
-      "path": "AGENTS.md",
-      "description": "Agent/project coding instructions, if present"
-    },
-    {
       "path": "docs/architecture.md",
       "description": "Architecture overview, if present"
     },
