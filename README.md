@@ -576,6 +576,10 @@ OBSIDIAN_VAULT_PATH=/path/to/vault npm start
 
 GitHub Actions workflows are manual-only in this repository. Use `npm run verify` as the required local gate before merging or publishing.
 
+Commits run a local Husky hook that rejects maintainer-only paths, formats staged
+files, then runs the type-checker and test suite. Run `npm ci` after cloning to
+install the hook.
+
 ### Project Structure
 
 ```
