@@ -3,7 +3,7 @@
   "description": [
     "Runs on the hosted Mend Renovate app, independent of this repo's GitHub Actions.",
     "Opens dependency PRs only; nothing auto-merges. Major bumps stay separate so they",
-    "get reviewed before landing, matching the maintainer rules in AGENTS.md."
+    "get reviewed before landing."
   ],
   "extends": [
     "config:recommended",
