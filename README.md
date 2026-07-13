@@ -574,8 +574,6 @@ npm run dev
 OBSIDIAN_VAULT_PATH=/path/to/vault npm start
 ```
 
-For the company-grade maintenance and R&D operating plan, see [docs/DEVELOPMENT_GOAL.md](./docs/DEVELOPMENT_GOAL.md).
-
 GitHub Actions workflows are manual-only in this repository. Use `npm run verify` as the required local gate before merging or publishing.
 
 ### Project Structure
