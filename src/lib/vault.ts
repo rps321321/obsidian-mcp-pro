@@ -1,15 +1,50 @@
 import fs from "fs/promises";
-import { constants as fsConstants, type Stats } from "fs";
+import { constants as fsConstants } from "fs";
 import type { FileHandle } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import { StringDecoder } from "string_decoder";
 import { mapConcurrent } from "./concurrency.js";
-import { assertAllowed, type AccessKind } from "./permissions.js";
+import { assertAllowed } from "./permissions.js";
 import { renameWithRetry, unlinkWithRetry } from "./fs-ops.js";
 import { MAX_BASE_FILE_BYTES } from "./bases.js";
-import { log } from "./logger.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
+import {
+  assertNoteContentSize,
+  assertNoteFileSize,
+  assertNoteLineRangeBytes,
+  assertRealPathWithinVault,
+  atomicWriteFile,
+  CASE_INSENSITIVE_FS,
+  EXCLUDED_SET,
+  getMaxNoteLineRangeBytes,
+  getRealVaultRoot,
+  IS_WIN32,
+  lockKey,
+  openResolvedVaultFileForRead,
+  openVaultFileForRead,
+  resolveVaultPathSafe,
+  vaultRewriteLockKey,
+  withFileLock,
+} from "./vault-fs.js";
+
+// Re-export foundation primitives so external call sites keep importing from vault.js.
+export {
+  resolveVaultPathSafe,
+  readVaultTextFile,
+  atomicWriteFile,
+  withFileLock,
+  vaultRewriteLockKey,
+  resolveVaultPath,
+  resolveVaultInternalPathSafe,
+  getVaultRootRealPath,
+  openVaultFileForRead,
+  openVaultInternalFileForRead,
+  assertNoteFileSize,
+  setMaxNoteFileBytesForTests,
+  setMaxNoteLineRangeBytesForTests,
+  type ValidatedVaultFile,
+} from "./vault-fs.js";
 
 // Bounded fan-out for vault-wide scans. Higher values saturate the event loop
 // on spinning disks; lower values leave SSD throughput on the table. 8 is the
@@ -21,17 +56,16 @@ const SEARCH_MATCH_COUNT_WEIGHT = 0.25;
 const SEARCH_REPEATED_SAME_LINE_PENALTY = 0.5;
 const SEARCH_SNIPPET_MAX_CHARS = 240;
 const SEARCH_SNIPPET_OMISSION = "...";
-const MAX_NOTE_FILE_BYTES_DEFAULT = 5 * 1024 * 1024;
-const MAX_NOTE_LINE_RANGE_BYTES_DEFAULT = MAX_NOTE_FILE_BYTES_DEFAULT;
-let maxNoteFileBytes = MAX_NOTE_FILE_BYTES_DEFAULT;
-let maxNoteLineRangeBytes = MAX_NOTE_LINE_RANGE_BYTES_DEFAULT;
 export const MAX_CANVAS_FILE_BYTES = 1_048_576;
 const MAX_CANVAS_NODES = 10_000;
 const MAX_CANVAS_EDGES = 20_000;
-const COPY_FALLBACK_CODES = new Set(["EXDEV", "EPERM", "ENOSYS", "ENOTSUP", "EOPNOTSUPP"]);
-
-const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
-const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
+const COPY_FALLBACK_CODES = new Set([
+  "EXDEV",
+  "EPERM",
+  "ENOSYS",
+  "ENOTSUP",
+  "EOPNOTSUPP",
+]);
 
 function assertMarkdownNotePath(relativePath: string): void {
   if (!relativePath.toLowerCase().endsWith(".md")) {
@@ -39,163 +73,9 @@ function assertMarkdownNotePath(relativePath: string): void {
   }
 }
 
-export function setMaxNoteFileBytesForTests(bytes: number | null): void {
-  maxNoteFileBytes = bytes === null ? MAX_NOTE_FILE_BYTES_DEFAULT : bytes;
-}
-
-export function setMaxNoteLineRangeBytesForTests(bytes: number | null): void {
-  maxNoteLineRangeBytes = bytes === null ? MAX_NOTE_LINE_RANGE_BYTES_DEFAULT : bytes;
-}
-
-export function assertNoteFileSize(relativePath: string, size: number): void {
-  if (size > maxNoteFileBytes) {
-    throw new Error(
-      `Note file exceeds size cap (${size} > ${maxNoteFileBytes} bytes): ${relativePath}`,
-    );
-  }
-}
-
-function assertRegularFile(relativePath: string, stats: Stats): void {
-  if (!stats.isFile()) {
-    throw new Error(`Not a regular file: ${relativePath}`);
-  }
-}
-
-async function assertResolvedRegularFile(
-  fullPath: string,
-  relativePath: string,
-): Promise<Stats> {
-  const stats = await fs.stat(fullPath);
-  assertRegularFile(relativePath, stats);
-  return stats;
-}
-
-function sameFileIdentity(left: Stats, right: Stats): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
-}
-
-function assertNoteContentSize(relativePath: string, content: string): void {
-  assertNoteFileSize(relativePath, Buffer.byteLength(content, "utf-8"));
-}
-
-function assertNoteLineRangeBytes(relativePath: string, size: number): void {
-  if (size > maxNoteLineRangeBytes) {
-    throw new Error(
-      `Note line fragment exceeds size cap (${size} > ${maxNoteLineRangeBytes} bytes): ${relativePath}`,
-    );
-  }
-}
-
-// Legacy DOS device names reserved by the Windows filesystem at any depth.
-// Opening one of these as a file quietly binds to the device (e.g. NUL
-// discards writes) rather than creating a real file, which surprises users
-// and produces silent data loss. Match case-insensitively against the
-// basename WITHOUT extension, since `CON.md`, `con.TXT`, and `LPT1.anything`
-// are all reserved on Windows.
-const WIN_RESERVED_BASENAMES: ReadonlySet<string> = new Set([
-  "con", "prn", "aux", "nul",
-  "com0", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
-  "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-]);
-const IS_WIN32 = process.platform === "win32";
-
-// Per-file serialization for all mutating operations (write/append/prepend/
-// delete/move). Without this, concurrent MCP calls on the same file can race
-// and lose writes.
-const fileLocks = new Map<string, Promise<unknown>>();
-// Case-insensitive filesystems (Windows, default macOS) address the same
-// inode under different casings — normalize lock keys so `Note.md` and
-// `note.md` share one lock.
-const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
-function lockKey(fullPath: string): string {
-  return CASE_INSENSITIVE_FS ? fullPath.toLowerCase() : fullPath;
-}
-
-function rejectWindowsAlternateDataStreams(relativePath: string): void {
-  if (!IS_WIN32) return;
-  const badSegment = relativePath
-    .replace(/\\/g, "/")
-    .split("/")
-    .find((seg) => seg.includes(":"));
-  if (badSegment) {
-    throw new Error(`Invalid path: "${badSegment}" uses Windows alternate data stream syntax`);
-  }
-}
-
-function rejectWindowsTraversalSeparators(relativePath: string): void {
-  const normalized = path.win32.normalize(relativePath);
-  if (normalized === ".." || normalized.startsWith(`..${path.win32.sep}`)) {
-    throw new Error(`Path traversal detected: ${relativePath}`);
-  }
-}
-
-function rejectWindowsTrailingDotOrSpace(relativePath: string): void {
-  if (!IS_WIN32) return;
-  const badSegment = relativePath
-    .replace(/\\/g, "/")
-    .split("/")
-    .find((seg) =>
-      seg !== "" &&
-      seg !== "." &&
-      seg !== ".." &&
-      (seg.endsWith(".") || seg.endsWith(" ")),
-    );
-  if (badSegment) {
-    throw new Error(
-      `Invalid path: "${badSegment}" ends with a space or period, which Windows normalizes`,
-    );
-  }
-}
-
-// Synthetic lock key used to serialize vault-wide bulk-write operations
-// (move_note + delete_note with `removeReferences: true`, plus rename_tag
-// which scans every note and applies `updateNote` calls). Distinct from
-// any real filesystem path because of the `vault-rewrite:` prefix, so it
-// never collides with `lockKey(fullPath)`.
-//
-// Exported so other tools that also do plan-or-scan + per-file-apply over
-// the whole vault can serialize against the rewrite path. Without this,
-// move_note's `planMoveRewrites` (lockless read of every referrer) can see
-// stale bytes shifted by an in-flight `rename_tag`, then `applyRewrites`
-// reports those files as `failedReferrers` with "content changed during
-// move" and the link is left stale.
-export function vaultRewriteLockKey(vaultPath: string): string {
-  return `vault-rewrite:${lockKey(path.resolve(vaultPath))}`;
-}
-/**
- * Crash-atomic file write: stages content to a sibling temp file, then renames
- * onto the target. `fs.rename` is atomic on the same filesystem (POSIX
- * `rename(2)` + Win32 `MoveFileEx` with REPLACE_EXISTING on Node), so readers
- * see either the old content or the new content — never a truncated or
- * partially-written file.
- *
- * Same-directory staging is required: cross-device renames fall back to
- * copy+unlink and lose atomicity. All current callers write inside the vault,
- * so this invariant holds.
- *
- * Callers must serialize themselves via `withFileLock` — the temp-file suffix
- * is random enough to avoid collisions between processes, but atomicity
- * against concurrent writers to the *same* target path still requires the
- * per-path lock (otherwise two concurrent renames race on the final name).
- */
-export async function atomicWriteFile(fullPath: string, content: string): Promise<void> {
-  const dir = path.dirname(fullPath);
-  const base = path.basename(fullPath);
-  const tmp = path.join(dir, `.${base}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
-  try {
-    // `wx` on the temp file guards against the astronomically unlikely case
-    // of a collision with a leftover tmp from a crashed run.
-    await fs.writeFile(tmp, content, { encoding: "utf-8", flag: "wx" });
-    await renameWithRetry(tmp, fullPath);
-  } catch (err) {
-    // Best-effort cleanup: the rename failed (or writeFile did), so the tmp
-    // is still on disk. Ignore ENOENT in case writeFile never created it.
-    try { await fs.unlink(tmp); } catch { /* ignore */ }
-    throw err;
-  }
-}
-
-async function removeEmptyExclusivePlaceholder(fullPath: string): Promise<void> {
+async function removeEmptyExclusivePlaceholder(
+  fullPath: string
+): Promise<void> {
   try {
     const stat = await fs.lstat(fullPath);
     if (!stat.isFile() || stat.size !== 0) return;
@@ -206,21 +86,6 @@ async function removeEmptyExclusivePlaceholder(fullPath: string): Promise<void> 
   }
 }
 
-export async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): Promise<T> {
-  const key = lockKey(fullPath);
-  const prev = fileLocks.get(key) ?? Promise.resolve();
-  // Swallow the prior holder's rejection (so the chain continues) but still
-  // run `fn` exactly once via `.then()` — the previous form passed `fn` as
-  // both fulfillment and rejection handler, which obscured intent.
-  const next = prev.catch(() => undefined).then(fn);
-  fileLocks.set(key, next);
-  try {
-    return await next;
-  } finally {
-    if (fileLocks.get(key) === next) fileLocks.delete(key);
-  }
-}
-
 /**
  * Walk a directory tree recursively while pruning excluded directories at the
  * traversal level (so `.git`, `.obsidian`, `.trash` subtrees are never read).
@@ -228,7 +93,7 @@ export async function withFileLock<T>(fullPath: string, fn: () => Promise<T>): P
  */
 async function walkVault(
   baseDir: string,
-  extensions: string[],
+  extensions: string[]
 ): Promise<string[]> {
   const results: string[] = [];
   const exts = extensions.map((e) => e.toLowerCase());
@@ -249,7 +114,7 @@ async function walkVault(
       // filesystems (or FUSE layers) can surface these; downstream code
       // that passes the name to path.join / fs.open may truncate at the
       // null and operate on a different file.
-      if (name.includes('\0')) continue;
+      if (name.includes("\0")) continue;
 
       // SEC-1: never traverse symlinks discovered during a vault walk. Direct
       // path reads still use resolveVaultPathSafe; broad listings stay on
@@ -286,7 +151,7 @@ async function walkVault(
  */
 async function walkVaultExcluding(
   baseDir: string,
-  excludedExtensions: string[],
+  excludedExtensions: string[]
 ): Promise<string[]> {
   const results: string[] = [];
   const excluded = new Set(excludedExtensions.map((e) => e.toLowerCase()));
@@ -304,7 +169,7 @@ async function walkVaultExcluding(
       const name = entry.name;
 
       // SEC-11: skip null-byte filenames (see walkVault for rationale).
-      if (name.includes('\0')) continue;
+      if (name.includes("\0")) continue;
 
       const fullEntry = path.join(dir, name);
       if (entry.isSymbolicLink()) continue;
@@ -332,132 +197,6 @@ async function walkVaultExcluding(
   return results;
 }
 
-export function resolveVaultPath(
-  vaultPath: string,
-  relativePath: string,
-  access: AccessKind = "read",
-): string {
-  if (!vaultPath) {
-    throw new Error("Vault path is not configured");
-  }
-  if (relativePath.includes('\0')) {
-    throw new Error("Invalid path: contains null byte");
-  }
-  // Reject absolute / drive-relative / UNC inputs explicitly. `path.resolve`
-  // on Windows interprets `C:foo` against the current directory of drive C,
-  // which can land inside the vault by coincidence and bypass the syntactic
-  // prefix check below. Defense-in-depth: the realpath check elsewhere
-  // catches the rest, but rejecting these forms up front is cleaner.
-  if (
-    /^[A-Za-z]:/.test(relativePath) ||
-    relativePath.startsWith("/") ||
-    relativePath.startsWith("\\")
-  ) {
-    throw new Error(
-      `Invalid path: must be vault-relative, not absolute (${relativePath})`,
-    );
-  }
-  rejectWindowsTraversalSeparators(relativePath);
-  rejectWindowsAlternateDataStreams(relativePath);
-  rejectWindowsTrailingDotOrSpace(relativePath);
-  assertAllowed(relativePath, access);
-  const resolved = path.resolve(vaultPath, relativePath);
-  const resolvedVault = path.resolve(vaultPath);
-  if (!resolved.startsWith(resolvedVault + path.sep) && resolved !== resolvedVault) {
-    throw new Error(`Path traversal detected: ${relativePath}`);
-  }
-  // Reject paths that traverse through excluded directories at any depth.
-  // `resolveVaultPath` is the single choke point for all file tool calls.
-  const rel = path.relative(resolvedVault, resolved).replace(/\\/g, "/");
-  const segments = rel ? rel.split("/") : [];
-  if (segments.some((seg) => EXCLUDED_SET.has(seg.toLowerCase()))) {
-    throw new Error(`Access to excluded directory denied: ${relativePath}`);
-  }
-  // Reject Windows DOS device names at any segment. Opening `CON.md` / `NUL`
-  // on Windows binds to the device and silently discards writes — we fail
-  // fast instead so callers see the mistake. Harmless no-op on POSIX.
-  if (IS_WIN32) {
-    for (const seg of segments) {
-      const stem = seg.replace(/\.[^.]*$/, "").toLowerCase();
-      if (WIN_RESERVED_BASENAMES.has(stem)) {
-        throw new Error(`Invalid path: "${seg}" is a reserved Windows device name`);
-      }
-    }
-  }
-  return resolved;
-}
-
-// `path.resolve` strips `..` syntactically but does NOT follow symlinks.
-// A symlink inside the vault pointing outside would pass the sync check and
-// then leak data through `readFile`. Realpath the deepest existing ancestor
-// and re-verify boundary.
-// No cache: a single realpath syscall per call is cheap, and caching across
-// the process lifetime is unsafe when the library API re-uses the module
-// with different vault paths. Stale entries would compare against the wrong
-// real root and let symlink escapes through.
-async function getRealVaultRoot(vaultPath: string): Promise<string> {
-  const key = path.resolve(vaultPath);
-  try {
-    return await fs.realpath(key);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // ENOENT: vault root doesn't exist (yet). Fall back to the resolved path
-    // so callers can proceed with creation workflows. Log so the misconfiguration
-    // is visible in server logs.
-    log.warn("Vault path does not exist, falling back to resolved path", { vaultPath: key });
-    return key;
-  }
-}
-
-export async function getVaultRootRealPath(vaultPath: string): Promise<string> {
-  return getRealVaultRoot(vaultPath);
-}
-
-async function assertRealPathWithinVault(
-  resolved: string,
-  vaultPath: string,
-  realVaultRoot?: string,
-): Promise<{ realVault: string; realPath: string }> {
-  const realVault = realVaultRoot ?? await getRealVaultRoot(vaultPath);
-  const missing: string[] = [];
-  let current = resolved;
-  while (true) {
-    try {
-      const real = await fs.realpath(current);
-      const rebuilt = missing.length === 0
-        ? real
-        : path.join(real, ...[...missing].reverse());
-      if (rebuilt !== realVault && !rebuilt.startsWith(realVault + path.sep)) {
-        throw new Error("Path traversal via symlink detected");
-      }
-      return { realVault, realPath: rebuilt };
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      // ENOENT / ENOTDIR: ancestor doesn't exist yet — climb up to find the
-      // deepest existing one. EACCES: an ancestor is permission-restricted
-      // (POSIX, typically root-owned). We can't realpath it ourselves, but
-      // climbing up is still safe: a higher ancestor that IS readable will
-      // canonicalize through any symlinks lower in the chain. We deliberately
-      // do NOT rethrow the raw fs error here, which would otherwise leak the
-      // absolute path of the restricted ancestor into the error message.
-      if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EACCES") throw err;
-      const parent = path.dirname(current);
-      if (parent === current) {
-        // Reached filesystem root without finding any accessible ancestor.
-        // Surface a generic message rather than leaking the original error.
-        throw new Error("Path traversal check failed", { cause: err });
-      }
-      missing.push(path.basename(current));
-      current = parent;
-    }
-  }
-}
-
-function vaultRelativeFromRealPath(realVault: string, realPath: string): string {
-  const rel = path.relative(realVault, realPath).replace(/\\/g, "/");
-  return rel === "" ? "." : rel;
-}
-
 function isReadAllowed(relativePath: string): boolean {
   try {
     assertAllowed(relativePath, "read");
@@ -471,142 +210,6 @@ function filterReadable(entries: string[]): string[] {
   return entries.filter(isReadAllowed);
 }
 
-// TOCTOU note: there is a small window between the realpath check in
-// `assertRealPathWithinVault` and the caller's actual use of the returned
-// path. If a symlink target is swapped by an external process (Obsidian,
-// sync client, another shell) in that window, the caller could follow the
-// new target without re-validation. This is low-severity because exploiting
-// it requires a privileged attacker who can atomically retarget a symlink
-// inside the vault during the microsecond gap, and the vault is typically
-// local-user-only. Fully closing the window would require holding an open
-// fd (O_PATH on Linux, or openat) across all downstream I/O, which Node's
-// fs API does not support portably.
-export async function resolveVaultPathSafe(
-  vaultPath: string,
-  relativePath: string,
-  access: AccessKind = "read",
-  options?: { realVaultRoot?: string },
-): Promise<string> {
-  const resolved = resolveVaultPath(vaultPath, relativePath, access);
-  const canonical = await assertRealPathWithinVault(resolved, vaultPath, options?.realVaultRoot);
-  assertAllowed(vaultRelativeFromRealPath(canonical.realVault, canonical.realPath), access);
-  return resolved;
-}
-
-export interface ValidatedVaultFile {
-  fullPath: string;
-  handle: FileHandle;
-  stats: Stats;
-}
-
-async function openResolvedVaultFileForRead(
-  vaultPath: string,
-  relativePath: string,
-  fullPath: string,
-  access: AccessKind | null,
-  options?: { realVaultRoot?: string },
-): Promise<ValidatedVaultFile> {
-  for (let attempt = 0; attempt < 64; attempt++) {
-    let handle: FileHandle | undefined;
-    try {
-      handle = await fs.open(fullPath, "r");
-      const openedStats = await handle.stat();
-      assertRegularFile(relativePath, openedStats);
-
-      const canonical = await assertRealPathWithinVault(
-        fullPath,
-        vaultPath,
-        options?.realVaultRoot,
-      );
-      if (access !== null) {
-        assertAllowed(vaultRelativeFromRealPath(canonical.realVault, canonical.realPath), access);
-      }
-
-      const currentStats = await assertResolvedRegularFile(fullPath, relativePath);
-      if (sameFileIdentity(openedStats, currentStats)) {
-        return { fullPath, handle, stats: openedStats };
-      }
-
-      await handle.close();
-      handle = undefined;
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      continue;
-    } catch (err) {
-      await handle?.close();
-      throw err;
-    }
-  }
-
-  throw new Error(`Path changed during validation: ${relativePath}`);
-}
-
-export async function openVaultFileForRead(
-  vaultPath: string,
-  relativePath: string,
-  access: AccessKind = "read",
-  options?: { realVaultRoot?: string },
-): Promise<ValidatedVaultFile> {
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, access, options);
-  return openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, access, options);
-}
-
-export async function readVaultTextFile(
-  vaultPath: string,
-  relativePath: string,
-  access: AccessKind = "read",
-  options?: { realVaultRoot?: string },
-): Promise<{ fullPath: string; stats: Stats; content: string }> {
-  const { fullPath, handle, stats } = await openVaultFileForRead(
-    vaultPath,
-    relativePath,
-    access,
-    options,
-  );
-  try {
-    return { fullPath, stats, content: await handle.readFile("utf-8") };
-  } finally {
-    await handle.close();
-  }
-}
-
-export async function resolveVaultInternalPathSafe(
-  vaultPath: string,
-  relativePath: string,
-): Promise<string> {
-  if (!vaultPath) {
-    throw new Error("Vault path is not configured");
-  }
-  if (relativePath.includes("\0")) {
-    throw new Error("Invalid path: contains null byte");
-  }
-  if (
-    /^[A-Za-z]:/.test(relativePath) ||
-    relativePath.startsWith("/") ||
-    relativePath.startsWith("\\")
-  ) {
-    throw new Error(
-      `Invalid path: must be vault-relative, not absolute (${relativePath})`,
-    );
-  }
-  rejectWindowsTraversalSeparators(relativePath);
-  rejectWindowsAlternateDataStreams(relativePath);
-  const resolved = path.resolve(vaultPath, relativePath);
-  const resolvedVault = path.resolve(vaultPath);
-  if (!resolved.startsWith(resolvedVault + path.sep) && resolved !== resolvedVault) {
-    throw new Error(`Path traversal detected: ${relativePath}`);
-  }
-  await assertRealPathWithinVault(resolved, vaultPath);
-  return resolved;
-}
-
-export async function openVaultInternalFileForRead(
-  vaultPath: string,
-  relativePath: string,
-): Promise<ValidatedVaultFile> {
-  const fullPath = await resolveVaultInternalPathSafe(vaultPath, relativePath);
-  return openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, null);
-}
-
 function normalizeListFolder(folder: string | undefined): string {
   if (!folder) return "";
   const slashed = folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
@@ -618,7 +221,7 @@ function normalizeListFolder(folder: string | undefined): string {
 
 export async function listNotes(
   vaultPath: string,
-  folder?: string,
+  folder?: string
 ): Promise<string[]> {
   // Normalize folder before joining and before prefixing returned entries:
   // callers may pass trailing slashes, mixed separators, or dot segments.
@@ -640,7 +243,7 @@ export async function listNotes(
 
 export async function readNote(
   vaultPath: string,
-  relativePath: string,
+  relativePath: string
 ): Promise<string> {
   assertMarkdownNotePath(relativePath);
   let handle: FileHandle | undefined;
@@ -673,7 +276,7 @@ export async function readNoteLineRange(
   vaultPath: string,
   relativePath: string,
   startLine: number,
-  endLine: number,
+  endLine: number
 ): Promise<NoteLineRangeRead> {
   assertMarkdownNotePath(relativePath);
   if (
@@ -700,7 +303,10 @@ export async function readNoteLineRange(
       if (currentLine >= startLine && currentLine <= endLine) {
         const lineBytes = Buffer.byteLength(line, "utf-8");
         const separatorBytes = collected.length > 0 ? 1 : 0;
-        assertNoteLineRangeBytes(relativePath, outputBytes + separatorBytes + lineBytes);
+        assertNoteLineRangeBytes(
+          relativePath,
+          outputBytes + separatorBytes + lineBytes
+        );
         outputBytes += separatorBytes + lineBytes;
         collected.push(line);
       }
@@ -710,8 +316,11 @@ export async function readNoteLineRange(
     };
 
     while (true) {
-      const remainingBytes = maxNoteLineRangeBytes - scannedBytes;
-      const bytesToRead = Math.min(buffer.length, Math.max(remainingBytes + 1, 1));
+      const remainingBytes = getMaxNoteLineRangeBytes() - scannedBytes;
+      const bytesToRead = Math.min(
+        buffer.length,
+        Math.max(remainingBytes + 1, 1)
+      );
       const { bytesRead } = await handle.read(buffer, 0, bytesToRead, null);
       if (bytesRead === 0) break;
       scannedBytes += bytesRead;
@@ -741,7 +350,10 @@ export async function readNoteLineRange(
 
     const totalLines = currentLine - 1;
     if (startLine > totalLines) {
-      return { text: "", pastEndLine: { requested: startLine, total: totalLines } };
+      return {
+        text: "",
+        pastEndLine: { requested: startLine, total: totalLines },
+      };
     }
     return { text: collected.join("\n") };
   } catch (err) {
@@ -758,7 +370,7 @@ export async function writeNote(
   vaultPath: string,
   relativePath: string,
   content: string,
-  options?: { exclusive?: boolean },
+  options?: { exclusive?: boolean }
 ): Promise<void> {
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
@@ -783,7 +395,9 @@ export async function writeNote(
         try {
           const entries = await fs.readdir(dir);
           if (entries.some((e) => e.toLowerCase() === target)) {
-            const err = new Error(`File already exists: ${relativePath}`) as NodeJS.ErrnoException;
+            const err = new Error(
+              `File already exists: ${relativePath}`
+            ) as NodeJS.ErrnoException;
             err.code = "EEXIST";
             throw err;
           }
@@ -797,7 +411,9 @@ export async function writeNote(
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
         if (code === "EEXIST") {
-          const e = new Error(`File already exists: ${relativePath}`) as NodeJS.ErrnoException;
+          const e = new Error(
+            `File already exists: ${relativePath}`
+          ) as NodeJS.ErrnoException;
           e.code = "EEXIST";
           throw e;
         }
@@ -830,12 +446,17 @@ export async function writeNote(
 export async function updateNote(
   vaultPath: string,
   relativePath: string,
-  transform: (existing: string) => string | Promise<string>,
+  transform: (existing: string) => string | Promise<string>
 ): Promise<void> {
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    const opened = await openResolvedVaultFileForRead(
+      vaultPath,
+      relativePath,
+      fullPath,
+      "write"
+    );
     let existing: string;
     try {
       assertNoteFileSize(relativePath, opened.stats.size);
@@ -853,12 +474,17 @@ export async function updateNote(
 export async function appendToNote(
   vaultPath: string,
   relativePath: string,
-  content: string,
+  content: string
 ): Promise<void> {
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    const opened = await openResolvedVaultFileForRead(
+      vaultPath,
+      relativePath,
+      fullPath,
+      "write"
+    );
     let existing: string;
     try {
       assertNoteFileSize(relativePath, opened.stats.size);
@@ -889,7 +515,8 @@ function extractLeadingFrontmatter(content: string): string | null {
   let offset = firstNewline + 1;
   let lines = 0;
   while (offset < content.length) {
-    if (lines >= MAX_FRONTMATTER_LINES || offset >= MAX_FRONTMATTER_BYTES) return null;
+    if (lines >= MAX_FRONTMATTER_LINES || offset >= MAX_FRONTMATTER_BYTES)
+      return null;
     const nextNewline = content.indexOf("\n", offset);
     const lineEnd = nextNewline === -1 ? content.length : nextNewline;
     const line = content.slice(offset, lineEnd).replace(/\r$/, "");
@@ -907,12 +534,17 @@ function extractLeadingFrontmatter(content: string): string | null {
 export async function prependToNote(
   vaultPath: string,
   relativePath: string,
-  content: string,
+  content: string
 ): Promise<void> {
   assertMarkdownNotePath(relativePath);
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    const opened = await openResolvedVaultFileForRead(
+      vaultPath,
+      relativePath,
+      fullPath,
+      "write"
+    );
     let existing: string;
     try {
       assertNoteFileSize(relativePath, opened.stats.size);
@@ -980,16 +612,21 @@ async function chooseTrashPath(trashFullPath: string): Promise<string> {
   const parsed = path.parse(trashFullPath);
   for (let attempt = 0; attempt < 20; attempt++) {
     const suffix = `${Date.now()}-${randomBytes(4).toString("hex")}`;
-    const candidate = path.join(parsed.dir, `${parsed.name}.${suffix}${parsed.ext}`);
+    const candidate = path.join(
+      parsed.dir,
+      `${parsed.name}.${suffix}${parsed.ext}`
+    );
     if (!(await pathExists(candidate))) return candidate;
   }
-  throw new Error(`Could not allocate unique trash path for ${path.basename(trashFullPath)}`);
+  throw new Error(
+    `Could not allocate unique trash path for ${path.basename(trashFullPath)}`
+  );
 }
 
 async function ensureTrashParentDirectory(
   vaultPath: string,
   trashRoot: string,
-  parentDir: string,
+  parentDir: string
 ): Promise<void> {
   const root = path.resolve(trashRoot);
   const parent = path.resolve(parentDir);
@@ -999,7 +636,8 @@ async function ensureTrashParentDirectory(
 
   const realVault = await getRealVaultRoot(vaultPath);
   const relative = path.relative(root, parent);
-  const segments = relative === "" ? [] : relative.split(path.sep).filter(Boolean);
+  const segments =
+    relative === "" ? [] : relative.split(path.sep).filter(Boolean);
   let current = root;
 
   for (const segment of ["", ...segments]) {
@@ -1012,7 +650,9 @@ async function ensureTrashParentDirectory(
     await assertRealPathWithinVault(current, vaultPath, realVault);
     const stat = await fs.stat(current);
     if (!stat.isDirectory()) {
-      throw new Error(`Trash path parent is not a directory: ${path.basename(current)}`);
+      throw new Error(
+        `Trash path parent is not a directory: ${path.basename(current)}`
+      );
     }
   }
 }
@@ -1020,7 +660,7 @@ async function ensureTrashParentDirectory(
 export async function deleteNote(
   vaultPath: string,
   relativePath: string,
-  options: DeleteNoteOptions = {},
+  options: DeleteNoteOptions = {}
 ): Promise<DeleteNoteResult> {
   assertMarkdownNotePath(relativePath);
   const permanent = options.permanent === true;
@@ -1060,13 +700,24 @@ export async function deleteNote(
         ) {
           throw new Error(`Invalid trash path: ${relativePath}`);
         }
-        await ensureTrashParentDirectory(vaultPath, trashRoot, path.dirname(trashFullPath));
+        await ensureTrashParentDirectory(
+          vaultPath,
+          trashRoot,
+          path.dirname(trashFullPath)
+        );
         // Realpath check on the canonical destination: rejects a symlink swap
         // after parent creation but before the rename.
         await assertRealPathWithinVault(trashFullPath, vaultPath);
         const finalTrashPath = await chooseTrashPath(trashFullPath);
-        const finalTrashRelPath = path.relative(resolvedVault, finalTrashPath).replace(/\\/g, "/");
-        await movePathNoReplace(vaultPath, fullPath, finalTrashPath, finalTrashRelPath);
+        const finalTrashRelPath = path
+          .relative(resolvedVault, finalTrashPath)
+          .replace(/\\/g, "/");
+        await movePathNoReplace(
+          vaultPath,
+          fullPath,
+          finalTrashPath,
+          finalTrashRelPath
+        );
       } else {
         await fs.unlink(fullPath);
       }
@@ -1092,7 +743,10 @@ export async function deleteNote(
   return performDelete();
 }
 
-async function linkOrCopyFileNoReplace(fullOldPath: string, fullNewPath: string): Promise<void> {
+async function linkOrCopyFileNoReplace(
+  fullOldPath: string,
+  fullNewPath: string
+): Promise<void> {
   try {
     await fs.link(fullOldPath, fullNewPath);
     return;
@@ -1106,11 +760,14 @@ async function linkOrCopyFileNoReplace(fullOldPath: string, fullNewPath: string)
 async function createDestinationNoReplace(
   vaultPath: string,
   fullOldPath: string,
-  fullNewPath: string,
+  fullNewPath: string
 ): Promise<void> {
   const sourceStat = await fs.lstat(fullOldPath);
   if (sourceStat.isSymbolicLink()) {
-    const sourceCanonical = await assertRealPathWithinVault(fullOldPath, vaultPath);
+    const sourceCanonical = await assertRealPathWithinVault(
+      fullOldPath,
+      vaultPath
+    );
     const linkTarget = await fs.readlink(fullOldPath);
     let createdSymlink = false;
     try {
@@ -1120,13 +777,22 @@ async function createDestinationNoReplace(
         await fs.symlink(linkTarget, fullNewPath);
       }
       createdSymlink = true;
-      const destCanonical = await assertRealPathWithinVault(fullNewPath, vaultPath);
+      const destCanonical = await assertRealPathWithinVault(
+        fullNewPath,
+        vaultPath
+      );
       if (destCanonical.realPath !== sourceCanonical.realPath) {
-        throw new Error("Refusing to move symlink because the destination would point somewhere else");
+        throw new Error(
+          "Refusing to move symlink because the destination would point somewhere else"
+        );
       }
     } catch (err) {
       if (createdSymlink) {
-        try { await fs.unlink(fullNewPath); } catch { /* ignore cleanup failure */ }
+        try {
+          await fs.unlink(fullNewPath);
+        } catch {
+          /* ignore cleanup failure */
+        }
       }
       throw err;
     }
@@ -1139,7 +805,7 @@ async function movePathNoReplace(
   vaultPath: string,
   fullOldPath: string,
   fullNewPath: string,
-  displayNewPath: string,
+  displayNewPath: string
 ): Promise<void> {
   let createdDestination = false;
   try {
@@ -1149,10 +815,16 @@ async function movePathNoReplace(
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code ?? "";
     if (createdDestination) {
-      try { await fs.unlink(fullNewPath); } catch { /* ignore cleanup failure */ }
+      try {
+        await fs.unlink(fullNewPath);
+      } catch {
+        /* ignore cleanup failure */
+      }
     }
     if (code === "EEXIST") {
-      throw new Error(`Destination already exists: ${displayNewPath}`, { cause: err });
+      throw new Error(`Destination already exists: ${displayNewPath}`, {
+        cause: err,
+      });
     }
     throw err;
   }
@@ -1181,7 +853,7 @@ export async function moveNote(
   vaultPath: string,
   oldPath: string,
   newPath: string,
-  options: MoveNoteOptions = {},
+  options: MoveNoteOptions = {}
 ): Promise<MoveNoteResult> {
   assertMarkdownNotePath(oldPath);
   assertMarkdownNotePath(newPath);
@@ -1224,7 +896,10 @@ export async function moveNote(
     if (lockKey(fullOldPath) === lockKey(fullNewPath)) {
       await withFileLock(fullOldPath, doRename);
     } else {
-      const [first, second] = [fullOldPath, fullNewPath].sort() as [string, string];
+      const [first, second] = [fullOldPath, fullNewPath].sort() as [
+        string,
+        string,
+      ];
       await withFileLock(first, async () => {
         await withFileLock(second, doRename);
       });
@@ -1266,7 +941,7 @@ export function searchInContents(
   notes: readonly string[],
   contents: ReadonlyMap<string, string>,
   query: string,
-  options?: { caseSensitive?: boolean; maxResults?: number },
+  options?: { caseSensitive?: boolean; maxResults?: number }
 ): SearchResult[] {
   const caseSensitive = options?.caseSensitive ?? false;
   const maxResults = options?.maxResults ?? 100;
@@ -1300,17 +975,27 @@ export function searchInContents(
       path: notePath,
       relativePath: notePath,
       matches: collapseSearchLineMatches(rawMatches),
-      score: scoreLexicalMatches(notePath, lines, rawMatches, searchQuery, caseSensitive),
+      score: scoreLexicalMatches(
+        notePath,
+        lines,
+        rawMatches,
+        searchQuery,
+        caseSensitive
+      ),
     });
   }
   // Primary: lexical focus score (desc). Secondary: relative path (asc) — otherwise
   // tie-breaking order depends on iteration timing, which makes results for
   // equal-score queries non-deterministic between runs.
-  results.sort((a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath));
+  results.sort(
+    (a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath)
+  );
   return results.slice(0, maxResults);
 }
 
-function collapseSearchLineMatches(matches: readonly SearchMatch[]): SearchMatch[] {
+function collapseSearchLineMatches(
+  matches: readonly SearchMatch[]
+): SearchMatch[] {
   const seenLines = new Set<number>();
   return matches.filter((match) => {
     if (seenLines.has(match.line)) return false;
@@ -1319,13 +1004,17 @@ function collapseSearchLineMatches(matches: readonly SearchMatch[]): SearchMatch
   });
 }
 
-function formatSearchSnippet(line: string, column: number, queryLength: number): string {
+function formatSearchSnippet(
+  line: string,
+  column: number,
+  queryLength: number
+): string {
   const trimmedStart = line.trimStart();
   const leadingTrimmedChars = line.length - trimmedStart.length;
   const trimmedLine = trimmedStart.trimEnd();
   const maxSnippetChars = Math.max(
     SEARCH_SNIPPET_MAX_CHARS,
-    queryLength + SEARCH_SNIPPET_OMISSION.length * 2,
+    queryLength + SEARCH_SNIPPET_OMISSION.length * 2
   );
 
   if (trimmedLine.length <= maxSnippetChars) return trimmedLine;
@@ -1333,7 +1022,10 @@ function formatSearchSnippet(line: string, column: number, queryLength: number):
   const snippetColumn = Math.max(0, column - leadingTrimmedChars);
   const queryStart = Math.min(snippetColumn, trimmedLine.length);
   const bodyMaxChars = maxSnippetChars - SEARCH_SNIPPET_OMISSION.length * 2;
-  let start = Math.max(0, queryStart - Math.floor((bodyMaxChars - queryLength) / 2));
+  let start = Math.max(
+    0,
+    queryStart - Math.floor((bodyMaxChars - queryLength) / 2)
+  );
   const end = Math.min(trimmedLine.length, start + bodyMaxChars);
   if (end === trimmedLine.length) start = Math.max(0, end - bodyMaxChars);
 
@@ -1347,15 +1039,17 @@ function scoreLexicalMatches(
   lines: readonly string[],
   matches: readonly SearchMatch[],
   searchQuery: string,
-  caseSensitive: boolean,
+  caseSensitive: boolean
 ): number {
   const matchingLines = new Set(matches.map((match) => match.line)).size;
   const repeatedSameLineMatches = matches.length - matchingLines;
   const pathText = caseSensitive ? notePath : notePath.toLowerCase();
-  const firstHeading = lines.find((line) => line.trimStart().startsWith("#")) ?? "";
+  const firstHeading =
+    lines.find((line) => line.trimStart().startsWith("#")) ?? "";
   const headingText = caseSensitive ? firstHeading : firstHeading.toLowerCase();
 
-  let score = matchingLines + Math.log1p(matches.length) * SEARCH_MATCH_COUNT_WEIGHT;
+  let score =
+    matchingLines + Math.log1p(matches.length) * SEARCH_MATCH_COUNT_WEIGHT;
   if (pathText.includes(searchQuery)) score += SEARCH_PATH_MATCH_BOOST;
   if (headingText.includes(searchQuery)) score += SEARCH_HEADING_MATCH_BOOST;
   score -= repeatedSameLineMatches * SEARCH_REPEATED_SAME_LINE_PENALTY;
@@ -1369,7 +1063,7 @@ export async function searchNotes(
     caseSensitive?: boolean;
     maxResults?: number;
     folder?: string;
-  },
+  }
 ): Promise<SearchResult[]> {
   const notes = await listNotes(vaultPath, options?.folder);
 
@@ -1396,9 +1090,14 @@ export async function searchNotes(
 export async function getNoteStats(
   vaultPath: string,
   relativePath: string,
-  options?: { realVaultRoot?: string },
+  options?: { realVaultRoot?: string }
 ): Promise<{ size: number; created: Date | null; modified: Date | null }> {
-  const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath, "read", options);
+  const { handle, stats } = await openVaultFileForRead(
+    vaultPath,
+    relativePath,
+    "read",
+    options
+  );
   try {
     return {
       size: stats.size,
@@ -1410,18 +1109,16 @@ export async function getNoteStats(
   }
 }
 
-export async function listCanvasFiles(
-  vaultPath: string,
-): Promise<string[]> {
+export async function listCanvasFiles(vaultPath: string): Promise<string[]> {
   // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
   // at every traversal level.
-  const entries = await walkVault(await getRealVaultRoot(vaultPath), [".canvas"]);
+  const entries = await walkVault(await getRealVaultRoot(vaultPath), [
+    ".canvas",
+  ]);
   return filterReadable(entries).sort();
 }
 
-export async function listBaseFiles(
-  vaultPath: string,
-): Promise<string[]> {
+export async function listBaseFiles(vaultPath: string): Promise<string[]> {
   // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
   // at every traversal level.
   const entries = await walkVault(await getRealVaultRoot(vaultPath), [".base"]);
@@ -1433,21 +1130,20 @@ export async function listBaseFiles(
  * markdown note, canvas, or Base. Attachments are typically images, PDFs,
  * audio/video clips, code snippets dropped in via paste-as-file, etc.
  */
-export async function listAttachments(
-  vaultPath: string,
-): Promise<string[]> {
+export async function listAttachments(vaultPath: string): Promise<string[]> {
   // No `isExcluded` filter needed: `walkVaultExcluding` already prunes
   // excluded dirs at every traversal level.
-  const entries = await walkVaultExcluding(
-    await getRealVaultRoot(vaultPath),
-    [".md", ".canvas", ".base"],
-  );
+  const entries = await walkVaultExcluding(await getRealVaultRoot(vaultPath), [
+    ".md",
+    ".canvas",
+    ".base",
+  ]);
   return filterReadable(entries).sort();
 }
 
 export async function getAttachmentStats(
   vaultPath: string,
-  relativePath: string,
+  relativePath: string
 ): Promise<{ size: number; modified: Date | null }> {
   const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath);
   try {
@@ -1459,7 +1155,7 @@ export async function getAttachmentStats(
 
 export async function readBaseFile(
   vaultPath: string,
-  relativePath: string,
+  relativePath: string
 ): Promise<string> {
   if (!relativePath.toLowerCase().endsWith(".base")) {
     throw new Error(`Not a Base file: ${relativePath}`);
@@ -1468,7 +1164,7 @@ export async function readBaseFile(
   if (stats.size > MAX_BASE_FILE_BYTES) {
     await handle.close();
     throw new Error(
-      `Base file exceeds size cap (${stats.size} > ${MAX_BASE_FILE_BYTES} bytes)`,
+      `Base file exceeds size cap (${stats.size} > ${MAX_BASE_FILE_BYTES} bytes)`
     );
   }
   try {
@@ -1481,7 +1177,7 @@ export async function readBaseFile(
 function assertCanvasFileSize(size: number, relativePath: string): void {
   if (size > MAX_CANVAS_FILE_BYTES) {
     throw new Error(
-      `Canvas file exceeds size cap (${size} > ${MAX_CANVAS_FILE_BYTES} bytes): ${relativePath}`,
+      `Canvas file exceeds size cap (${size} > ${MAX_CANVAS_FILE_BYTES} bytes): ${relativePath}`
     );
   }
 }
@@ -1489,36 +1185,51 @@ function assertCanvasFileSize(size: number, relativePath: string): void {
 function assertCanvasDataCounts(
   nodes: readonly unknown[],
   edges: readonly unknown[],
-  relativePath: string,
+  relativePath: string
 ): void {
   if (nodes.length > MAX_CANVAS_NODES) {
     throw new Error(
-      `Canvas node count exceeds cap (${nodes.length} > ${MAX_CANVAS_NODES}): ${relativePath}`,
+      `Canvas node count exceeds cap (${nodes.length} > ${MAX_CANVAS_NODES}): ${relativePath}`
     );
   }
   if (edges.length > MAX_CANVAS_EDGES) {
     throw new Error(
-      `Canvas edge count exceeds cap (${edges.length} > ${MAX_CANVAS_EDGES}): ${relativePath}`,
+      `Canvas edge count exceeds cap (${edges.length} > ${MAX_CANVAS_EDGES}): ${relativePath}`
     );
   }
 }
 
-function canvasDataFromObject(data: Record<string, unknown>, relativePath: string): CanvasData {
-  const nodes = Array.isArray(data.nodes) ? (data.nodes as CanvasData["nodes"]) : [];
-  const edges = Array.isArray(data.edges) ? (data.edges as CanvasData["edges"]) : [];
+function canvasDataFromObject(
+  data: Record<string, unknown>,
+  relativePath: string
+): CanvasData {
+  const nodes = Array.isArray(data.nodes)
+    ? (data.nodes as CanvasData["nodes"])
+    : [];
+  const edges = Array.isArray(data.edges)
+    ? (data.edges as CanvasData["edges"])
+    : [];
   assertCanvasDataCounts(nodes, edges, relativePath);
 
   return { nodes, edges };
 }
 
-function assertCanvasJsonObject(parsed: unknown, relativePath: string): Record<string, unknown> {
+function assertCanvasJsonObject(
+  parsed: unknown,
+  relativePath: string
+): Record<string, unknown> {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Invalid canvas file (expected JSON object): ${relativePath}`);
+    throw new Error(
+      `Invalid canvas file (expected JSON object): ${relativePath}`
+    );
   }
   return parsed as Record<string, unknown>;
 }
 
-function serializeCanvasFile(data: Record<string, unknown>, relativePath: string): string {
+function serializeCanvasFile(
+  data: Record<string, unknown>,
+  relativePath: string
+): string {
   const serialized = JSON.stringify(data, null, 2);
   assertCanvasFileSize(Buffer.byteLength(serialized, "utf-8"), relativePath);
   return serialized;
@@ -1526,7 +1237,7 @@ function serializeCanvasFile(data: Record<string, unknown>, relativePath: string
 
 export async function readCanvasFile(
   vaultPath: string,
-  relativePath: string,
+  relativePath: string
 ): Promise<CanvasData> {
   const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath);
   let content: string;
@@ -1555,12 +1266,15 @@ export async function readCanvasFile(
 export async function writeCanvasFile(
   vaultPath: string,
   relativePath: string,
-  data: CanvasData,
+  data: CanvasData
 ): Promise<void> {
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
     assertCanvasDataCounts(data.nodes, data.edges, relativePath);
-    const serialized = serializeCanvasFile(data as unknown as Record<string, unknown>, relativePath);
+    const serialized = serializeCanvasFile(
+      data as unknown as Record<string, unknown>,
+      relativePath
+    );
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await atomicWriteFile(fullPath, serialized);
   });
@@ -1579,11 +1293,16 @@ export async function writeCanvasFile(
 export async function updateCanvasFile(
   vaultPath: string,
   relativePath: string,
-  transform: (data: CanvasData) => CanvasData | Promise<CanvasData>,
+  transform: (data: CanvasData) => CanvasData | Promise<CanvasData>
 ): Promise<void> {
   const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
   await withFileLock(fullPath, async () => {
-    const opened = await openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, "write");
+    const opened = await openResolvedVaultFileForRead(
+      vaultPath,
+      relativePath,
+      fullPath,
+      "write"
+    );
     let raw: string;
     try {
       assertCanvasFileSize(opened.stats.size, relativePath);
