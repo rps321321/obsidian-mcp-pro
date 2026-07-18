@@ -11,7 +11,7 @@ maintenance loop or publish releases.
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues; external pull requests are not a triage
+Issues are tracked in GitHub Issues; external pull requests are also a triage
 surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
