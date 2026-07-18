@@ -1,15 +1,17 @@
 import path from "path";
 import {
-  listCanvasFiles,
-  readNote,
-  readCanvasFile,
   resolveVaultPathSafe,
   readVaultTextFile,
   withFileLock,
   atomicWriteFile,
   assertNoteFileSize,
+} from "./vault-fs.js";
+import { readNote } from "./note-reads.js";
+import {
+  listCanvasFiles,
+  readCanvasFile,
   MAX_CANVAS_FILE_BYTES,
-} from "./vault.js";
+} from "./canvas.js";
 import {
   extractAliases,
   extractWikilinkSpans,
@@ -26,14 +28,19 @@ const SCAN_CONCURRENCY = 8;
 function assertCanvasApplyFileSize(relativePath: string, size: number): void {
   if (size > MAX_CANVAS_FILE_BYTES) {
     throw new Error(
-      `Canvas file exceeds size cap (${size} > ${MAX_CANVAS_FILE_BYTES} bytes): ${relativePath}`,
+      `Canvas file exceeds size cap (${size} > ${MAX_CANVAS_FILE_BYTES} bytes): ${relativePath}`
     );
   }
 }
 
-function assertCanvasJsonObject(parsed: unknown, relativePath: string): Record<string, unknown> {
+function assertCanvasJsonObject(
+  parsed: unknown,
+  relativePath: string
+): Record<string, unknown> {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Invalid canvas file (expected JSON object): ${relativePath}`);
+    throw new Error(
+      `Invalid canvas file (expected JSON object): ${relativePath}`
+    );
   }
   return parsed as Record<string, unknown>;
 }
@@ -94,7 +101,7 @@ export async function planMoveRewrites(
   vaultPath: string,
   oldPath: string,
   newPath: string,
-  preMoveNotes: string[],
+  preMoveNotes: string[]
 ): Promise<RewritePlan> {
   // Build the post-move note set by substituting old → new. Used for picking
   // the output form (basename vs path) that matches Obsidian's behavior.
@@ -135,7 +142,9 @@ export async function planMoveRewrites(
     // Wikilinks.
     for (const span of extractWikilinkSpans(content)) {
       if (!span.target) continue;
-      const resolved = resolveWikilink(span.target, notePath, preMoveNotes, { aliasMap });
+      const resolved = resolveWikilink(span.target, notePath, preMoveNotes, {
+        aliasMap,
+      });
       if (resolved !== oldPath) continue;
 
       // Don't rewrite a self-reference inside the moved file itself — the
@@ -143,7 +152,11 @@ export async function planMoveRewrites(
       // the new file. Leaving it untouched is the simpler invariant.
       if (notePath === oldPath) continue;
 
-      const newTarget = formatWikilinkTarget(newPath, span.target, postMoveNotes);
+      const newTarget = formatWikilinkTarget(
+        newPath,
+        span.target,
+        postMoveNotes
+      );
       const aliasPart = span.alias !== undefined ? `|${span.alias}` : "";
       const replacement = `${span.isEmbed ? "!" : ""}[[${newTarget}${span.fragment}${aliasPart}]]`;
       // Skip no-op rewrites: a bare `[[idea]]` that resolves to the moved
@@ -163,7 +176,12 @@ export async function planMoveRewrites(
       // Skip absolute / external URLs — only intra-vault references rewrite.
       if (isExternalMarkdownUrl(url)) continue;
       const decoded = safeDecode(url);
-      const resolved = resolveMarkdownLinkPath(decoded, notePath, preMoveNotes, aliasMap);
+      const resolved = resolveMarkdownLinkPath(
+        decoded,
+        notePath,
+        preMoveNotes,
+        aliasMap
+      );
       if (resolved !== oldPath) continue;
 
       // Preserve the user's choice of with/without `.md` extension and their
@@ -172,7 +190,12 @@ export async function planMoveRewrites(
       // to the full path automatically.
       const hadExt = /\.md$/i.test(decoded);
       const decodedBare = decoded.replace(/\.md$/i, "");
-      const newBare = formatMarkdownLinkTarget(newPath, decodedBare, notePath, postMoveNotes);
+      const newBare = formatMarkdownLinkTarget(
+        newPath,
+        decodedBare,
+        notePath,
+        postMoveNotes
+      );
       const newUrl = encodeUrlPath(hadExt ? `${newBare}.md` : newBare);
       const replacement = `${span.isEmbed ? "!" : ""}[${span.text}](${newUrl}${span.fragment}${span.title})`;
       const expected = content.slice(span.start, span.end);
@@ -211,15 +234,18 @@ export async function planMoveRewrites(
         return undefined;
       }
       for (const node of data.nodes) {
-        if (typeof node.file === "string" && node.file.toLowerCase() === oldLower) {
+        if (
+          typeof node.file === "string" &&
+          node.file.toLowerCase() === oldLower
+        ) {
           return cp;
         }
       }
       return undefined;
-    },
+    }
   );
   const canvasesToRewrite: string[] = canvasMatches.filter(
-    (c): c is string => typeof c === "string",
+    (c): c is string => typeof c === "string"
   );
 
   return {
@@ -255,7 +281,7 @@ export async function planMoveRewrites(
 export async function planDeleteRewrites(
   vaultPath: string,
   deletedPath: string,
-  preDeleteNotes: string[],
+  preDeleteNotes: string[]
 ): Promise<RewritePlan> {
   // Single-pass note read — same I/O optimization as planMoveRewrites.
   const contents = new Map<string, string>();
@@ -299,13 +325,17 @@ export async function planDeleteRewrites(
     // Wikilinks.
     for (const span of extractWikilinkSpans(content)) {
       if (!span.target) continue;
-      const resolved = resolveWikilink(span.target, notePath, preDeleteNotes, { aliasMap });
+      const resolved = resolveWikilink(span.target, notePath, preDeleteNotes, {
+        aliasMap,
+      });
       if (resolved !== deletedPath) continue;
 
       // Embeds disappear entirely; plain wikilinks fall back to alias-or-basename.
       const replacement = span.isEmbed
         ? ""
-        : (span.alias !== undefined ? span.alias : deletedBasename);
+        : span.alias !== undefined
+          ? span.alias
+          : deletedBasename;
       const expected = content.slice(span.start, span.end);
       if (replacement === expected) continue;
       edits.push({ start: span.start, end: span.end, expected, replacement });
@@ -317,7 +347,12 @@ export async function planDeleteRewrites(
       // Skip absolute / external URLs — only intra-vault refs strip.
       if (isExternalMarkdownUrl(url)) continue;
       const decoded = safeDecode(url);
-      const resolved = resolveMarkdownLinkPath(decoded, notePath, preDeleteNotes, aliasMap);
+      const resolved = resolveMarkdownLinkPath(
+        decoded,
+        notePath,
+        preDeleteNotes,
+        aliasMap
+      );
       if (resolved !== deletedPath) continue;
 
       const replacement = span.isEmbed ? "" : span.text;
@@ -352,7 +387,7 @@ export async function planDeleteRewrites(
  */
 export async function applyRewrites(
   vaultPath: string,
-  plan: RewritePlan,
+  plan: RewritePlan
 ): Promise<ApplyResult> {
   const updated: string[] = [];
   const failed: Array<{ path: string; error: string }> = [];
@@ -365,7 +400,11 @@ export async function applyRewrites(
       const edits = plan.notes.get(notePath);
       if (!edits || edits.length === 0) return undefined;
       try {
-        const fullPath = await resolveVaultPathSafe(vaultPath, notePath, "write");
+        const fullPath = await resolveVaultPathSafe(
+          vaultPath,
+          notePath,
+          "write"
+        );
         let didWrite = false;
         await withFileLock(fullPath, async () => {
           // Re-read inside the lock so we apply edits to current content.
@@ -406,7 +445,7 @@ export async function applyRewrites(
         failed.push({ path: notePath, error: (err as Error).message });
       }
       return undefined;
-    },
+    }
   );
 
   // Canvas pass.
@@ -425,11 +464,16 @@ export async function applyRewrites(
           throw new Error(`Invalid canvas file (malformed JSON): ${cp}`);
         }
         const obj = assertCanvasJsonObject(parsed, cp);
-        const nodes = Array.isArray(obj.nodes) ? (obj.nodes as Array<Record<string, unknown>>) : [];
+        const nodes = Array.isArray(obj.nodes)
+          ? (obj.nodes as Array<Record<string, unknown>>)
+          : [];
         let mutated = false;
         const oldLower = plan.oldPath.toLowerCase();
         for (const node of nodes) {
-          if (typeof node.file === "string" && node.file.toLowerCase() === oldLower) {
+          if (
+            typeof node.file === "string" &&
+            node.file.toLowerCase() === oldLower
+          ) {
             node.file = plan.newPath;
             mutated = true;
           }
@@ -457,7 +501,7 @@ export async function applyRewrites(
  *  `null` as a failed referrer rather than corrupting the file. */
 function applyEditsBackToFront(
   content: string,
-  edits: SpanEdit[],
+  edits: SpanEdit[]
 ): string | null {
   // Walk from the back so earlier offsets stay valid as we splice.
   let out = content;
@@ -485,7 +529,7 @@ function applyEditsBackToFront(
  *  than picking the wrong occurrence. */
 function retryEditsByContent(
   content: string,
-  edits: SpanEdit[],
+  edits: SpanEdit[]
 ): string | null {
   type Match = { start: number; end: number; replacement: string };
   const matches: Match[] = [];
@@ -527,11 +571,11 @@ function resolveMarkdownLinkPath(
   decodedPath: string,
   notePath: string,
   allNotes: string[],
-  aliasMap: Map<string, string>,
+  aliasMap: Map<string, string>
 ): string | null {
   if (isExplicitRelativePath(decodedPath)) {
     const resolved = path.posix.normalize(
-      path.posix.join(referrerDir(notePath), decodedPath),
+      path.posix.join(referrerDir(notePath), decodedPath)
     );
     if (resolved === "." || resolved === ".." || resolved.startsWith("../")) {
       return null;
@@ -546,7 +590,7 @@ function formatMarkdownLinkTarget(
   newPath: string,
   originalBare: string,
   notePath: string,
-  allNotes: string[],
+  allNotes: string[]
 ): string {
   if (!isExplicitRelativePath(originalBare)) {
     return formatWikilinkTarget(newPath, originalBare, allNotes);
