@@ -1,6 +1,12 @@
 import yaml from "js-yaml";
 import path from "path";
 import { parseFrontmatter, extractTags } from "./markdown.js";
+import {
+  filterReadable,
+  getRealVaultRoot,
+  openVaultFileForRead,
+  walkVault,
+} from "./vault-fs.js";
 import { hasYamlAnchorOrAliasToken } from "./yaml.js";
 
 /**
@@ -82,14 +88,14 @@ export function parseBaseFile(raw: string): ParsedBase {
   if (raw.length > MAX_BASE_FILE_BYTES) {
     pushWarning(
       warnings,
-      `Base file exceeds size cap (${raw.length} > ${MAX_BASE_FILE_BYTES} bytes); refusing to parse to avoid YAML alias-bomb / DoS. Treating as empty Base.`,
+      `Base file exceeds size cap (${raw.length} > ${MAX_BASE_FILE_BYTES} bytes); refusing to parse to avoid YAML alias-bomb / DoS. Treating as empty Base.`
     );
     return { doc, warnings };
   }
   if (hasYamlAnchorOrAliasToken(raw)) {
     pushWarning(
       warnings,
-      "Base file contains YAML anchors or aliases; refusing to parse to avoid alias graph expansion. Treating as empty Base.",
+      "Base file contains YAML anchors or aliases; refusing to parse to avoid alias graph expansion. Treating as empty Base."
     );
     return { doc, warnings };
   }
@@ -101,7 +107,10 @@ export function parseBaseFile(raw: string): ParsedBase {
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       doc = parsed as BaseDocument;
     } else {
-      pushWarning(warnings, "Top-level YAML is not an object; treating as empty Base.");
+      pushWarning(
+        warnings,
+        "Top-level YAML is not an object; treating as empty Base."
+      );
     }
   } catch (err) {
     pushWarning(warnings, `YAML parse error: ${(err as Error).message}`);
@@ -148,7 +157,7 @@ export interface QueryResult {
 export function buildRow(
   path: string,
   content: string,
-  stats?: BaseRow["stats"],
+  stats?: BaseRow["stats"]
 ): BaseRow {
   const { data } = parseFrontmatter(content);
   return {
@@ -169,7 +178,9 @@ interface EvaluationContext {
  *  generous headroom over the few-deep nests Obsidian itself produces. */
 const MAX_FILTER_DEPTH = 64;
 
-function flattenFilter(filter: BaseFilter | BaseFilter[] | undefined): BaseFilter | undefined {
+function flattenFilter(
+  filter: BaseFilter | BaseFilter[] | undefined
+): BaseFilter | undefined {
   if (filter === undefined) return undefined;
   if (Array.isArray(filter)) return { and: filter };
   return filter;
@@ -183,16 +194,21 @@ export function evaluateFilter(
   row: BaseRow,
   filter: BaseFilter | undefined,
   ctx: EvaluationContext,
-  depth = 0,
+  depth = 0
 ): boolean {
   if (depth > MAX_FILTER_DEPTH) {
-    pushWarning(ctx.warnings, `Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; treating clause as no-match.`);
+    pushWarning(
+      ctx.warnings,
+      `Filter recursion exceeded ${MAX_FILTER_DEPTH} levels; treating clause as no-match.`
+    );
     return false;
   }
   if (filter === undefined) return true;
   if (typeof filter === "string") return evaluateExpression(row, filter, ctx);
-  if ("and" in filter) return filter.and.every((f) => evaluateFilter(row, f, ctx, depth + 1));
-  if ("or" in filter) return filter.or.some((f) => evaluateFilter(row, f, ctx, depth + 1));
+  if ("and" in filter)
+    return filter.and.every((f) => evaluateFilter(row, f, ctx, depth + 1));
+  if ("or" in filter)
+    return filter.or.some((f) => evaluateFilter(row, f, ctx, depth + 1));
   if ("not" in filter) {
     // Obsidian accepts both a single filter and a list under `not:`. When
     // it's a list, treat it as an implicit `and` so the spec's
@@ -201,7 +217,8 @@ export function evaluateFilter(
     //     - Y
     // means "neither X nor Y", matching how the docs render it.
     const inner = filter.not;
-    if (Array.isArray(inner)) return !inner.some((f) => evaluateFilter(row, f, ctx, depth + 1));
+    if (Array.isArray(inner))
+      return !inner.some((f) => evaluateFilter(row, f, ctx, depth + 1));
     return !evaluateFilter(row, inner, ctx, depth + 1);
   }
   pushWarning(ctx.warnings, `Unknown filter shape: ${JSON.stringify(filter)}`);
@@ -230,24 +247,36 @@ const FUNC_RE = new RegExp(`^(${IDENT}(?:\\.${IDENT})*)\\s*\\(([^)]*)\\)\\s*$`);
 
 /** Chained method form: `<chain>.<method>(args)`. Captured separately so we
  *  can route to the method evaluator that knows about file.* receivers. */
-const METHOD_RE = new RegExp(`^(${IDENT_CHAIN})\\.(${IDENT})\\s*\\(([^)]*)\\)\\s*$`);
+const METHOD_RE = new RegExp(
+  `^(${IDENT_CHAIN})\\.(${IDENT})\\s*\\(([^)]*)\\)\\s*$`
+);
 
 /** Operand on either side of a comparison. Either a quoted string, or a
  *  run of non-space, non-operator characters (numbers, identifiers, dotted
  *  paths). Bounded so backtracking can't explode. */
 const OPERAND = `(?:"[^"]*"|'[^']*'|[^\\s"'=!<>]+)`;
 const COMPARISON_RE = new RegExp(
-  `^\\s*(${OPERAND})\\s*(==|!=|>=|<=|>|<|contains|startsWith|endsWith)\\s*(${OPERAND})\\s*$`,
+  `^\\s*(${OPERAND})\\s*(==|!=|>=|<=|>|<|contains|startsWith|endsWith)\\s*(${OPERAND})\\s*$`
 );
 
-function evaluateExpression(row: BaseRow, expr: string, ctx: EvaluationContext): boolean {
+function evaluateExpression(
+  row: BaseRow,
+  expr: string,
+  ctx: EvaluationContext
+): boolean {
   const trimmed = expr.trim();
   if (!trimmed) return true;
 
   // Try chained method form first: `file.name.contains("x")`.
   const method = trimmed.match(METHOD_RE);
   if (method) {
-    return evaluateMethod(row, method[1]!, method[2]!, splitArgs(method[3]!), ctx);
+    return evaluateMethod(
+      row,
+      method[1]!,
+      method[2]!,
+      splitArgs(method[3]!),
+      ctx
+    );
   }
 
   // Function-call form: `name(args)`.
@@ -400,7 +429,7 @@ function evaluateMethod(
   chain: string,
   method: string,
   args: string[],
-  ctx: EvaluationContext,
+  ctx: EvaluationContext
 ): boolean {
   // Methods that act on the `file` object itself (file.hasTag, file.hasProperty,
   // file.inFolder, file.linksTo, file.hasLink). Resolved by chain == "file".
@@ -420,14 +449,19 @@ function evaluateMethod(
         const target = firstStringArg(args, `file.${method}`, ctx);
         if (target === null) return false;
         if (!row.links) {
-          pushWarning(ctx.warnings, `file.${method}: row has no links populated; treating as no-match.`);
+          pushWarning(
+            ctx.warnings,
+            `file.${method}: row has no links populated; treating as no-match.`
+          );
           return false;
         }
         return matchesLink(row.links, target);
       }
       case "isEmpty":
         // file.isEmpty: rough proxy — note has no frontmatter and no body tags.
-        return Object.keys(row.frontmatter).length === 0 && row.tags.length === 0;
+        return (
+          Object.keys(row.frontmatter).length === 0 && row.tags.length === 0
+        );
       case "isNotEmpty":
         return Object.keys(row.frontmatter).length > 0 || row.tags.length > 0;
     }
@@ -443,17 +477,22 @@ function evaluateValueMethod(
   method: string,
   args: string[],
   ctx: EvaluationContext,
-  chainForWarnings: string,
+  chainForWarnings: string
 ): boolean {
   switch (method) {
     case "contains": {
       const needle = firstStringArg(args, `${chainForWarnings}.contains`, ctx);
       if (needle === null) return false;
-      if (Array.isArray(value)) return value.map(toComparableString).some((v) => v.includes(needle));
+      if (Array.isArray(value))
+        return value.map(toComparableString).some((v) => v.includes(needle));
       return toComparableString(value).includes(needle);
     }
     case "startsWith": {
-      const needle = firstStringArg(args, `${chainForWarnings}.startsWith`, ctx);
+      const needle = firstStringArg(
+        args,
+        `${chainForWarnings}.startsWith`,
+        ctx
+      );
       if (needle === null) return false;
       return toComparableString(value).startsWith(needle);
     }
@@ -463,7 +502,8 @@ function evaluateValueMethod(
       return toComparableString(value).endsWith(needle);
     }
     case "equals": {
-      const other = args[0] !== undefined ? unquote(args[0]) ?? args[0].trim() : "";
+      const other =
+        args[0] !== undefined ? (unquote(args[0]) ?? args[0].trim()) : "";
       return toComparableString(value) === other;
     }
     case "isEmpty":
@@ -479,19 +519,29 @@ function evaluateValueMethod(
       if (typeof value === "object") return Object.keys(value).length > 0;
       return true;
     default:
-      pushWarning(ctx.warnings, `Unknown method: ${chainForWarnings}.${method}`);
+      pushWarning(
+        ctx.warnings,
+        `Unknown method: ${chainForWarnings}.${method}`
+      );
       return false;
   }
 }
 
-function firstStringArg(args: string[], where: string, ctx: EvaluationContext): string | null {
+function firstStringArg(
+  args: string[],
+  where: string,
+  ctx: EvaluationContext
+): string | null {
   if (args.length === 0) {
     pushWarning(ctx.warnings, `${where} expects a quoted string argument.`);
     return null;
   }
   const lit = unquote(args[0]!);
   if (lit === null) {
-    pushWarning(ctx.warnings, `${where} expects a quoted string; got: ${args[0]}`);
+    pushWarning(
+      ctx.warnings,
+      `${where} expects a quoted string; got: ${args[0]}`
+    );
     return null;
   }
   return lit;
@@ -559,13 +609,14 @@ function evaluateFunction(
   row: BaseRow,
   name: string,
   args: string[],
-  ctx: EvaluationContext,
+  ctx: EvaluationContext
 ): boolean {
   switch (name) {
     case "taggedWith":
     case "file.hasTag": {
       // taggedWith(file, "tag") or file.hasTag("tag") in function form.
-      const tagArg = args.length === 2 ? unquote(args[1]!) : unquote(args[0] ?? "");
+      const tagArg =
+        args.length === 2 ? unquote(args[1]!) : unquote(args[0] ?? "");
       return matchesTag(row, tagArg);
     }
     case "file.inFolder": {
@@ -590,13 +641,15 @@ function evaluateComparison(
   lhs: string,
   op: string,
   rhs: string,
-  _ctx: EvaluationContext,
+  _ctx: EvaluationContext
 ): boolean {
   const left = literalOrProperty(row, lhs);
   const right = literalOrProperty(row, rhs);
   switch (op) {
-    case "==": return looseEqual(left, right);
-    case "!=": return !looseEqual(left, right);
+    case "==":
+      return looseEqual(left, right);
+    case "!=":
+      return !looseEqual(left, right);
     case ">":
     case ">=":
     case "<":
@@ -610,12 +663,16 @@ function evaluateComparison(
       return a <= b;
     }
     case "contains": {
-      if (Array.isArray(left)) return left.map(toComparableString).includes(toComparableString(right));
+      if (Array.isArray(left))
+        return left.map(toComparableString).includes(toComparableString(right));
       return toComparableString(left).includes(toComparableString(right));
     }
-    case "startsWith": return toComparableString(left).startsWith(toComparableString(right));
-    case "endsWith": return toComparableString(left).endsWith(toComparableString(right));
-    default: return false;
+    case "startsWith":
+      return toComparableString(left).startsWith(toComparableString(right));
+    case "endsWith":
+      return toComparableString(left).endsWith(toComparableString(right));
+    default:
+      return false;
   }
 }
 
@@ -624,14 +681,19 @@ function looseEqual(a: unknown, b: unknown): boolean {
   if (a == null && b == null) return true;
   // If only one side is null/undefined, they are not equal (avoids Number(null) === 0).
   if (a == null || b == null) return false;
-  if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
+  if (typeof a === "number" || typeof b === "number")
+    return Number(a) === Number(b);
   return toComparableString(a) === toComparableString(b);
 }
 
 function toComparableString(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
     return String(value);
   }
   try {
@@ -648,7 +710,7 @@ function toComparableString(value: unknown): string {
 export function queryBase(
   rows: readonly BaseRow[],
   base: BaseDocument,
-  viewName?: string,
+  viewName?: string
 ): QueryResult {
   const ctx: EvaluationContext = { warnings: [] };
   const baseFilter = flattenFilter(base.filters);
@@ -656,9 +718,14 @@ export function queryBase(
   let order: string[] | undefined;
 
   if (viewName && Array.isArray(base.views)) {
-    const view = base.views.find((v) => v.name === viewName || v.type === viewName);
+    const view = base.views.find(
+      (v) => v.name === viewName || v.type === viewName
+    );
     if (!view) {
-      pushWarning(ctx.warnings, `View not found: "${viewName}"; treating query as no-match.`);
+      pushWarning(
+        ctx.warnings,
+        `View not found: "${viewName}"; treating query as no-match.`
+      );
       return { rows: [], warnings: ctx.warnings };
     } else {
       viewFilter = flattenFilter(view.filters);
@@ -666,8 +733,10 @@ export function queryBase(
     }
   }
 
-  const matches = rows.filter((row) =>
-    evaluateFilter(row, baseFilter, ctx) && evaluateFilter(row, viewFilter, ctx),
+  const matches = rows.filter(
+    (row) =>
+      evaluateFilter(row, baseFilter, ctx) &&
+      evaluateFilter(row, viewFilter, ctx)
   );
 
   if (order && order.length > 0) {
@@ -705,4 +774,32 @@ export function queryBase(
   }
 
   return { rows: matches, warnings: ctx.warnings };
+}
+
+export async function listBaseFiles(vaultPath: string): Promise<string[]> {
+  // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
+  // at every traversal level.
+  const entries = await walkVault(await getRealVaultRoot(vaultPath), [".base"]);
+  return filterReadable(entries).sort();
+}
+
+export async function readBaseFile(
+  vaultPath: string,
+  relativePath: string
+): Promise<string> {
+  if (!relativePath.toLowerCase().endsWith(".base")) {
+    throw new Error(`Not a Base file: ${relativePath}`);
+  }
+  const { handle, stats } = await openVaultFileForRead(vaultPath, relativePath);
+  if (stats.size > MAX_BASE_FILE_BYTES) {
+    await handle.close();
+    throw new Error(
+      `Base file exceeds size cap (${stats.size} > ${MAX_BASE_FILE_BYTES} bytes)`
+    );
+  }
+  try {
+    return await handle.readFile("utf-8");
+  } finally {
+    await handle.close();
+  }
 }
