@@ -1,3 +1,21 @@
+/**
+ * Compatibility barrel for the decomposed vault layer. Contains no logic —
+ * every symbol lives in one of the layered modules below and is re-exported
+ * here so existing `./vault.js` import sites keep working unchanged.
+ *
+ * Module map (each depends only on layers above it):
+ *   vault-fs      path safety · locking · atomic writes · byte guards · traversal
+ *   note-reads    readNote · readNoteLineRange · listNotes
+ *   canvas        list/read/write/update canvas files
+ *   bases         Base filter engine + list/read base files
+ *   link-rewriter plan/apply move + delete link rewrites
+ *   note-ops      write/update/append/prepend/delete/move mutations
+ *   vault-search  searchInContents / searchNotes
+ *   vault-stats   getNoteStats / listAttachments / getAttachmentStats
+ *
+ * New code should import from the specific module, not this barrel.
+ */
+
 // Re-export foundation primitives so external call sites keep importing from vault.js.
 export {
   resolveVaultPathSafe,
