@@ -29,6 +29,12 @@ import {
   readNoteLineRange,
   type NoteLineRangeRead,
 } from "./note-reads.js";
+import {
+  applyRewrites,
+  planDeleteRewrites,
+  planMoveRewrites,
+  type RewritePlan,
+} from "./link-rewriter.js";
 
 // Re-export foundation primitives so external call sites keep importing from vault.js.
 export {
@@ -453,9 +459,8 @@ export async function deleteNote(
     // Build the rewrite plan from the *pre-delete* vault state — resolution
     // must see the file at its current path so wikilinks pointing at it are
     // matched. Only built when removeReferences is on.
-    let plan: import("./link-rewriter.js").RewritePlan | null = null;
+    let plan: RewritePlan | null = null;
     if (removeReferences) {
-      const { planDeleteRewrites } = await import("./link-rewriter.js");
       const preDeleteNotes = await listNotes(vaultPath);
       plan = await planDeleteRewrites(vaultPath, relativePath, preDeleteNotes);
     }
@@ -507,7 +512,6 @@ export async function deleteNote(
 
     if (!plan) return { updatedReferrers: [], failedReferrers: [] };
 
-    const { applyRewrites } = await import("./link-rewriter.js");
     const result = await applyRewrites(vaultPath, plan);
     return {
       updatedReferrers: result.updated,
@@ -662,11 +666,9 @@ export async function moveNote(
   const performMove = async (): Promise<MoveNoteResult> => {
     // Build the rewrite plan from the *pre-move* vault state — resolution
     // must see the file at its old path so wikilinks pointing at it are
-    // matched. Importing here (not at module top) breaks an import cycle:
-    // link-rewriter depends on this module's read/list/lock helpers.
-    let plan: import("./link-rewriter.js").RewritePlan | null = null;
+    // matched.
+    let plan: RewritePlan | null = null;
     if (updateLinks) {
-      const { planMoveRewrites } = await import("./link-rewriter.js");
       const preMoveNotes = await listNotes(vaultPath);
       plan = await planMoveRewrites(vaultPath, oldPath, newPath, preMoveNotes);
     }
@@ -689,7 +691,6 @@ export async function moveNote(
 
     if (!plan) return { updatedReferrers: [], failedReferrers: [] };
 
-    const { applyRewrites } = await import("./link-rewriter.js");
     const result = await applyRewrites(vaultPath, plan);
     return {
       updatedReferrers: result.updated,
