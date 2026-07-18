@@ -1,0 +1,137 @@
+{
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\bases.ts": {
+    "mtime": 1784394060.4773898,
+    "ast_hash": "291e39acb6ac2db425831186b893c688",
+    "semantic_hash": "291e39acb6ac2db425831186b893c688"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\canvas.ts": {
+    "mtime": 1784394060.4788928,
+    "ast_hash": "e7418af80af776e2182c2e3d150f2396",
+    "semantic_hash": "e7418af80af776e2182c2e3d150f2396"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\chunker.ts": {
+    "mtime": 1780558291.0756042,
+    "ast_hash": "c29d6b48861a2035308ff32a388ec8ca",
+    "semantic_hash": "c29d6b48861a2035308ff32a388ec8ca"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\concurrency.ts": {
+    "mtime": 1779092306.6561975,
+    "ast_hash": "65187657862607a794f184815151c36f",
+    "semantic_hash": "65187657862607a794f184815151c36f"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\confirmation.ts": {
+    "mtime": 1780727598.7781072,
+    "ast_hash": "5d66da2095f6639b5ab27f1174d0f3a6",
+    "semantic_hash": "5d66da2095f6639b5ab27f1174d0f3a6"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\dates.ts": {
+    "mtime": 1780453240.8328605,
+    "ast_hash": "3fa98afadae319956f6879b7fca1722e",
+    "semantic_hash": "3fa98afadae319956f6879b7fca1722e"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\embedding-providers.ts": {
+    "mtime": 1782004179.0606134,
+    "ast_hash": "216ba22b2d6b4622d34235417e8c2753",
+    "semantic_hash": "216ba22b2d6b4622d34235417e8c2753"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\embedding-store.ts": {
+    "mtime": 1782004224.0712755,
+    "ast_hash": "e9f84f4bcb48c75c2556ce983cf399e0",
+    "semantic_hash": "e9f84f4bcb48c75c2556ce983cf399e0"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\errors.ts": {
+    "mtime": 1782004179.06161,
+    "ast_hash": "c8c7557a20a15cefac34151a24033012",
+    "semantic_hash": "c8c7557a20a15cefac34151a24033012"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\fs-ops.ts": {
+    "mtime": 1782004179.06161,
+    "ast_hash": "f534e07cc795cf3c9148040167955185",
+    "semantic_hash": "f534e07cc795cf3c9148040167955185"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\index-cache.ts": {
+    "mtime": 1782082310.447598,
+    "ast_hash": "126fd85f62a30fa92ccfa2d51e43b17e",
+    "semantic_hash": "126fd85f62a30fa92ccfa2d51e43b17e"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\link-rewriter.ts": {
+    "mtime": 1784394060.4788928,
+    "ast_hash": "f59b6a25eb0076a2186cc4cd54255ba3",
+    "semantic_hash": "f59b6a25eb0076a2186cc4cd54255ba3"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\logger.ts": {
+    "mtime": 1782004179.0636134,
+    "ast_hash": "c03874c3d571f469c69abfa5b11c8448",
+    "semantic_hash": "c03874c3d571f469c69abfa5b11c8448"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\markdown.ts": {
+    "mtime": 1782046523.8452196,
+    "ast_hash": "40b4075544fdd94b40c9df5244cdef08",
+    "semantic_hash": "40b4075544fdd94b40c9df5244cdef08"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\mime.ts": {
+    "mtime": 1782082310.447598,
+    "ast_hash": "31e9ea9611643a28fe0c35ba76a0d208",
+    "semantic_hash": "31e9ea9611643a28fe0c35ba76a0d208"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\note-ops.ts": {
+    "mtime": 1784394060.4798968,
+    "ast_hash": "5f54ad3141e9e84f14ca6db14abae6d1",
+    "semantic_hash": "5f54ad3141e9e84f14ca6db14abae6d1"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\note-reads.ts": {
+    "mtime": 1784394060.4798968,
+    "ast_hash": "202eab0dd7aa54819243caf2c44db78a",
+    "semantic_hash": "202eab0dd7aa54819243caf2c44db78a"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\permissions.ts": {
+    "mtime": 1782082310.447598,
+    "ast_hash": "feb1a4fd4dfc16c36748e30f7f3e6f75",
+    "semantic_hash": "feb1a4fd4dfc16c36748e30f7f3e6f75"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\progress.ts": {
+    "mtime": 1780450969.7312963,
+    "ast_hash": "fcab340de8499cee5209718c0634f87c",
+    "semantic_hash": "fcab340de8499cee5209718c0634f87c"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\sections.ts": {
+    "mtime": 1780556049.817618,
+    "ast_hash": "2560b918d059ea87ebec550329bcd347",
+    "semantic_hash": "2560b918d059ea87ebec550329bcd347"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\tag-rewriter.ts": {
+    "mtime": 1782045526.4062228,
+    "ast_hash": "1cabf6cb53346c0600692fe84b62c1a9",
+    "semantic_hash": "1cabf6cb53346c0600692fe84b62c1a9"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\tool-output.ts": {
+    "mtime": 1782004179.0670986,
+    "ast_hash": "e57db2923e8026988f568a298b158bc6",
+    "semantic_hash": "e57db2923e8026988f568a298b158bc6"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\vault-fs.ts": {
+    "mtime": 1784394060.4808967,
+    "ast_hash": "3ccb73760f61b1f2c71cc26161151b54",
+    "semantic_hash": "3ccb73760f61b1f2c71cc26161151b54"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\vault-search.ts": {
+    "mtime": 1784394060.4808967,
+    "ast_hash": "c26570a46bd2cd6013e0dffa76932cbc",
+    "semantic_hash": "c26570a46bd2cd6013e0dffa76932cbc"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\vault-stats.ts": {
+    "mtime": 1784394060.4818974,
+    "ast_hash": "a9f496b9ec6c233085062e9ee6504fbc",
+    "semantic_hash": "a9f496b9ec6c233085062e9ee6504fbc"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\vault.ts": {
+    "mtime": 1784394060.4818974,
+    "ast_hash": "63d094ee69594b7d04b051b112182986",
+    "semantic_hash": "63d094ee69594b7d04b051b112182986"
+  },
+  "C:\\Users\\Raghvendra\\Desktop\\coding-and-dev\\obsidian-mcp-pro\\src\\lib\\yaml.ts": {
+    "mtime": 1782004179.0680985,
+    "ast_hash": "bb5d67cb7989d3046f9dc53a7632195a",
+    "semantic_hash": "bb5d67cb7989d3046f9dc53a7632195a"
+  }
+}

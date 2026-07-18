@@ -38,3 +38,6 @@ mcp-publisher.tar.gz
 # Scratch / generated asset directories from AI image/video tools
 # (committed artwork lives in assets/; this dir is for local experiments).
 generated-images/
+
+# graphify local interpreter pointer (machine-specific)
+graphify-out/.graphify_python
