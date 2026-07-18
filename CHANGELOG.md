@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Removed maintainer-only strategy, experiment notes, and draft outreach copy from the tracked documentation while keeping contributor workflow configuration under `docs/agents/`.
+- Added a pre-commit guard that rejects maintainer state, local assistant context, R&D notes, and outreach drafts before they can re-enter public history.
 
 ## [4.0.1] - 2026-06-21
 
