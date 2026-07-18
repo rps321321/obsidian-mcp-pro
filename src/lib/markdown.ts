@@ -1,4 +1,4 @@
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import path from "path";
 import type { NoteMetadata, LinkInfo } from "../types.js";
 import { hasYamlAnchorOrAliasToken } from "./yaml.js";
@@ -36,21 +36,24 @@ function scanYamlFrontmatter(content: string): FrontmatterScan {
     }
 
     const lineEnd = content.indexOf("\n", lineStart);
-    const rawLine = lineEnd === -1
-      ? content.slice(lineStart)
-      : content.slice(lineStart, lineEnd);
+    const rawLine =
+      lineEnd === -1
+        ? content.slice(lineStart)
+        : content.slice(lineStart, lineEnd);
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 
     if (line === "---") {
       const yaml = content.slice(yamlStart, lineStart);
-      const bytes = Buffer.byteLength(
-        yaml,
-        "utf8",
-      );
+      const bytes = Buffer.byteLength(yaml, "utf8");
       if (bytes > MAX_FRONTMATTER_BYTES) {
         return { kind: "oversized", bytes };
       }
-      return { kind: "found", bytes, yaml, contentStart: lineEnd === -1 ? content.length : lineEnd + 1 };
+      return {
+        kind: "found",
+        bytes,
+        yaml,
+        contentStart: lineEnd === -1 ? content.length : lineEnd + 1,
+      };
     }
 
     if (lineEnd === -1) return { kind: "none" };
@@ -93,13 +96,21 @@ export function parseStrictYamlFrontmatter(content: string): ParsedFrontmatter {
       data: {},
       content,
       hasFrontmatter: true,
-      error: new Error("YAML frontmatter anchors and aliases are not supported."),
+      error: new Error(
+        "YAML frontmatter anchors and aliases are not supported."
+      ),
       bytes: scan.bytes,
     };
   }
 
   try {
-    const data = scan.yaml.trim() === "" ? {} : yaml.load(scan.yaml, { json: true });
+    // js-yaml v5 removed the `{ json: true }` load option (which made
+    // duplicate mapping keys last-wins instead of throwing). v5 throws on
+    // duplicate keys; the catch below turns that into tolerant empty-data,
+    // so a note with duplicate frontmatter keys now yields {} + error rather
+    // than silently keeping the last value. Empty input is guarded here
+    // because v5 `load('')` throws instead of returning undefined.
+    const data = scan.yaml.trim() === "" ? {} : yaml.load(scan.yaml);
     return {
       data: asFrontmatterObject(data),
       content: content.slice(scan.contentStart),
@@ -135,7 +146,7 @@ function parseFrontmatterForMutation(content: string): ParsedFrontmatter {
 
 export function stringifyYamlFrontmatter(
   content: string,
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): string {
   const yamlBlock = yaml.dump(data, {
     lineWidth: -1,
@@ -253,7 +264,7 @@ function quoteForYaml(value: string): string {
  */
 export function updateFrontmatter(
   content: string,
-  updates: Record<string, unknown>,
+  updates: Record<string, unknown>
 ): string {
   const parsed = parseFrontmatterForMutation(content);
   const merged = { ...parsed.data, ...updates };
@@ -287,7 +298,7 @@ function createCodeBlockTracker(): (line: string) => boolean {
       // backticks inside a code block would prematurely end the fence and
       // expose subsequent content to wikilink/markdown-link rewriting.
       const closePattern = new RegExp(
-        `^ {0,3}${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${fenceLength},}\\s*$`,
+        `^ {0,3}${fenceChar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}{${fenceLength},}\\s*$`
       );
       if (closePattern.test(line)) {
         insideFence = false;
@@ -413,7 +424,8 @@ function findInlineCodeRanges(line: string): Array<[number, number]> {
         continue;
       }
       let closeLen = 0;
-      while (j + closeLen < line.length && line[j + closeLen] === "`") closeLen++;
+      while (j + closeLen < line.length && line[j + closeLen] === "`")
+        closeLen++;
       if (closeLen === openLen) {
         ranges.push([i, j + closeLen]);
         i = j + closeLen;
@@ -481,9 +493,12 @@ export function extractWikilinkSpans(content: string): WikilinkSpan[] {
         const inner = m[2]!;
         const pipeIndex = inner.indexOf("|");
         const before = pipeIndex >= 0 ? inner.slice(0, pipeIndex) : inner;
-        const alias = pipeIndex >= 0 ? inner.slice(pipeIndex + 1).trim() : undefined;
+        const alias =
+          pipeIndex >= 0 ? inner.slice(pipeIndex + 1).trim() : undefined;
         const hashIndex = before.indexOf("#");
-        const target = (hashIndex >= 0 ? before.slice(0, hashIndex) : before).trim();
+        const target = (
+          hashIndex >= 0 ? before.slice(0, hashIndex) : before
+        ).trim();
         const fragment = hashIndex >= 0 ? before.slice(hashIndex) : "";
 
         out.push({
@@ -584,7 +599,7 @@ export function extractMarkdownLinkSpans(content: string): MarkdownLinkSpan[] {
 export function formatWikilinkTarget(
   newPath: string,
   originalForm: string,
-  allNotes: readonly string[],
+  allNotes: readonly string[]
 ): string {
   const newWithoutExt = newPath.replace(/\.md$/i, "");
   const originalUsedPath = originalForm.includes("/");
@@ -642,7 +657,8 @@ export function extractTags(content: string): string[] {
   // Extract inline tags from body
   const lines = body.split("\n");
   const isInsideCodeBlock = createCodeBlockTracker();
-  const tagRegex = /(?:^|\s)#([a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_][a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_/-]*)/g;
+  const tagRegex =
+    /(?:^|\s)#([a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_][a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF_/-]*)/g;
 
   for (const line of lines) {
     if (isInsideCodeBlock(line)) continue;
@@ -677,7 +693,10 @@ export function extractAliases(content: string): string[] {
   }
 
   if (typeof aliasField === "string") {
-    return aliasField.split(",").map((a: string) => a.trim()).filter(Boolean);
+    return aliasField
+      .split(",")
+      .map((a: string) => a.trim())
+      .filter(Boolean);
   }
 
   return [];
@@ -690,7 +709,7 @@ export function buildNoteMetadata(
   _vaultPath: string,
   relativePath: string,
   content: string,
-  stats: { size: number; created: Date | null; modified: Date | null },
+  stats: { size: number; created: Date | null; modified: Date | null }
 ): NoteMetadata {
   const { data } = parseFrontmatter(content);
   const tags = extractTags(content);
@@ -753,7 +772,7 @@ export function resolveWikilink(
   link: string,
   currentNotePath: string,
   allNotePaths: string[],
-  options: ResolveWikilinkOptions = {},
+  options: ResolveWikilinkOptions = {}
 ): string | null {
   // Strip heading anchors (`#...`) AND bare block refs (`^...`). Obsidian's
   // own block-ref syntax is `note#^id`, so `#` splits first and `^` is dead
@@ -781,16 +800,26 @@ export function resolveWikilink(
     for (const notePath of allNotePaths) {
       const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
       if (withoutExt.endsWith(normalizedLinkLower)) {
-        const prefix = withoutExt.slice(0, withoutExt.length - normalizedLinkLower.length);
-        if (prefix === "" || prefix.endsWith("/")) suffixCandidates.push(notePath);
+        const prefix = withoutExt.slice(
+          0,
+          withoutExt.length - normalizedLinkLower.length
+        );
+        if (prefix === "" || prefix.endsWith("/"))
+          suffixCandidates.push(notePath);
       }
     }
     if (suffixCandidates.length === 1) return suffixCandidates[0]!;
     if (suffixCandidates.length > 1) {
       const sourceDir = path.dirname(currentNotePath).replace(/\\/g, "/");
       suffixCandidates.sort((a, b) => {
-        const da = sharedPathDepth(sourceDir, path.dirname(a).replace(/\\/g, "/"));
-        const db = sharedPathDepth(sourceDir, path.dirname(b).replace(/\\/g, "/"));
+        const da = sharedPathDepth(
+          sourceDir,
+          path.dirname(a).replace(/\\/g, "/")
+        );
+        const db = sharedPathDepth(
+          sourceDir,
+          path.dirname(b).replace(/\\/g, "/")
+        );
         if (da !== db) return db - da;
         return a.length - b.length;
       });
@@ -814,8 +843,14 @@ export function resolveWikilink(
     // Ties break on shortest overall path (closer to vault root).
     const sourceDir = path.dirname(currentNotePath).replace(/\\/g, "/");
     candidates.sort((a, b) => {
-      const da = sharedPathDepth(sourceDir, path.dirname(a).replace(/\\/g, "/"));
-      const db = sharedPathDepth(sourceDir, path.dirname(b).replace(/\\/g, "/"));
+      const da = sharedPathDepth(
+        sourceDir,
+        path.dirname(a).replace(/\\/g, "/")
+      );
+      const db = sharedPathDepth(
+        sourceDir,
+        path.dirname(b).replace(/\\/g, "/")
+      );
       if (da !== db) return db - da;
       return a.length - b.length;
     });

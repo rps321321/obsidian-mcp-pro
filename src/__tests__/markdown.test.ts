@@ -121,7 +121,7 @@ The body.`;
     const content = [
       "---",
       "title: R&D notes",
-      "pattern: \"*.md\"",
+      'pattern: "*.md"',
       "plain: look * here and R & D",
       "emphasis: note *emphasis*",
       "---",
@@ -186,7 +186,7 @@ ${body}`;
 
   it("refuses to update oversized frontmatter", () => {
     expect(() =>
-      updateFrontmatter(oversizedFrontmatter(), { status: "safe" }),
+      updateFrontmatter(oversizedFrontmatter(), { status: "safe" })
     ).toThrow(/Frontmatter block exceeds size cap/);
   });
 
@@ -200,8 +200,32 @@ ${body}`;
       "Body.",
     ].join("\n");
     expect(() => updateFrontmatter(content, { status: "safe" })).toThrow(
-      /anchors and aliases/i,
+      /anchors and aliases/i
     );
+  });
+
+  // Pins the js-yaml v4 -> v5 migration risk: v5's dump defaults changed
+  // (YAML-1.1-based schema), but it still emits single-quoted scalars by
+  // default, so quoteWikilinksInFrontmatter must still normalize wikilink
+  // values to Obsidian's required double-quoted form on round-trip.
+  it("double-quotes wikilink values after a v5 dump round-trip", () => {
+    const updated = updateFrontmatter("Body.", {
+      link: "[[Episode IV]]",
+      related: ["[[A]]", "[[B]]"],
+      plain: "no link here",
+    });
+    // Emitted frontmatter uses the double-quoted wikilink form Obsidian needs,
+    // never the bare or single-quoted form.
+    expect(updated).toContain('link: "[[Episode IV]]"');
+    expect(updated).toContain('"[[A]]"');
+    expect(updated).toContain('"[[B]]"');
+    expect(updated).not.toMatch(/link:\s*\[\[/); // not bare
+    expect(updated).not.toMatch(/'\[\[/); // not single-quoted
+    // And it parses back to the original values.
+    const parsed = parseFrontmatter(updated);
+    expect(parsed.data.link).toBe("[[Episode IV]]");
+    expect(parsed.data.related).toEqual(["[[A]]", "[[B]]"]);
+    expect(parsed.data.plain).toBe("no link here");
   });
 });
 
@@ -254,7 +278,9 @@ describe("extractWikilinks", () => {
     // ``code with ` inside`` is a CommonMark code span; the wikilink within
     // must not be extracted. The single-backtick regex used previously
     // missed this and rewrote into the code span.
-    const links = extractWikilinks("Use ``with ` and [[skip]]`` outside [[hit]].");
+    const links = extractWikilinks(
+      "Use ``with ` and [[skip]]`` outside [[hit]]."
+    );
     expect(links.map((l) => l.target)).toEqual(["hit"]);
   });
 
@@ -525,7 +551,7 @@ describe("resolveWikilink", () => {
     const result = resolveWikilink(
       "unique-note#some-heading",
       "any.md",
-      allPaths,
+      allPaths
     );
     expect(result).toBe("zettelkasten/unique-note.md");
   });
@@ -547,10 +573,12 @@ describe("resolveWikilink", () => {
 
   it("normalizes path dot segments before basename fallback", () => {
     const paths = ["archive/idea.md", "projects/idea.md"];
-    expect(resolveWikilink("./projects/idea", "ref.md", paths)).toBe("projects/idea.md");
-    expect(resolveWikilink("archive/../projects/idea#Heading", "ref.md", paths)).toBe(
-      "projects/idea.md",
+    expect(resolveWikilink("./projects/idea", "ref.md", paths)).toBe(
+      "projects/idea.md"
     );
+    expect(
+      resolveWikilink("archive/../projects/idea#Heading", "ref.md", paths)
+    ).toBe("projects/idea.md");
   });
 });
 
@@ -573,12 +601,7 @@ aliases:
 ---
 Some body #inline-tag with [[link]].`;
 
-    const meta = buildNoteMetadata(
-      "/vault",
-      "notes/test.md",
-      content,
-      stats,
-    );
+    const meta = buildNoteMetadata("/vault", "notes/test.md", content, stats);
 
     expect(meta.relativePath).toBe("notes/test.md");
     expect(meta.size).toBe(1024);
@@ -601,7 +624,12 @@ Body.`;
 
   it("should fall back to filename for title", () => {
     const content = "No frontmatter, plain body.";
-    const meta = buildNoteMetadata("/vault", "notes/my-note.md", content, stats);
+    const meta = buildNoteMetadata(
+      "/vault",
+      "notes/my-note.md",
+      content,
+      stats
+    );
     expect(meta.title).toBe("my-note");
   });
 });
@@ -643,7 +671,9 @@ describe("extractWikilinkSpans", () => {
   });
 
   it("skips wikilinks inside fenced code blocks", () => {
-    const c = ["before [[real]]", "```", "[[notreal]]", "```", "after"].join("\n");
+    const c = ["before [[real]]", "```", "[[notreal]]", "```", "after"].join(
+      "\n"
+    );
     const spans = extractWikilinkSpans(c);
     expect(spans).toHaveLength(1);
     expect(spans[0].target).toBe("real");
@@ -670,7 +700,9 @@ describe("extractWikilinkSpans", () => {
   });
 
   it("skips wikilinks inside 4-space indented code blocks", () => {
-    const c = ["before [[real]]", "", "    [[skip-me]]", "", "after"].join("\n");
+    const c = ["before [[real]]", "", "    [[skip-me]]", "", "after"].join(
+      "\n"
+    );
     const spans = extractWikilinkSpans(c);
     expect(spans.map((s) => s.target)).toEqual(["real"]);
   });

@@ -8,7 +8,10 @@ import {
 
 const noteWithFrontmatter = (data: Record<string, unknown>, body = "") => {
   const fm = Object.entries(data)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? `"${v}"` : JSON.stringify(v)}`)
+    .map(
+      ([k, v]) =>
+        `${k}: ${typeof v === "string" ? `"${v}"` : JSON.stringify(v)}`
+    )
     .join("\n");
   return `---\n${fm}\n---\n${body}`;
 };
@@ -23,7 +26,11 @@ describe("parseBaseFile", () => {
   });
 
   it("emits a warning for invalid YAML", () => {
-    const { warnings } = parseBaseFile(":\n  - broken\n");
+    // js-yaml v5's parser is more lenient than v4: it accepts `:\n  - broken`
+    // as `{ "": ["broken"] }` (empty-string key) where v4 threw. Use input
+    // that is malformed under both (a mapping value that is itself a mapping
+    // entry) so this still exercises the parse-error warning path.
+    const { warnings } = parseBaseFile("key: value: extra\n");
     expect(warnings.length).toBeGreaterThan(0);
   });
 
@@ -57,9 +64,18 @@ describe("parseBaseFile", () => {
 
 describe("evaluateFilter / queryBase", () => {
   const rows = [
-    buildRow("a.md", noteWithFrontmatter({ status: "active" }, "Body #project text")),
-    buildRow("b.md", noteWithFrontmatter({ status: "done" }, "Body #other text")),
-    buildRow("c.md", noteWithFrontmatter({ status: "active", priority: 5 }, "#project/alpha")),
+    buildRow(
+      "a.md",
+      noteWithFrontmatter({ status: "active" }, "Body #project text")
+    ),
+    buildRow(
+      "b.md",
+      noteWithFrontmatter({ status: "done" }, "Body #other text")
+    ),
+    buildRow(
+      "c.md",
+      noteWithFrontmatter({ status: "active", priority: 5 }, "#project/alpha")
+    ),
   ];
 
   it("supports taggedWith()", () => {
@@ -95,14 +111,18 @@ describe("evaluateFilter / queryBase", () => {
 
   it("warns on unknown filter functions and treats as no-match", () => {
     const ctx = { warnings: [] };
-    expect(evaluateFilter(rows[0], "mysteryFn(\"x\")", ctx)).toBe(false);
+    expect(evaluateFilter(rows[0], 'mysteryFn("x")', ctx)).toBe(false);
     expect(ctx.warnings.length).toBe(1);
   });
 
   it("warns on unknown filter shapes and treats as no-match", () => {
     const ctx = { warnings: [] };
-    expect(evaluateFilter(rows[0], { custom: ["status"] } as never, ctx)).toBe(false);
-    expect(ctx.warnings.some((w) => w.includes("Unknown filter shape"))).toBe(true);
+    expect(evaluateFilter(rows[0], { custom: ["status"] } as never, ctx)).toBe(
+      false
+    );
+    expect(ctx.warnings.some((w) => w.includes("Unknown filter shape"))).toBe(
+      true
+    );
   });
 
   it("fails closed when filter recursion exceeds the cap", () => {
@@ -113,7 +133,9 @@ describe("evaluateFilter / queryBase", () => {
 
     const result = queryBase(rows, { filters: filter as never });
     expect(result.rows).toHaveLength(0);
-    expect(result.warnings.some((w) => w.includes("recursion exceeded"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("recursion exceeded"))).toBe(
+      true
+    );
   });
 
   it("supports numeric > comparison", () => {
@@ -122,16 +144,20 @@ describe("evaluateFilter / queryBase", () => {
   });
 
   it("supports view-level filters layered on top of base filters", () => {
-    const result = queryBase(rows, {
-      filters: ['status == "active"'],
-      views: [
-        {
-          type: "table",
-          name: "high-priority",
-          filters: ["priority > 3"],
-        },
-      ],
-    }, "high-priority");
+    const result = queryBase(
+      rows,
+      {
+        filters: ['status == "active"'],
+        views: [
+          {
+            type: "table",
+            name: "high-priority",
+            filters: ["priority > 3"],
+          },
+        ],
+      },
+      "high-priority"
+    );
     expect(result.rows.map((r) => r.path)).toEqual(["c.md"]);
   });
 });
