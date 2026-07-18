@@ -1,5 +1,7 @@
 {
   "health": {
     "ignore": ["scripts/**", "src/__tests__/**"]
-  }
+  },
+  "ignorePatterns": ["scripts/**"],
+  "ignoreExportsUsedInFile": true
 }

@@ -1,4 +1,8 @@
-import { formatUntrustedVaultContent, indentBlock, untrustedTextContent, untrustedVaultContentMeta } from "../../lib/tool-output.js";
+import {
+  formatUntrustedVaultContent,
+  indentBlock,
+  untrustedTextContent,
+} from "../../lib/tool-output.js";
 import { escapeControlChars } from "../../lib/errors.js";
 
 export function displayReadValue(value: string): string {
@@ -7,18 +11,24 @@ export function displayReadValue(value: string): string {
 
 export function errorResult(text: string, meta?: Record<string, unknown>) {
   return {
-    content: [{ type: "text" as const, text, ...(meta ? { _meta: meta } : {}) }],
+    content: [
+      { type: "text" as const, text, ...(meta ? { _meta: meta } : {}) },
+    ],
     isError: true as const,
   };
 }
 
-export function untrustedReadBlock(label: string, text: string, indent = ""): string {
+export function untrustedReadBlock(
+  label: string,
+  text: string,
+  indent = ""
+): string {
   return indentBlock(formatUntrustedVaultContent(label, text), indent);
 }
 
 export function frontmatterValueForProperty(
   data: Record<string, unknown>,
-  property: string,
+  property: string
 ): unknown {
   if (Object.prototype.hasOwnProperty.call(data, property)) {
     return data[property];
@@ -36,7 +46,9 @@ export function parseRequestedLine(value: string): number | null {
   return Math.max(1, line);
 }
 
-export function parseRequestedLineRange(value: string): { start: number; end: number } | null {
+export function parseRequestedLineRange(
+  value: string
+): { start: number; end: number } | null {
   const m = /^(\d+)(?:-(\d+))?$/.exec(value);
   if (!m) return null;
   const [, startText, endText] = m;
@@ -50,7 +62,11 @@ export function parseRequestedLineRange(value: string): { start: number; end: nu
 export function toSearchableString(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
     return String(value);
   }
   try {
@@ -73,7 +89,8 @@ export function parseSince(input: string): number | null {
   if (rel) {
     const n = Number(rel[1]);
     const unit = rel[2]!.toLowerCase();
-    const ms = unit === "h" ? 3600_000 : unit === "d" ? 86_400_000 : 7 * 86_400_000;
+    const ms =
+      unit === "h" ? 3600_000 : unit === "d" ? 86_400_000 : 7 * 86_400_000;
     return Date.now() - n * ms;
   }
   // ISO date: YYYY-MM-DD or full timestamp.
@@ -82,4 +99,4 @@ export function parseSince(input: string): number | null {
   return null;
 }
 
-export { untrustedTextContent, untrustedVaultContentMeta, formatUntrustedVaultContent, indentBlock };
+export { untrustedTextContent };
