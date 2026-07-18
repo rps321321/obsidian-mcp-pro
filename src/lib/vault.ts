@@ -1,5 +1,5 @@
 /**
- * Compatibility barrel for the decomposed vault layer. Contains no logic —
+ * Compatibility barrel for the decomposed vault layer. Contains no logic:
  * every symbol lives in one of the layered modules below and is re-exported
  * here so existing `./vault.js` import sites keep working unchanged.
  *

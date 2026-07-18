@@ -1,7 +1,7 @@
 /**
  * Pure note-read operations (list / full read / line-range read).
  *
- * Layer: imports from vault-fs and lower modules only — never from vault.ts
+ * Layer: imports from vault-fs and lower modules only, never from vault.ts
  * (vault re-exports this module).
  */
 import type { FileHandle } from "fs/promises";

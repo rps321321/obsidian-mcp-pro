@@ -128,7 +128,7 @@ export const IS_WIN32 = process.platform === "win32";
 
 /**
  * Directories pruned from vault walks and denied by resolveVaultPath.
- * Exported so listing helpers in vault.ts share the same set.
+ * Exported so vault-stats' attachment walker shares the same set.
  */
 export const EXCLUDED_DIRS = [".obsidian", ".trash", ".git"];
 export const EXCLUDED_SET = new Set(EXCLUDED_DIRS);
