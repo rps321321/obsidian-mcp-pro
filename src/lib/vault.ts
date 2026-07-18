@@ -1,23 +1,19 @@
 import fs from "fs/promises";
 import { constants as fsConstants } from "fs";
-import type { FileHandle } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
-import { StringDecoder } from "string_decoder";
 import { mapConcurrent } from "./concurrency.js";
-import { assertAllowed } from "./permissions.js";
 import { renameWithRetry, unlinkWithRetry } from "./fs-ops.js";
 import { MAX_BASE_FILE_BYTES } from "./bases.js";
 import type { SearchResult, SearchMatch, CanvasData } from "../types.js";
 import {
   assertNoteContentSize,
   assertNoteFileSize,
-  assertNoteLineRangeBytes,
   assertRealPathWithinVault,
   atomicWriteFile,
   CASE_INSENSITIVE_FS,
   EXCLUDED_SET,
-  getMaxNoteLineRangeBytes,
+  filterReadable,
   getRealVaultRoot,
   IS_WIN32,
   lockKey,
@@ -25,8 +21,16 @@ import {
   openVaultFileForRead,
   resolveVaultPathSafe,
   vaultRewriteLockKey,
+  walkVault,
   withFileLock,
 } from "./vault-fs.js";
+import {
+  assertMarkdownNotePath,
+  listNotes,
+  readNote,
+  readNoteLineRange,
+  type NoteLineRangeRead,
+} from "./note-reads.js";
 
 // Re-export foundation primitives so external call sites keep importing from vault.js.
 export {
@@ -45,6 +49,9 @@ export {
   setMaxNoteLineRangeBytesForTests,
   type ValidatedVaultFile,
 } from "./vault-fs.js";
+
+// Re-export note-read APIs so external call sites keep importing from vault.js.
+export { readNote, readNoteLineRange, listNotes, type NoteLineRangeRead };
 
 // Bounded fan-out for vault-wide scans. Higher values saturate the event loop
 // on spinning disks; lower values leave SSD throughput on the table. 8 is the
@@ -67,12 +74,6 @@ const COPY_FALLBACK_CODES = new Set([
   "EOPNOTSUPP",
 ]);
 
-function assertMarkdownNotePath(relativePath: string): void {
-  if (!relativePath.toLowerCase().endsWith(".md")) {
-    throw new Error(`Not a markdown note: ${relativePath}`);
-  }
-}
-
 async function removeEmptyExclusivePlaceholder(
   fullPath: string
 ): Promise<void> {
@@ -84,62 +85,6 @@ async function removeEmptyExclusivePlaceholder(
     // Best effort only: preserving an unexpected file is safer than deleting
     // something that may have changed after the failed exclusive create.
   }
-}
-
-/**
- * Walk a directory tree recursively while pruning excluded directories at the
- * traversal level (so `.git`, `.obsidian`, `.trash` subtrees are never read).
- * Returns forward-slash relative paths from `baseDir`.
- */
-async function walkVault(
-  baseDir: string,
-  extensions: string[]
-): Promise<string[]> {
-  const results: string[] = [];
-  const exts = extensions.map((e) => e.toLowerCase());
-  await fs.realpath(baseDir);
-
-  async function walk(dir: string, relPrefix: string): Promise<void> {
-    let entries: import("fs").Dirent[];
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw err;
-    }
-    for (const entry of entries) {
-      const name = entry.name;
-
-      // SEC-11: skip entries whose filename contains a null byte. Some
-      // filesystems (or FUSE layers) can surface these; downstream code
-      // that passes the name to path.join / fs.open may truncate at the
-      // null and operate on a different file.
-      if (name.includes("\0")) continue;
-
-      // SEC-1: never traverse symlinks discovered during a vault walk. Direct
-      // path reads still use resolveVaultPathSafe; broad listings stay on
-      // concrete directory entries and avoid a per-entry lstat syscall.
-      const fullEntry = path.join(dir, name);
-      if (entry.isSymbolicLink()) continue;
-
-      if (entry.isDirectory()) {
-        // Prune excluded directory names at ANY depth. Obsidian's own
-        // subfolders aside, nested `.git`/`.obsidian`/`.trash` directories
-        // should never be surfaced to clients.
-        if (EXCLUDED_SET.has(name.toLowerCase())) continue;
-        const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
-        await walk(fullEntry, nextPrefix);
-      } else if (entry.isFile()) {
-        const lower = name.toLowerCase();
-        if (!exts.some((ext) => lower.endsWith(ext))) continue;
-        const relPath = relPrefix === "" ? name : `${relPrefix}/${name}`;
-        results.push(relPath);
-      }
-    }
-  }
-
-  await walk(baseDir, "");
-  return results;
 }
 
 /**
@@ -195,175 +140,6 @@ async function walkVaultExcluding(
 
   await walk(baseDir, "");
   return results;
-}
-
-function isReadAllowed(relativePath: string): boolean {
-  try {
-    assertAllowed(relativePath, "read");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function filterReadable(entries: string[]): string[] {
-  return entries.filter(isReadAllowed);
-}
-
-function normalizeListFolder(folder: string | undefined): string {
-  if (!folder) return "";
-  const slashed = folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (slashed === "") return "";
-  const normalized = path.posix.normalize(slashed);
-  if (normalized === ".") return "";
-  return normalized.replace(/^\/+|\/+$/g, "");
-}
-
-export async function listNotes(
-  vaultPath: string,
-  folder?: string
-): Promise<string[]> {
-  // Normalize folder before joining and before prefixing returned entries:
-  // callers may pass trailing slashes, mixed separators, or dot segments.
-  // Returned note paths must stay canonical vault-relative paths.
-  const normalizedFolder = normalizeListFolder(folder);
-
-  const baseDir = normalizedFolder
-    ? await resolveVaultPathSafe(vaultPath, normalizedFolder)
-    : await getRealVaultRoot(vaultPath);
-
-  const entries = await walkVault(baseDir, [".md"]);
-
-  // No `isExcluded` filter needed: `walkVault` already prunes excluded dirs
-  // at every traversal level, and `resolveVaultPathSafe` rejects an
-  // excluded `folder` argument up front.
-  if (!normalizedFolder) return filterReadable(entries).sort();
-  return entries.map((rel) => `${normalizedFolder}/${rel}`).sort();
-}
-
-export async function readNote(
-  vaultPath: string,
-  relativePath: string
-): Promise<string> {
-  assertMarkdownNotePath(relativePath);
-  let handle: FileHandle | undefined;
-  try {
-    const opened = await openVaultFileForRead(vaultPath, relativePath);
-    handle = opened.handle;
-    assertNoteFileSize(relativePath, opened.stats.size);
-    const content = await handle.readFile("utf-8");
-    assertNoteContentSize(relativePath, content);
-    return content;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`Note not found: ${relativePath}`, { cause: err });
-    }
-    throw err;
-  } finally {
-    await handle?.close();
-  }
-}
-
-export interface NoteLineRangeRead {
-  text: string;
-  pastEndLine?: {
-    requested: number;
-    total: number;
-  };
-}
-
-export async function readNoteLineRange(
-  vaultPath: string,
-  relativePath: string,
-  startLine: number,
-  endLine: number
-): Promise<NoteLineRangeRead> {
-  assertMarkdownNotePath(relativePath);
-  if (
-    !Number.isSafeInteger(startLine) ||
-    !Number.isSafeInteger(endLine) ||
-    startLine < 1 ||
-    endLine < startLine
-  ) {
-    throw new Error(`Invalid line range for note: ${relativePath}`);
-  }
-  let handle: FileHandle | undefined;
-  try {
-    const opened = await openVaultFileForRead(vaultPath, relativePath);
-    handle = opened.handle;
-    const decoder = new StringDecoder("utf8");
-    const buffer = Buffer.allocUnsafe(64 * 1024);
-    const collected: string[] = [];
-    let pending = "";
-    let currentLine = 1;
-    let scannedBytes = 0;
-    let outputBytes = 0;
-
-    const processLine = (line: string): boolean => {
-      if (currentLine >= startLine && currentLine <= endLine) {
-        const lineBytes = Buffer.byteLength(line, "utf-8");
-        const separatorBytes = collected.length > 0 ? 1 : 0;
-        assertNoteLineRangeBytes(
-          relativePath,
-          outputBytes + separatorBytes + lineBytes
-        );
-        outputBytes += separatorBytes + lineBytes;
-        collected.push(line);
-      }
-      const reachedRequestedEnd = currentLine >= endLine;
-      currentLine += 1;
-      return reachedRequestedEnd;
-    };
-
-    while (true) {
-      const remainingBytes = getMaxNoteLineRangeBytes() - scannedBytes;
-      const bytesToRead = Math.min(
-        buffer.length,
-        Math.max(remainingBytes + 1, 1)
-      );
-      const { bytesRead } = await handle.read(buffer, 0, bytesToRead, null);
-      if (bytesRead === 0) break;
-      scannedBytes += bytesRead;
-      assertNoteLineRangeBytes(relativePath, scannedBytes);
-
-      let chunk = decoder.write(buffer.subarray(0, bytesRead));
-      while (true) {
-        const newline = chunk.indexOf("\n");
-        if (newline === -1) {
-          pending += chunk;
-          break;
-        }
-        const line = pending + chunk.slice(0, newline);
-        pending = "";
-        if (processLine(line)) {
-          return { text: collected.join("\n") };
-        }
-        chunk = chunk.slice(newline + 1);
-      }
-    }
-
-    const tail = decoder.end();
-    if (tail.length > 0) pending += tail;
-    if (processLine(pending)) {
-      return { text: collected.join("\n") };
-    }
-
-    const totalLines = currentLine - 1;
-    if (startLine > totalLines) {
-      return {
-        text: "",
-        pastEndLine: { requested: startLine, total: totalLines },
-      };
-    }
-    return { text: collected.join("\n") };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`Note not found: ${relativePath}`, { cause: err });
-    }
-    throw err;
-  } finally {
-    await handle?.close();
-  }
 }
 
 export async function writeNote(

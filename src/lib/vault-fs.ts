@@ -568,3 +568,76 @@ export async function openVaultInternalFileForRead(
   const fullPath = await resolveVaultInternalPathSafe(vaultPath, relativePath);
   return openResolvedVaultFileForRead(vaultPath, relativePath, fullPath, null);
 }
+
+// ---------------------------------------------------------------------------
+// Vault traversal / listing primitives
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk a directory tree recursively while pruning excluded directories at the
+ * traversal level (so `.git`, `.obsidian`, `.trash` subtrees are never read).
+ * Returns forward-slash relative paths from `baseDir`.
+ */
+export async function walkVault(
+  baseDir: string,
+  extensions: string[]
+): Promise<string[]> {
+  const results: string[] = [];
+  const exts = extensions.map((e) => e.toLowerCase());
+  await fs.realpath(baseDir);
+
+  async function walk(dir: string, relPrefix: string): Promise<void> {
+    let entries: import("fs").Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+    for (const entry of entries) {
+      const name = entry.name;
+
+      // SEC-11: skip entries whose filename contains a null byte. Some
+      // filesystems (or FUSE layers) can surface these; downstream code
+      // that passes the name to path.join / fs.open may truncate at the
+      // null and operate on a different file.
+      if (name.includes("\0")) continue;
+
+      // SEC-1: never traverse symlinks discovered during a vault walk. Direct
+      // path reads still use resolveVaultPathSafe; broad listings stay on
+      // concrete directory entries and avoid a per-entry lstat syscall.
+      const fullEntry = path.join(dir, name);
+      if (entry.isSymbolicLink()) continue;
+
+      if (entry.isDirectory()) {
+        // Prune excluded directory names at ANY depth. Obsidian's own
+        // subfolders aside, nested `.git`/`.obsidian`/`.trash` directories
+        // should never be surfaced to clients.
+        if (EXCLUDED_SET.has(name.toLowerCase())) continue;
+        const nextPrefix = relPrefix === "" ? name : `${relPrefix}/${name}`;
+        await walk(fullEntry, nextPrefix);
+      } else if (entry.isFile()) {
+        const lower = name.toLowerCase();
+        if (!exts.some((ext) => lower.endsWith(ext))) continue;
+        const relPath = relPrefix === "" ? name : `${relPrefix}/${name}`;
+        results.push(relPath);
+      }
+    }
+  }
+
+  await walk(baseDir, "");
+  return results;
+}
+
+function isReadAllowed(relativePath: string): boolean {
+  try {
+    assertAllowed(relativePath, "read");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function filterReadable(entries: string[]): string[] {
+  return entries.filter(isReadAllowed);
+}
