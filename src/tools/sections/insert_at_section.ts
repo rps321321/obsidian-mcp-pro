@@ -5,7 +5,7 @@ import { findSection, insertAfterHeading } from "../../lib/sections.js";
 import { defineTool, richText, error } from "../../lib/tool-seam.js";
 import {
   SECTION_EDIT_PAYLOAD_MAX_CHARS,
-  displaySectionValue,
+  escapeControlChars,
   richResolvedHeading,
   assertReadableEditTarget,
   invalidateSectionListCache,
@@ -79,7 +79,7 @@ export function registerInsertAtSectionTool(
       invalidateSectionListCache(vaultPath, notePath);
       return richText("insert_at_section resolved heading", (b) => {
         b.trusted(
-          `Inserted ${Buffer.byteLength(content, "utf-8")} bytes (${position}) in ${displaySectionValue(notePath)}`
+          `Inserted ${Buffer.byteLength(content, "utf-8")} bytes (${position}) in ${escapeControlChars(notePath)}`
         );
         richResolvedHeading(
           b,

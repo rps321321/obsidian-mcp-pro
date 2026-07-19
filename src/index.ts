@@ -34,8 +34,6 @@ import { registerPrompts } from "./tools/prompts.js";
 import { startHttpServer } from "./http-server.js";
 import { runInstall, type InstallClient } from "./install.js";
 
-const displayResourceValue = escapeControlChars;
-
 interface CliOptions {
   command: "serve" | "install" | "help" | "version";
   transport: "stdio" | "http";
@@ -277,8 +275,8 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       const content = contents.get(notePath);
       if (content === undefined) continue;
       for (const tag of extractTags(content)) {
-        const normalizedTag = `#${displayResourceValue(tag)}`;
-        (tagIndex[normalizedTag] ??= []).push(displayResourceValue(notePath));
+        const normalizedTag = `#${escapeControlChars(tag)}`;
+        (tagIndex[normalizedTag] ??= []).push(escapeControlChars(notePath));
       }
     }
 
@@ -326,7 +324,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       // same thing — clients need a proper error so they can branch on it.
       const pathLabel = "daily note resource expected path";
       throw new Error(
-        `No daily note found for today.\n${formatUntrustedVaultContent(pathLabel, displayResourceValue(notePath))}`
+        `No daily note found for today.\n${formatUntrustedVaultContent(pathLabel, escapeControlChars(notePath))}`
       );
     }
   });

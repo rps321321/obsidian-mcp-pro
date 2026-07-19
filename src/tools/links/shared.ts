@@ -431,9 +431,7 @@ export function findLineWithLink(
   return { line: 0, content: "" };
 }
 
-export function displayLinkValue(value: string): string {
-  return escapeControlChars(value);
-}
+export { escapeControlChars };
 
 // Group render helpers that emit through the seam's richText builder — the seam
 // owns the actual BEGIN/END wrapping and the block-level trust `_meta`. These
@@ -447,7 +445,7 @@ export function untrustedLinkTarget(
   indent: string
 ): void {
   b.trusted(`${indent}Target:`);
-  b.untrusted(label, displayLinkValue(target), `${indent}  `);
+  b.untrusted(label, escapeControlChars(target), `${indent}  `);
 }
 
 /** Append `rows` as one wrapped untrusted block, or nothing when empty. Emitting
@@ -460,7 +458,7 @@ export function untrustedLinkPathRows(
   indent = ""
 ): void {
   if (rows.length === 0) return;
-  b.untrusted(label, rows.map(displayLinkValue).join("\n"), indent);
+  b.untrusted(label, rows.map(escapeControlChars).join("\n"), indent);
 }
 
 export { resolveWikilinkWithIndex };

@@ -6,7 +6,7 @@ import { readAllCached } from "../../lib/index-cache.js";
 import { log } from "../../lib/logger.js";
 import { extractAliases } from "../../lib/markdown.js";
 import { defineTool, error, richText, text } from "../../lib/tool-seam.js";
-import { displayReadValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerResolveAliasTool(
   server: McpServer,
@@ -78,7 +78,7 @@ export function registerResolveAliasTool(
       const total = aliasMatches.length + basenameMatches.length;
       if (total === 0) {
         return text(
-          `No alias or basename match for "${displayReadValue(name)}"`
+          `No alias or basename match for "${escapeControlChars(name)}"`
         );
       }
 
@@ -87,13 +87,13 @@ export function registerResolveAliasTool(
           ? "resolve_alias alias paths"
           : "resolve_alias basename paths",
         (b) => {
-          b.trusted(`Matches for "${displayReadValue(name)}":`);
+          b.trusted(`Matches for "${escapeControlChars(name)}":`);
           b.trusted("");
           if (aliasMatches.length > 0) {
             b.trusted(`Alias matches (${aliasMatches.length}):`);
             b.untrusted(
               "resolve_alias alias paths",
-              aliasMatches.map((p) => `- ${displayReadValue(p)}`).join("\n"),
+              aliasMatches.map((p) => `- ${escapeControlChars(p)}`).join("\n"),
               "  "
             );
           }
@@ -102,7 +102,9 @@ export function registerResolveAliasTool(
             b.trusted(`Basename matches (${basenameMatches.length}):`);
             b.untrusted(
               "resolve_alias basename paths",
-              basenameMatches.map((p) => `- ${displayReadValue(p)}`).join("\n"),
+              basenameMatches
+                .map((p) => `- ${escapeControlChars(p)}`)
+                .join("\n"),
               "  "
             );
           }

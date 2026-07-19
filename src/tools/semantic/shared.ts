@@ -14,10 +14,8 @@ const MISSING_PROVIDER_HINT =
 const INDEX_VAULT_CONFIRMATION = "send-vault-text-to-embedding-provider";
 const EMBED_BATCH_SIZE = 16;
 
-const displaySemanticValue = escapeControlChars;
-
 function displayHeadingPath(path: readonly string[]): string {
-  return path.map(displaySemanticValue).join(" / ");
+  return path.map(escapeControlChars).join(" / ");
 }
 
 /** Append the note path as a wrapped untrusted block. */
@@ -27,7 +25,7 @@ function semanticPathBlock(
   notePath: string,
   indent = "    "
 ): void {
-  b.untrusted(label, displaySemanticValue(notePath), indent);
+  b.untrusted(label, escapeControlChars(notePath), indent);
 }
 
 /** Append the heading path (joined) as a wrapped untrusted block. */
@@ -42,7 +40,7 @@ export {
   MISSING_PROVIDER_HINT,
   INDEX_VAULT_CONFIRMATION,
   EMBED_BATCH_SIZE,
-  displaySemanticValue,
+  escapeControlChars,
   displayHeadingPath,
   semanticPathBlock,
   semanticHeadingBlock,

@@ -6,9 +6,7 @@ import { escapeControlChars } from "../../lib/errors.js";
 // / `error`, and the seam owns error sanitization. What remains here are the
 // read group's own parsing/escaping helpers.
 
-export function displayReadValue(value: string): string {
-  return escapeControlChars(value);
-}
+export { escapeControlChars };
 
 export function frontmatterValueForProperty(
   data: Record<string, unknown>,

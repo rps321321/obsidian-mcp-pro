@@ -5,7 +5,7 @@ import { getDailyNoteConfig } from "../../config.js";
 import { sanitizeError } from "../../lib/errors.js";
 import { defineTool, richText, error, asError } from "../../lib/tool-seam.js";
 import { formatMomentDate, parseLocalDateOnly } from "../../lib/dates.js";
-import { displayWriteValue, ensureMdExtension } from "./shared.js";
+import { escapeControlChars, ensureMdExtension } from "./shared.js";
 
 export function registerCreateDailyNote(
   server: McpServer,
@@ -107,7 +107,7 @@ export function registerCreateDailyNote(
               b.trusted("Error: Daily note already exists.");
               b.untrusted(
                 "create_daily_note path",
-                displayWriteValue(notePath)
+                escapeControlChars(notePath)
               );
             })
           );
@@ -116,7 +116,7 @@ export function registerCreateDailyNote(
       }
       return richText("create_daily_note path", (b) => {
         b.trusted("Created daily note.");
-        b.untrusted("create_daily_note path", displayWriteValue(notePath));
+        b.untrusted("create_daily_note path", escapeControlChars(notePath));
       });
     }
   );

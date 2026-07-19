@@ -19,9 +19,7 @@ export interface TagIndexCacheEntry {
 
 export const tagIndexCache = new Map<string, TagIndexCacheEntry>();
 
-export function displayTagValue(value: string): string {
-  return escapeControlChars(value);
-}
+export { escapeControlChars };
 
 export function tagIndexFingerprint(
   notes: readonly string[],

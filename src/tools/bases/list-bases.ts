@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { listBaseFiles } from "../../lib/vault.js";
 import { defineTool, text, richText } from "../../lib/tool-seam.js";
-import { displayBaseValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerListBases(server: McpServer, vaultPath: string): void {
   defineTool(
@@ -25,8 +25,11 @@ export function registerListBases(server: McpServer, vaultPath: string): void {
       return richText("list_bases paths", (b) => {
         b.trusted(`Found ${bases.length} Base file(s):`);
         b.trusted("");
-        b.untrusted("list_bases paths", bases.map(displayBaseValue).join("\n"));
+        b.untrusted(
+          "list_bases paths",
+          bases.map(escapeControlChars).join("\n")
+        );
       });
-    },
+    }
   );
 }

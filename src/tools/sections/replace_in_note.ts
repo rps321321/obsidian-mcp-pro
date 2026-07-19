@@ -7,7 +7,7 @@ import {
   FIND_MAX_LEN,
   SECTION_EDIT_PAYLOAD_MAX_CHARS,
   NOTE_INPUT_MAX_LEN,
-  displaySectionValue,
+  escapeControlChars,
   assertReadableEditTarget,
   invalidateSectionListCache,
   hasUnsafeRepeatedGroup,
@@ -82,12 +82,12 @@ export function registerReplaceInNoteTool(
         for (const ch of f) {
           if (!ALLOWED_FLAGS.has(ch)) {
             return error(
-              `Error replacing in note: invalid regex flag '${displaySectionValue(ch)}'. Allowed flags: g, i, m, s, u, y.`
+              `Error replacing in note: invalid regex flag '${escapeControlChars(ch)}'. Allowed flags: g, i, m, s, u, y.`
             );
           }
           if (seen.has(ch)) {
             return error(
-              `Error replacing in note: duplicate regex flag '${displaySectionValue(ch)}'.`
+              `Error replacing in note: duplicate regex flag '${escapeControlChars(ch)}'.`
             );
           }
           seen.add(ch);
@@ -140,8 +140,8 @@ export function registerReplaceInNoteTool(
       invalidateSectionListCache(vaultPath, notePath);
       return text(
         count === 0
-          ? `No matches in ${displaySectionValue(notePath)} - file unchanged.`
-          : `Replaced ${count} match(es) in ${displaySectionValue(notePath)}.`
+          ? `No matches in ${escapeControlChars(notePath)} - file unchanged.`
+          : `Replaced ${count} match(es) in ${escapeControlChars(notePath)}.`
       );
     }
   );

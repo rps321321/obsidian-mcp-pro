@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listAttachments } from "../../lib/vault.js";
 import { defineTool, text, richText } from "../../lib/tool-seam.js";
-import { displayAttachmentValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 /** Group attachments by their lower-cased extension for the summary line. */
 function summarizeByExtension(paths: readonly string[]): Map<string, number> {
@@ -65,7 +65,7 @@ export function registerListAttachments(
       if (filtered.length === 0) {
         return text(
           extension
-            ? `No attachments with extension "${displayAttachmentValue(extension)}".`
+            ? `No attachments with extension "${escapeControlChars(extension)}".`
             : "No attachments in this vault."
         );
       }
@@ -78,7 +78,7 @@ export function registerListAttachments(
 
       return richText(trustLabel, (b) => {
         b.trusted(
-          `${filtered.length} attachment(s)${extension ? ` (.${displayAttachmentValue(extension.replace(/^\./, ""))})` : ""}${filtered.length > limit ? ` (showing first ${limit})` : ""}:`
+          `${filtered.length} attachment(s)${extension ? ` (.${escapeControlChars(extension.replace(/^\./, ""))})` : ""}${filtered.length > limit ? ` (showing first ${limit})` : ""}:`
         );
         b.trusted("");
         if (hasExtensionBreakdown) {
@@ -89,7 +89,7 @@ export function registerListAttachments(
           b.untrusted(
             "list_attachments extensions",
             entries
-              .map(([ext, n]) => `${displayAttachmentValue(ext)}  ${n}`)
+              .map(([ext, n]) => `${escapeControlChars(ext)}  ${n}`)
               .join("\n"),
             "  "
           );
@@ -97,7 +97,7 @@ export function registerListAttachments(
         }
         b.untrusted(
           "list_attachments paths",
-          truncated.map((p) => `- ${displayAttachmentValue(p)}`).join("\n")
+          truncated.map((p) => `- ${escapeControlChars(p)}`).join("\n")
         );
       });
     }

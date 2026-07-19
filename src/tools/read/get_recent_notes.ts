@@ -7,7 +7,7 @@ import {
 } from "../../lib/vault.js";
 import { mapConcurrent } from "../../lib/concurrency.js";
 import { defineTool, error, richText, text } from "../../lib/tool-seam.js";
-import { displayReadValue, parseSince } from "./shared.js";
+import { escapeControlChars, parseSince } from "./shared.js";
 
 /** Maximum number of concurrent file I/O operations for parallel vault scans. */
 const MAX_CONCURRENT_OPS = 16;
@@ -58,7 +58,7 @@ export function registerGetRecentNotesTool(
       const sinceMs = since ? parseSince(since) : null;
       if (since && sinceMs === null) {
         return error(
-          `Invalid 'since' value: "${displayReadValue(since)}". Use ISO date or relative span like '7d', '24h', '2w'.`
+          `Invalid 'since' value: "${escapeControlChars(since)}". Use ISO date or relative span like '7d', '24h', '2w'.`
         );
       }
       const notes = await listNotes(vaultPath, folder);
@@ -93,7 +93,7 @@ export function registerGetRecentNotesTool(
       if (top.length === 0) {
         return text(
           since
-            ? `No notes modified since ${displayReadValue(since)}.`
+            ? `No notes modified since ${escapeControlChars(since)}.`
             : "No notes in the vault."
         );
       }
@@ -101,11 +101,11 @@ export function registerGetRecentNotesTool(
       const rowLines: string[] = [];
       for (const r of top) {
         const iso = new Date(r.mtimeMs).toISOString();
-        rowLines.push(`- ${displayReadValue(r.path)}  (${iso})`);
+        rowLines.push(`- ${escapeControlChars(r.path)}  (${iso})`);
       }
       return richText("get_recent_notes paths", (b) => {
         b.trusted(
-          `${rows.length} note(s)${since ? ` modified since ${displayReadValue(since)}` : ""}${rows.length > limit ? ` (showing first ${limit})` : ""}:`
+          `${rows.length} note(s)${since ? ` modified since ${escapeControlChars(since)}` : ""}${rows.length > limit ? ` (showing first ${limit})` : ""}:`
         );
         b.trusted("");
         if (rowLines.length > 0) {

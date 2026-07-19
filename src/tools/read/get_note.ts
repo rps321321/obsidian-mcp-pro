@@ -8,7 +8,7 @@ import {
   stripBlockId,
 } from "../../lib/sections.js";
 import { defineTool, error, untrustedText } from "../../lib/tool-seam.js";
-import { displayReadValue, parseRequestedLineRange } from "./shared.js";
+import { escapeControlChars, parseRequestedLineRange } from "./shared.js";
 
 export function registerGetNoteTool(
   server: McpServer,
@@ -62,7 +62,7 @@ export function registerGetNoteTool(
       if (!section && !block && lines) {
         const parsedRange = parseRequestedLineRange(lines);
         if (!parsedRange) {
-          return error(`Invalid lines format: "${displayReadValue(lines)}"`);
+          return error(`Invalid lines format: "${escapeControlChars(lines)}"`);
         }
         const range = await readNoteLineRange(
           vaultPath,
@@ -91,7 +91,7 @@ export function registerGetNoteTool(
         const found = findSection(content, headingPath);
         if (!found) {
           return error(
-            `Section not found: "${displayReadValue(section)}" in ${displayReadValue(notePath)}`
+            `Section not found: "${escapeControlChars(section)}" in ${escapeControlChars(notePath)}`
           );
         }
         return untrustedText(
@@ -104,7 +104,7 @@ export function registerGetNoteTool(
         const found = findBlockById(content, block);
         if (!found) {
           return error(
-            `Block not found: "^${displayReadValue(block)}" in ${displayReadValue(notePath)}`
+            `Block not found: "^${escapeControlChars(block)}" in ${escapeControlChars(notePath)}`
           );
         }
         return untrustedText(
@@ -117,7 +117,7 @@ export function registerGetNoteTool(
         const allLines = content.split("\n");
         const parsedRange = parseRequestedLineRange(lines);
         if (!parsedRange)
-          return error(`Invalid lines format: "${displayReadValue(lines)}"`);
+          return error(`Invalid lines format: "${escapeControlChars(lines)}"`);
         if (parsedRange.start > allLines.length) {
           return error(
             `Line ${parsedRange.start} is past end of file (${allLines.length} lines)`
@@ -138,7 +138,7 @@ export function registerGetNoteTool(
         header.push("--- Frontmatter ---");
         for (const [key, value] of Object.entries(frontmatterData)) {
           header.push(
-            `${displayReadValue(key)}: ${displayReadValue(JSON.stringify(value) ?? "")}`
+            `${escapeControlChars(key)}: ${escapeControlChars(JSON.stringify(value) ?? "")}`
           );
         }
         header.push("--- End Frontmatter ---");
@@ -147,7 +147,7 @@ export function registerGetNoteTool(
 
       const tags = extractTags(content);
       if (tags.length > 0) {
-        header.push(`Tags: ${tags.map(displayReadValue).join(", ")}`);
+        header.push(`Tags: ${tags.map(escapeControlChars).join(", ")}`);
         header.push("");
       }
 

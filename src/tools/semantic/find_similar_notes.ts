@@ -17,7 +17,7 @@ import {
 } from "../../lib/embedding-store.js";
 import { defineTool, text, richText, error } from "../../lib/tool-seam.js";
 import {
-  displaySemanticValue,
+  escapeControlChars,
   semanticPathBlock,
   semanticHeadingBlock,
 } from "./shared.js";
@@ -182,7 +182,7 @@ export function registerFindSimilarNotesTool(
       const ownChunks = getNoteEmbeddings(vaultPath, notePath);
       if (ownChunks.length === 0) {
         return error(
-          `No embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` first (or check the path is correct).`
+          `No embeddings found for "${escapeControlChars(notePath)}". Run \`index_vault\` first (or check the path is correct).`
         );
       }
 
@@ -243,7 +243,7 @@ export function registerFindSimilarNotesTool(
       if (await pruneStaleStoredNote(vaultPath, notePath)) {
         await saveStore(vaultPath);
         return error(
-          `No current embeddings found for "${displaySemanticValue(notePath)}". Run \`index_vault\` to refresh it.`
+          `No current embeddings found for "${escapeControlChars(notePath)}". Run \`index_vault\` to refresh it.`
         );
       }
       const queryVector = buildSimilarNotesQueryVector(ownChunks);
@@ -263,12 +263,12 @@ export function registerFindSimilarNotesTool(
 
       if (ranked.length === 0) {
         return text(
-          `No similar notes found for "${displaySemanticValue(notePath)}".`
+          `No similar notes found for "${escapeControlChars(notePath)}".`
         );
       }
       return richText("find_similar_notes paths and headings", (b) => {
         b.trusted(
-          `${ranked.length} note(s) similar to ${displaySemanticValue(notePath)}:`
+          `${ranked.length} note(s) similar to ${escapeControlChars(notePath)}:`
         );
         b.trusted("");
         for (const r of ranked) {

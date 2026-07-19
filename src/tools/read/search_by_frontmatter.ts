@@ -6,7 +6,7 @@ import { log } from "../../lib/logger.js";
 import { parseFrontmatter } from "../../lib/markdown.js";
 import { defineTool, richText, text } from "../../lib/tool-seam.js";
 import {
-  displayReadValue,
+  escapeControlChars,
   frontmatterValueForProperty,
   toSearchableString,
 } from "./shared.js";
@@ -95,7 +95,7 @@ export function registerSearchByFrontmatterTool(
 
       if (allMatches.length === 0) {
         return text(
-          `No notes found with frontmatter "${displayReadValue(property)}" matching "${displayReadValue(value)}"`
+          `No notes found with frontmatter "${escapeControlChars(property)}" matching "${escapeControlChars(value)}"`
         );
       }
 
@@ -105,20 +105,20 @@ export function registerSearchByFrontmatterTool(
 
       return richText("search_by_frontmatter paths and values", (b) => {
         b.trusted(
-          `Found ${totalMatches} note(s) where "${displayReadValue(property)}" matches "${displayReadValue(value)}"${truncated ? ` (showing first ${maxResults})` : ""}:`
+          `Found ${totalMatches} note(s) where "${escapeControlChars(property)}" matches "${escapeControlChars(value)}"${truncated ? ` (showing first ${maxResults})` : ""}:`
         );
         b.trusted("");
         for (const match of matches) {
           b.trusted("Result path:");
           b.untrusted(
             "search_by_frontmatter result path",
-            displayReadValue(match.path),
+            escapeControlChars(match.path),
             "  "
           );
           const frontmatterLines: string[] = [];
           for (const [key, val] of Object.entries(match.frontmatter)) {
             frontmatterLines.push(
-              `${displayReadValue(key)}: ${displayReadValue(JSON.stringify(val) ?? "")}`
+              `${escapeControlChars(key)}: ${escapeControlChars(JSON.stringify(val) ?? "")}`
             );
           }
           if (frontmatterLines.length > 0) {

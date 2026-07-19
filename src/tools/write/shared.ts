@@ -1,7 +1,7 @@
 import { escapeControlChars } from "../../lib/errors.js";
 import { updateFrontmatter } from "../../lib/markdown.js";
 
-export const displayWriteValue = escapeControlChars;
+export { escapeControlChars };
 
 export function ensureMdExtension(filePath: string): string {
   return /\.md$/i.test(filePath) ? filePath : `${filePath}.md`;

@@ -5,7 +5,7 @@ import { readAllCached } from "../../lib/index-cache.js";
 import { log } from "../../lib/logger.js";
 import { defineTool, richText, text } from "../../lib/tool-seam.js";
 
-import { displayTagValue, getCachedTagIndex } from "./shared.js";
+import { escapeControlChars, getCachedTagIndex } from "./shared.js";
 
 export function registerSearchByTag(
   server: McpServer,
@@ -91,7 +91,9 @@ export function registerSearchByTag(
         });
 
       if (matchingNotes.length === 0) {
-        return text(`No notes found with tag #${displayTagValue(searchTag)}`);
+        return text(
+          `No notes found with tag #${escapeControlChars(searchTag)}`
+        );
       }
 
       return richText(
@@ -100,7 +102,7 @@ export function registerSearchByTag(
           : "search_by_tag paths",
         (b) => {
           b.trusted(
-            `Found ${matchingNotes.length} ${matchingNotes.length === 1 ? "note" : "notes"} with tag #${displayTagValue(searchTag)}`
+            `Found ${matchingNotes.length} ${matchingNotes.length === 1 ? "note" : "notes"} with tag #${escapeControlChars(searchTag)}`
           );
           b.trusted("");
 
@@ -108,14 +110,14 @@ export function registerSearchByTag(
             b.trusted("Path:");
             b.untrusted(
               "search_by_tag result path",
-              displayTagValue(note.path),
+              escapeControlChars(note.path),
               "  "
             );
             if (note.preview) {
               b.trusted("  Preview:");
               b.untrusted(
                 "search_by_tag preview",
-                displayTagValue(note.preview),
+                escapeControlChars(note.preview),
                 "    "
               );
               b.trusted("");

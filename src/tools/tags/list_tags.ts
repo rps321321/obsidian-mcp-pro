@@ -6,7 +6,7 @@ import { log } from "../../lib/logger.js";
 import { defineTool, richText } from "../../lib/tool-seam.js";
 
 import type { TagInfo } from "../../types.js";
-import { displayTagValue, getCachedTagIndex } from "./shared.js";
+import { escapeControlChars, getCachedTagIndex } from "./shared.js";
 
 export function registerListTags(server: McpServer, vaultPath: string): void {
   defineTool(
@@ -64,7 +64,7 @@ export function registerListTags(server: McpServer, vaultPath: string): void {
       const tagLines: string[] = [];
       for (const info of tagInfos) {
         tagLines.push(
-          `#${displayTagValue(info.tag)} (${info.count} ${info.count === 1 ? "note" : "notes"})`
+          `#${escapeControlChars(info.tag)} (${info.count} ${info.count === 1 ? "note" : "notes"})`
         );
       }
 

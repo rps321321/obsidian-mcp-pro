@@ -8,7 +8,7 @@ import {
   type RichTextBuilder,
 } from "../../lib/tool-seam.js";
 import type { CanvasData } from "../../types.js";
-import { displayCanvasValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 const CANVAS_READ_CACHE_LIMIT = 16;
 const CANVAS_SUMMARY_NODE_LIMIT = 200;
@@ -63,7 +63,7 @@ function renderCanvasSummary(
   data: CanvasData
 ): void {
   b.trusted("Canvas:");
-  b.untrusted("read_canvas path", displayCanvasValue(canvasPath), "  ");
+  b.untrusted("read_canvas path", escapeControlChars(canvasPath), "  ");
   b.trusted(`Nodes: ${data.nodes.length} | Edges: ${data.edges.length}`);
   b.trusted("");
 
@@ -89,7 +89,7 @@ function renderCanvasSummary(
       b.trusted("  Node:");
       b.untrusted(
         "read_canvas node identity",
-        `[${displayCanvasValue(node.id)}] type=${displayCanvasValue(node.type)}`,
+        `[${escapeControlChars(node.id)}] type=${escapeControlChars(node.type)}`,
         "    "
       );
       b.trusted(`    pos=${pos} size=${size}`);
@@ -97,7 +97,7 @@ function renderCanvasSummary(
         b.trusted("    content:");
         b.untrusted(
           "read_canvas node content",
-          displayCanvasValue(preview),
+          escapeControlChars(preview),
           "      "
         );
       }
@@ -105,7 +105,7 @@ function renderCanvasSummary(
         b.trusted("    color:");
         b.untrusted(
           "read_canvas node color",
-          displayCanvasValue(node.color),
+          escapeControlChars(node.color),
           "      "
         );
       }
@@ -124,8 +124,8 @@ function renderCanvasSummary(
     const visibleEdges = data.edges.slice(0, CANVAS_SUMMARY_EDGE_LIMIT);
     for (const edge of visibleEdges) {
       const sides = [
-        edge.fromSide ? `from-side=${displayCanvasValue(edge.fromSide)}` : "",
-        edge.toSide ? `to-side=${displayCanvasValue(edge.toSide)}` : "",
+        edge.fromSide ? `from-side=${escapeControlChars(edge.fromSide)}` : "",
+        edge.toSide ? `to-side=${escapeControlChars(edge.toSide)}` : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -133,14 +133,14 @@ function renderCanvasSummary(
       b.trusted("  Edge:");
       b.untrusted(
         "read_canvas edge endpoints",
-        `${displayCanvasValue(edge.fromNode)} -> ${displayCanvasValue(edge.toNode)}${sideInfo}`,
+        `${escapeControlChars(edge.fromNode)} -> ${escapeControlChars(edge.toNode)}${sideInfo}`,
         "    "
       );
       if (edge.label) {
         b.trusted("    label:");
         b.untrusted(
           "read_canvas edge label",
-          displayCanvasValue(edge.label),
+          escapeControlChars(edge.label),
           "      "
         );
       }

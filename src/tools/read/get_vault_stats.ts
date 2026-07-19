@@ -5,7 +5,7 @@ import { readAllCached } from "../../lib/index-cache.js";
 import { log } from "../../lib/logger.js";
 import { parseFrontmatter, extractTags } from "../../lib/markdown.js";
 import { defineTool, richText, text } from "../../lib/tool-seam.js";
-import { displayReadValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerGetVaultStatsTool(
   server: McpServer,
@@ -39,7 +39,7 @@ export function registerGetVaultStatsTool(
       if (notes.length === 0) {
         return text(
           folder
-            ? `No notes in "${displayReadValue(folder)}"`
+            ? `No notes in "${escapeControlChars(folder)}"`
             : "Vault is empty."
         );
       }
@@ -80,7 +80,7 @@ export function registerGetVaultStatsTool(
       const untaggedPct = ((untagged / notes.length) * 100).toFixed(1);
       return richText("get_vault_stats most recent path", (b) => {
         b.trusted(
-          `Vault stats${folder ? ` (folder: ${displayReadValue(folder)})` : ""}`
+          `Vault stats${folder ? ` (folder: ${escapeControlChars(folder)})` : ""}`
         );
         b.trusted("");
         b.trusted(`  Notes:           ${notes.length}`);
@@ -94,7 +94,7 @@ export function registerGetVaultStatsTool(
           b.trusted("  Most recent:");
           b.untrusted(
             "get_vault_stats most recent path",
-            `${displayReadValue(mostRecent.path)} (${new Date(mostRecent.mtimeMs).toISOString()})`,
+            `${escapeControlChars(mostRecent.path)} (${new Date(mostRecent.mtimeMs).toISOString()})`,
             "    "
           );
         } else {

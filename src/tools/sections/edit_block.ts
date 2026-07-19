@@ -5,7 +5,7 @@ import { findBlockById } from "../../lib/sections.js";
 import { defineTool, text } from "../../lib/tool-seam.js";
 import {
   SECTION_EDIT_PAYLOAD_MAX_CHARS,
-  displaySectionValue,
+  escapeControlChars,
   assertReadableEditTarget,
   invalidateSectionListCache,
 } from "./shared.js";
@@ -64,7 +64,7 @@ export function registerEditBlockTool(
       });
       invalidateSectionListCache(vaultPath, notePath);
       return text(
-        `Updated block ^${displaySectionValue(block)} in ${displaySectionValue(notePath)}`
+        `Updated block ^${escapeControlChars(block)} in ${escapeControlChars(notePath)}`
       );
     }
   );

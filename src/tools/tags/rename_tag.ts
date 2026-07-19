@@ -15,8 +15,6 @@ import { makeProgressReporter } from "../../lib/progress.js";
 import { log } from "../../lib/logger.js";
 import { defineTool, richText, text, error } from "../../lib/tool-seam.js";
 
-import { displayTagValue } from "./shared.js";
-
 export function registerRenameTag(server: McpServer, vaultPath: string): void {
   defineTool(
     server,
@@ -78,14 +76,14 @@ export function registerRenameTag(server: McpServer, vaultPath: string): void {
       if (!dryRun) {
         if (confirmTag?.trim() !== newName) {
           return error(
-            `Vault-wide tag rewriting to #${displayTagValue(newName)} requires confirmTag="${displayTagValue(newName)}". ` +
+            `Vault-wide tag rewriting to #${escapeControlChars(newName)} requires confirmTag="${escapeControlChars(newName)}". ` +
               "Set dryRun=true to preview without writing."
           );
         }
         const confirmation = await elicitTextConfirmation(server, {
           tool: "rename_tag",
           message:
-            `Rename #${displayTagValue(oldName)} to #${displayTagValue(newName)} across the vault? ` +
+            `Rename #${escapeControlChars(oldName)} to #${escapeControlChars(newName)} across the vault? ` +
             "This can rewrite many notes. Type the new tag name to confirm.",
           fieldName: "confirmTag",
           fieldDescription:
@@ -94,12 +92,12 @@ export function registerRenameTag(server: McpServer, vaultPath: string): void {
         });
         if (confirmation.status === "cancelled") {
           return text(
-            `Rename of #${displayTagValue(oldName)} to #${displayTagValue(newName)} cancelled.`
+            `Rename of #${escapeControlChars(oldName)} to #${escapeControlChars(newName)} cancelled.`
           );
         }
         if (confirmation.status === "mismatch") {
           return error(
-            `Confirmation tag did not match #${displayTagValue(newName)}; rename aborted.`
+            `Confirmation tag did not match #${escapeControlChars(newName)}; rename aborted.`
           );
         }
       }
@@ -187,7 +185,7 @@ export function registerRenameTag(server: McpServer, vaultPath: string): void {
 
       return richText("rename_tag failed notes", (b) => {
         b.trusted(
-          `${verb} #${displayTagValue(oldName)} → #${displayTagValue(newName)}${hierarchical ? " (and nested sub-tags)" : ""}`
+          `${verb} #${escapeControlChars(oldName)} → #${escapeControlChars(newName)}${hierarchical ? " (and nested sub-tags)" : ""}`
         );
         b.trusted(`  Files affected: ${updatedFiles}`);
         b.trusted(`  Inline #tag occurrences: ${totalInline}`);

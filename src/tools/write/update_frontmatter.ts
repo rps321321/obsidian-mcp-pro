@@ -4,7 +4,7 @@ import { updateNote } from "../../lib/vault.js";
 import { updateFrontmatter } from "../../lib/markdown.js";
 import { defineTool, text, error } from "../../lib/tool-seam.js";
 import {
-  displayWriteValue,
+  escapeControlChars,
   ensureMdExtension,
   isPlainObject,
 } from "./shared.js";
@@ -64,7 +64,7 @@ export function registerUpdateFrontmatter(
       );
 
       return text(
-        `Updated frontmatter of '${displayWriteValue(resolvedPath)}' with ${Object.keys(props).length} properties.`
+        `Updated frontmatter of '${escapeControlChars(resolvedPath)}' with ${Object.keys(props).length} properties.`
       );
     }
   );

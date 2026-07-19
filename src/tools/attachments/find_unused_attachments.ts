@@ -17,7 +17,7 @@ import {
 } from "../../lib/markdown.js";
 import { log } from "../../lib/logger.js";
 import { defineTool, text, richText } from "../../lib/tool-seam.js";
-import { displayAttachmentValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 const ATTACHMENT_INVENTORY_CACHE_LIMIT = 8;
 
@@ -351,13 +351,13 @@ export function registerFindUnusedAttachments(
         totalLine = `Total reclaimable: ${totalBytes.toLocaleString()} bytes (across all ${unused.length} unused attachment(s))`;
         rowLines = truncated.map((p) => {
           const sz = sizes.get(p);
-          const displayedPath = displayAttachmentValue(p);
+          const displayedPath = escapeControlChars(p);
           return sz !== undefined
             ? `- ${displayedPath}  (${sz.toLocaleString()} bytes)`
             : `- ${displayedPath}`;
         });
       } else {
-        rowLines = truncated.map((p) => `- ${displayAttachmentValue(p)}`);
+        rowLines = truncated.map((p) => `- ${escapeControlChars(p)}`);
       }
 
       return richText("find_unused_attachments paths", (b) => {

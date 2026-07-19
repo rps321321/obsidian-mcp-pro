@@ -25,7 +25,7 @@ export interface SectionListCacheEntry {
 export const sectionListCache = new Map<string, SectionListCacheEntry>();
 
 /** Escape control characters before embedding values in section-tool display text. */
-export const displaySectionValue = escapeControlChars;
+export { escapeControlChars };
 
 /** Append the "Resolved heading:" line plus the heading as a wrapped untrusted
  *  block. Shared by insert_at_section and update_section, whose success
@@ -36,7 +36,7 @@ export function richResolvedHeading(
   heading: string
 ): void {
   b.trusted("Resolved heading:");
-  b.untrusted(label, displaySectionValue(heading), "  ");
+  b.untrusted(label, escapeControlChars(heading), "  ");
 }
 
 export async function assertReadableEditTarget(
@@ -377,14 +377,14 @@ export async function getSectionListSignature(
 export function renderSectionList(notePath: string, content: string): string {
   const headings = parseHeadings(content);
   if (headings.length === 0)
-    return `No headings in ${displaySectionValue(notePath)}`;
+    return `No headings in ${escapeControlChars(notePath)}`;
   const lines = [
-    `${headings.length} heading(s) in ${displaySectionValue(notePath)}:`,
+    `${headings.length} heading(s) in ${escapeControlChars(notePath)}:`,
     "",
   ];
   for (const h of headings) {
     lines.push(
-      `${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${displaySectionValue(h.text)}`
+      `${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${escapeControlChars(h.text)}`
     );
   }
   return lines.join("\n");

@@ -1,6 +1,6 @@
 # ADR 0001: One deep tool seam behind every MCP tool
 
-- Status: Accepted and complete — all 9 groups migrated (read as the pattern-setter, then canvas, links, a Wave-1 fan-out of write/tags/sections/bases, attachments which extended the seam with the non-text media constructors, and finally semantic). Follow-up sweep remaining: collapse the `display*Value` aliases and rewrite `TOOL_AUTHORING.md §4`.
+- Status: Accepted and complete — all 9 groups (41 tools) migrated (read as the pattern-setter, then canvas, links, a Wave-1 fan-out of write/tags/sections/bases, attachments which extended the seam with the non-text media constructors, and finally semantic). The follow-up sweep is also done: the per-group `display*Value` aliases are collapsed to a single `escapeControlChars`, and `TOOL_AUTHORING.md §4` documents `defineTool` as the norm.
 - Date: 2026-07-18
 
 ## Context
@@ -176,7 +176,8 @@ cannot type-check). The **semantic** group migrated last: `index_vault` threads
 its conditional failed-notes `_meta` falls out of `richText`'s `hasUntrusted`;
 its failed-paths block — the layout flagged during the read-group gates as the
 hairiest — was expressible via `richText` + `b.untrusted(..., indent)` exactly
-as predicted, with no seam change. All 9 groups are now through the seam.
-Collapsing the 9 `display*Value` aliases to a single `escapeControlChars` import
-is the remaining follow-up sweep, and `TOOL_AUTHORING.md §4` is rewritten with
-it now that the pattern is proven across all groups.
+as predicted, with no seam change. All 9 groups are now through the seam. The
+follow-up sweep then collapsed the 11 `display*Value` aliases (one per group
+plus `index.ts`/`prompts.ts`) — each a misleading rename of `escapeControlChars`
+— down to that single canonical function, and rewrote `TOOL_AUTHORING.md §4` to
+document `defineTool` and the `ToolResult` vocabulary as the norm.

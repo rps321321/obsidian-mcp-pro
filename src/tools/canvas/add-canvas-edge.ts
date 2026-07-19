@@ -4,7 +4,7 @@ import { z } from "zod";
 import { updateCanvasFile } from "../../lib/vault.js";
 import { defineTool, text, error } from "../../lib/tool-seam.js";
 import type { CanvasData } from "../../types.js";
-import { displayCanvasValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 import { invalidateCanvasReadCache } from "./read-canvas.js";
 
 export function registerAddCanvasEdge(
@@ -69,7 +69,7 @@ export function registerAddCanvasEdge(
       // BUG-15: Reject self-loops early before touching the canvas file.
       if (fromNode === toNode) {
         return error(
-          `Self-loop rejected: fromNode and toNode are the same ('${displayCanvasValue(fromNode)}'). Edges must connect two different nodes.`
+          `Self-loop rejected: fromNode and toNode are the same ('${escapeControlChars(fromNode)}'). Edges must connect two different nodes.`
         );
       }
 
@@ -82,7 +82,7 @@ export function registerAddCanvasEdge(
           public nodeId: string
         ) {
           super(
-            `${side} node '${displayCanvasValue(nodeId)}' not found in canvas.`
+            `${side} node '${escapeControlChars(nodeId)}' not found in canvas.`
           );
         }
       }
@@ -92,7 +92,7 @@ export function registerAddCanvasEdge(
           public to: string
         ) {
           super(
-            `An edge from '${displayCanvasValue(from)}' to '${displayCanvasValue(to)}' already exists on the canvas.`
+            `An edge from '${escapeControlChars(from)}' to '${escapeControlChars(to)}' already exists on the canvas.`
           );
         }
       }
@@ -133,7 +133,7 @@ export function registerAddCanvasEdge(
       invalidateCanvasReadCache(vaultPath, canvasPath);
 
       return text(
-        `Edge added successfully.\nID: ${id}\nFrom: ${displayCanvasValue(fromNode)} -> To: ${displayCanvasValue(toNode)}${label ? `\nLabel: ${displayCanvasValue(label)}` : ""}`
+        `Edge added successfully.\nID: ${id}\nFrom: ${escapeControlChars(fromNode)} -> To: ${escapeControlChars(toNode)}${label ? `\nLabel: ${escapeControlChars(label)}` : ""}`
       );
     }
   );
