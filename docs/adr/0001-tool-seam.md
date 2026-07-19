@@ -1,6 +1,6 @@
 # ADR 0001: One deep tool seam behind every MCP tool
 
-- Status: Accepted (read group migrated as the pattern-setter, then canvas and links; 6 groups to follow)
+- Status: Accepted (read group migrated as the pattern-setter, then canvas, links, and a Wave-1 fan-out of write/tags/sections/bases; 2 groups to follow: attachments, semantic)
 - Date: 2026-07-18
 
 ## Context
@@ -147,9 +147,14 @@ emit through the `richText` builder rather than a `lines[]` array — the same
 builder-passing idiom as canvas's `renderCanvasSummary(b, …)`. `find_orphans`'
 conditional block-level `_meta` now falls out of `richText`'s `hasUntrusted` for
 free, deleting its bookkeeping; the one output delta is `get_backlinks`' dropped
-context arrow (see Consequences). Remaining 6 groups are file-disjoint and
-convert independently, deleting each group's duplicated recipe helpers as it goes
-and extending the seam with the non-text block constructors when the attachments
-group migrates. Collapsing the 9 `display*Value` aliases to a single
-`escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4` is
-rewritten last, once the pattern is proven across all groups.
+context arrow (see Consequences). write, tags, sections, and bases then migrated
+together as a parallel Wave-1 fan-out (one worktree-isolated agent per group),
+each following the same idioms and staying byte-preserving except the generic
+`Error:` prefix (exception #1); no group needed a new exception or a seam change.
+Remaining 2 groups are file-disjoint and convert independently: **attachments**
+extends the seam with the non-text block constructors (`image`/`audio`/
+`blobResource`/`untrustedResource`; `get_attachment` is the only multi-type
+tool), and **semantic** carries the `extra`-boundary type-cast caveat (verify
+progress plumbing at runtime). Collapsing the 9 `display*Value` aliases to a
+single `escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4`
+is rewritten last, once the pattern is proven across all groups.
