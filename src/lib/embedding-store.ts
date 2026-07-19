@@ -2,8 +2,10 @@ import fs from "fs/promises";
 import path from "path";
 import { createHash, randomBytes } from "crypto";
 import { log } from "./logger.js";
-import { isPersistenceEnabled } from "./index-cache.js";
-import { openVaultInternalFileForRead, resolveVaultInternalPathSafe } from "./vault.js";
+import {
+  openVaultInternalFileForRead,
+  resolveVaultInternalPathSafe,
+} from "./vault.js";
 import { renameWithRetry } from "./fs-ops.js";
 
 /**
@@ -47,6 +49,13 @@ let maxEmbeddingBytes = MAX_EMBEDDING_BYTES_DEFAULT;
  *  reset to the production default. */
 export function setMaxEmbeddingBytesForTests(bytes: number | null): void {
   maxEmbeddingBytes = bytes === null ? MAX_EMBEDDING_BYTES_DEFAULT : bytes;
+}
+
+/** Whether the embedding store may persist to disk. Disabled via
+ *  `OBSIDIAN_CACHE_DISABLED` (`1`/`true`/`yes`). */
+function isPersistenceEnabled(): boolean {
+  const v = process.env.OBSIDIAN_CACHE_DISABLED;
+  return !(v === "1" || v === "true" || v === "yes");
 }
 
 export interface ChunkEmbedding {
@@ -144,15 +153,21 @@ function isSnapshotEntry(entry: unknown): entry is ChunkEmbedding {
     candidate.notePath.length > 0 &&
     isPositiveInteger(candidate.chunkIndex) &&
     Array.isArray(candidate.headingPath) &&
-    candidate.headingPath.every((part): part is string => typeof part === "string") &&
+    candidate.headingPath.every(
+      (part): part is string => typeof part === "string"
+    ) &&
     typeof candidate.text === "string" &&
     typeof candidate.hash === "string" &&
     Array.isArray(candidate.vector)
   );
 }
 
-export function validateEmbeddingVector(vector: unknown, expectedDimension: number | null): string | null {
-  if (!Array.isArray(vector) || vector.length === 0) return "vector must be a non-empty number array";
+export function validateEmbeddingVector(
+  vector: unknown,
+  expectedDimension: number | null
+): string | null {
+  if (!Array.isArray(vector) || vector.length === 0)
+    return "vector must be a non-empty number array";
   for (const value of vector) {
     if (typeof value !== "number" || !Number.isFinite(value)) {
       return "vector contains a non-finite value";
@@ -183,14 +198,20 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
     }
     let raw: string;
     try {
-      const opened = await openVaultInternalFileForRead(vaultPath, STORE_REL_PATH);
+      const opened = await openVaultInternalFileForRead(
+        vaultPath,
+        STORE_REL_PATH
+      );
       const stat = opened.stats;
       if (stat.size > maxEmbeddingBytes) {
         await opened.handle.close();
-        log.warn("embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES; ignoring", {
-          bytes: stat.size,
-          max: maxEmbeddingBytes,
-        });
+        log.warn(
+          "embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES; ignoring",
+          {
+            bytes: stat.size,
+            max: maxEmbeddingBytes,
+          }
+        );
         state.loaded = true;
         state.loadingPromise = null;
         return state;
@@ -202,7 +223,9 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        log.warn("embedding-store: failed to read snapshot", { err: err as Error });
+        log.warn("embedding-store: failed to read snapshot", {
+          err: err as Error,
+        });
       }
       state.loaded = true;
       state.loadingPromise = null;
@@ -212,7 +235,9 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
     try {
       snapshot = JSON.parse(raw) as StoreSnapshot;
     } catch (err) {
-      log.warn("embedding-store: snapshot is invalid JSON; ignoring", { err: err as Error });
+      log.warn("embedding-store: snapshot is invalid JSON; ignoring", {
+        err: err as Error,
+      });
       state.loaded = true;
       state.loadingPromise = null;
       return state;
@@ -248,7 +273,8 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       // Silently drop entries whose vector length doesn't match the snapshot's
       // declared dimension. Guards against hand-edited or partially-corrupted
       // snapshots where one row's length drifted from the rest.
-      if (validateEmbeddingVector(entry.vector, snapshot.dimension) !== null) continue;
+      if (validateEmbeddingVector(entry.vector, snapshot.dimension) !== null)
+        continue;
       state.byKey.set(key(entry.notePath, entry.chunkIndex), entry);
       let owned = state.byNote.get(entry.notePath);
       if (!owned) {
@@ -258,7 +284,8 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       owned.add(key(entry.notePath, entry.chunkIndex));
     }
     for (const [note, hash] of Object.entries(snapshot.noteHashes ?? {})) {
-      if (typeof hash === "string" && state.byNote.has(note)) state.noteHashes.set(note, hash);
+      if (typeof hash === "string" && state.byNote.has(note))
+        state.noteHashes.set(note, hash);
     }
     // Mark loaded only AFTER all async I/O and parsing is complete.
     state.loaded = true;
@@ -320,19 +347,24 @@ async function doSave(vaultPath: string, state: StoreState): Promise<void> {
   // UTF-8 string gives the actual write size, not the JS string length.
   const byteLength = Buffer.byteLength(serialized, "utf-8");
   if (byteLength > maxEmbeddingBytes) {
-    log.warn("embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES, persistence skipped", {
-      bytes: byteLength,
-      max: maxEmbeddingBytes,
-      chunks: state.byKey.size,
-      notes: state.byNote.size,
-    });
+    log.warn(
+      "embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES, persistence skipped",
+      {
+        bytes: byteLength,
+        max: maxEmbeddingBytes,
+        chunks: state.byKey.size,
+        notes: state.byNote.size,
+      }
+    );
     return;
   }
   let file: string;
   try {
     file = await storePath(vaultPath);
   } catch (err) {
-    log.warn("embedding-store: snapshot path failed vault-boundary check", { err: err as Error });
+    log.warn("embedding-store: snapshot path failed vault-boundary check", {
+      err: err as Error,
+    });
     return;
   }
   // Include a random suffix so two concurrent saves in the same process
@@ -347,12 +379,18 @@ async function doSave(vaultPath: string, state: StoreState): Promise<void> {
       // Best-effort cleanup: if writeFile succeeded but rename failed, the
       // tmp file is still on disk. ENOENT (writeFile never created it) is
       // fine to swallow here.
-      try { await fs.unlink(tmp); } catch { /* ignore */ }
+      try {
+        await fs.unlink(tmp);
+      } catch {
+        /* ignore */
+      }
       throw innerErr;
     }
     state.dirty = false;
   } catch (err) {
-    log.warn("embedding-store: failed to persist snapshot", { err: err as Error });
+    log.warn("embedding-store: failed to persist snapshot", {
+      err: err as Error,
+    });
   }
 }
 
@@ -361,11 +399,15 @@ async function doSave(vaultPath: string, state: StoreState): Promise<void> {
  *  (e.g. when the user wants to fully reset the index). */
 export async function clearStore(
   vaultPath: string,
-  options?: { removeSnapshot?: boolean },
+  options?: { removeSnapshot?: boolean }
 ): Promise<void> {
   stores.delete(path.resolve(vaultPath));
   if (options?.removeSnapshot) {
-    try { await fs.unlink(await storePath(vaultPath)); } catch { /* ignore */ }
+    try {
+      await fs.unlink(await storePath(vaultPath));
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -374,7 +416,7 @@ export async function clearStore(
 export function invalidateIfIncompatible(
   vaultPath: string,
   providerId: string,
-  model: string,
+  model: string
 ): void {
   const state = stateFor(vaultPath);
   if (!state.loaded) return;
@@ -389,7 +431,11 @@ export function invalidateIfIncompatible(
 }
 
 /** Has the given note's content changed since the last index pass? */
-export function noteIsCurrent(vaultPath: string, notePath: string, contentHash: string): boolean {
+export function noteIsCurrent(
+  vaultPath: string,
+  notePath: string,
+  contentHash: string
+): boolean {
   const state = stateFor(vaultPath);
   return state.noteHashes.get(notePath) === contentHash;
 }
@@ -401,14 +447,16 @@ export function setNoteChunks(
   contentHash: string,
   chunks: ChunkEmbedding[],
   providerId: string,
-  model: string,
+  model: string
 ): void {
   const state = stateFor(vaultPath);
   let nextDimension = state.dimension;
   for (const ch of chunks) {
     const error = validateEmbeddingVector(ch.vector, nextDimension);
     if (error !== null) {
-      throw new Error(`Invalid embedding vector at chunk ${ch.chunkIndex}: ${error}`);
+      throw new Error(
+        `Invalid embedding vector at chunk ${ch.chunkIndex}: ${error}`
+      );
     }
     if (nextDimension === null) nextDimension = ch.vector.length;
   }
@@ -451,7 +499,10 @@ export function dropNoteChunks(vaultPath: string, notePath: string): boolean {
 
 /** Drop chunks for notes that no longer exist in the vault. Called at the
  *  end of an index pass. */
-export function pruneMissingNotes(vaultPath: string, currentNotes: Iterable<string>): number {
+export function pruneMissingNotes(
+  vaultPath: string,
+  currentNotes: Iterable<string>
+): number {
   const state = stateFor(vaultPath);
   const live = new Set<string>(currentNotes);
   let pruned = 0;
@@ -484,7 +535,7 @@ export function snapshotForTests(vaultPath: string): {
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) {
     throw new Error(
-      `cosineSimilarity: dimension mismatch (a.length=${a.length}, b.length=${b.length})`,
+      `cosineSimilarity: dimension mismatch (a.length=${a.length}, b.length=${b.length})`
     );
   }
   if (a.length === 0) return 0;
@@ -523,7 +574,10 @@ export interface SearchOptions {
 
 function normalizeSearchFolder(folder: string | undefined): string | null {
   if (!folder) return null;
-  const slashed = folder.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const slashed = folder
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
   if (!slashed) return null;
   const normalized = path.posix.normalize(slashed).replace(/^\/+|\/+$/g, "");
   if (normalized === "." || normalized === "") return null;
@@ -534,7 +588,7 @@ function normalizeSearchFolder(folder: string | undefined): string | null {
 export function searchEmbeddings(
   vaultPath: string,
   queryVector: number[],
-  options: SearchOptions = {},
+  options: SearchOptions = {}
 ): SearchHit[] {
   const state = stateFor(vaultPath);
   const limit = options.limit ?? 10;
@@ -545,7 +599,8 @@ export function searchEmbeddings(
   const hits: SearchHit[] = [];
   for (const entry of state.byKey.values()) {
     if (folder !== null) {
-      if (entry.notePath !== folder && !entry.notePath.startsWith(folder + "/")) continue;
+      if (entry.notePath !== folder && !entry.notePath.startsWith(folder + "/"))
+        continue;
     }
     if (exclude && exclude.has(entry.notePath)) continue;
     if (filterNote && !filterNote(entry.notePath)) continue;
@@ -572,14 +627,16 @@ export function searchEmbeddings(
       if (h.score > existing.best.score) existing.best = h;
     }
   }
-  const out = Array.from(byNote.values()).map(({ best, scores }) => {
-    const score = noteFocusScore(scores);
-    return { ...best, score };
-  }).sort((a, b) => {
-    const scoreDelta = b.score - a.score;
-    if (scoreDelta !== 0) return scoreDelta;
-    return a.notePath.localeCompare(b.notePath);
-  });
+  const out = Array.from(byNote.values())
+    .map(({ best, scores }) => {
+      const score = noteFocusScore(scores);
+      return { ...best, score };
+    })
+    .sort((a, b) => {
+      const scoreDelta = b.score - a.score;
+      if (scoreDelta !== 0) return scoreDelta;
+      return a.notePath.localeCompare(b.notePath);
+    });
   return out.slice(0, limit);
 }
 
@@ -591,7 +648,9 @@ function noteFocusScore(scores: number[]): number {
   return NOTE_BEST_CHUNK_WEIGHT * best + NOTE_FOCUS_WEIGHT * focus;
 }
 
-export function buildSimilarNotesQueryVector(chunks: readonly ChunkEmbedding[]): number[] {
+export function buildSimilarNotesQueryVector(
+  chunks: readonly ChunkEmbedding[]
+): number[] {
   const firstChunk = chunks[0];
   if (!firstChunk) return [];
 
@@ -601,10 +660,17 @@ export function buildSimilarNotesQueryVector(chunks: readonly ChunkEmbedding[]):
   let totalWeight = 0;
 
   for (const chunk of chunks) {
-    const anchorSimilarity = Math.max(0, cosineSimilarity(anchor, chunk.vector));
-    const weight = chunk === firstChunk
-      ? 1
-      : Math.max(SIMILAR_SOURCE_MIN_CHUNK_WEIGHT, anchorSimilarity ** SIMILAR_SOURCE_ANCHOR_POWER);
+    const anchorSimilarity = Math.max(
+      0,
+      cosineSimilarity(anchor, chunk.vector)
+    );
+    const weight =
+      chunk === firstChunk
+        ? 1
+        : Math.max(
+            SIMILAR_SOURCE_MIN_CHUNK_WEIGHT,
+            anchorSimilarity ** SIMILAR_SOURCE_ANCHOR_POWER
+          );
     for (let d = 0; d < dim; d++) {
       out[d] = out[d]! + chunk.vector[d]! * weight;
     }
@@ -619,7 +685,10 @@ export function buildSimilarNotesQueryVector(chunks: readonly ChunkEmbedding[]):
 }
 
 /** Get the embeddings owned by a specific note (used by find_similar). */
-export function getNoteEmbeddings(vaultPath: string, notePath: string): ChunkEmbedding[] {
+export function getNoteEmbeddings(
+  vaultPath: string,
+  notePath: string
+): ChunkEmbedding[] {
   const state = stateFor(vaultPath);
   const owned = state.byNote.get(notePath);
   if (!owned) return [];

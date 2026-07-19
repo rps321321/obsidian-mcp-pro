@@ -2,12 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import {
-  readAllCached,
-  clearCache,
-  cacheSize,
-  flushNow,
-} from "../lib/index-cache.js";
+import { readAllCached, clearCache, cacheSize } from "../lib/index-cache.js";
 
 let vaultDir: string;
 
@@ -32,12 +27,13 @@ async function linkCacheDirOutside(outsideDir: string): Promise<boolean> {
     await fs.symlink(
       outsideDir,
       path.join(vaultDir, ".obsidian", "cache"),
-      process.platform === "win32" ? "junction" : "dir",
+      process.platform === "win32" ? "junction" : "dir"
     );
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EPERM" || code === "EACCES" || code === "EINVAL") return false;
+    if (code === "EPERM" || code === "EACCES" || code === "EINVAL")
+      return false;
     throw err;
   }
 }
@@ -83,9 +79,13 @@ describe("readAllCached", () => {
   it("calls onError for missing files and omits them from contents", async () => {
     await write("a.md", "alpha");
     const errors: string[] = [];
-    const result = await readAllCached(vaultDir, ["a.md", "missing.md"], (rel) => {
-      errors.push(rel);
-    });
+    const result = await readAllCached(
+      vaultDir,
+      ["a.md", "missing.md"],
+      (rel) => {
+        errors.push(rel);
+      }
+    );
     expect(result.contents.has("missing.md")).toBe(false);
     expect(result.contents.get("a.md")).toBe("alpha");
     expect(errors).toContain("missing.md");
@@ -106,10 +106,18 @@ describe("readAllCached", () => {
 
 describe("legacy persistent cache", () => {
   function snapshotPath(): string {
-    return path.join(vaultDir, ".obsidian", "cache", "mcp-pro-index-cache.json");
+    return path.join(
+      vaultDir,
+      ".obsidian",
+      "cache",
+      "mcp-pro-index-cache.json"
+    );
   }
 
-  async function writeLegacySnapshot(relPath: string, content: string): Promise<void> {
+  async function writeLegacySnapshot(
+    relPath: string,
+    content: string
+  ): Promise<void> {
     const fullPath = path.join(vaultDir, relPath);
     const stat = await fs.stat(fullPath);
     const snap = snapshotPath();
@@ -127,14 +135,13 @@ describe("legacy persistent cache", () => {
           },
         },
       }),
-      "utf-8",
+      "utf-8"
     );
   }
 
   it("does not write note bodies to a disk snapshot", async () => {
     await write("a.md", "alpha");
     await readAllCached(vaultDir, ["a.md"]);
-    await flushNow(vaultDir);
 
     await expect(fs.access(snapshotPath())).rejects.toThrow();
   });
@@ -162,7 +169,9 @@ describe("legacy persistent cache", () => {
   });
 
   it("does not follow a .obsidian/cache symlink outside the vault while cleaning up", async () => {
-    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-outside-"));
+    const outsideDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "cache-outside-")
+    );
     try {
       const linked = await linkCacheDirOutside(outsideDir);
       if (!linked) return;
@@ -171,9 +180,10 @@ describe("legacy persistent cache", () => {
       await fs.writeFile(outsideSnapshot, "outside cache", "utf-8");
       await write("a.md", "alpha");
       await readAllCached(vaultDir, ["a.md"]);
-      await flushNow(vaultDir);
 
-      await expect(fs.readFile(outsideSnapshot, "utf-8")).resolves.toBe("outside cache");
+      await expect(fs.readFile(outsideSnapshot, "utf-8")).resolves.toBe(
+        "outside cache"
+      );
     } finally {
       await fs.rm(outsideDir, { recursive: true, force: true });
     }

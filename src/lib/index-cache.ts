@@ -58,22 +58,15 @@ interface VaultCacheState {
   entries: Map<string, CacheEntry>;
   /** True once we've attempted legacy snapshot cleanup for this vault. */
   loaded: boolean;
-  /** True when entries have changed since the last legacy cleanup. */
-  dirty: boolean;
 }
 
 const caches = new Map<string, VaultCacheState>(); // vaultRoot -> state
-
-export function isPersistenceEnabled(): boolean {
-  const v = process.env.OBSIDIAN_CACHE_DISABLED;
-  return !(v === "1" || v === "true" || v === "yes");
-}
 
 function stateFor(vaultPath: string): VaultCacheState {
   const key = path.resolve(vaultPath);
   let s = caches.get(key);
   if (!s) {
-    s = { entries: new Map(), loaded: false, dirty: false };
+    s = { entries: new Map(), loaded: false };
     caches.set(key, s);
   }
   return s;
@@ -83,7 +76,10 @@ async function cacheFilePath(vaultPath: string): Promise<string> {
   return resolveVaultInternalPathSafe(vaultPath, CACHE_REL_PATH);
 }
 
-async function loadFromDisk(vaultPath: string, state: VaultCacheState): Promise<void> {
+async function loadFromDisk(
+  vaultPath: string,
+  state: VaultCacheState
+): Promise<void> {
   if (state.loaded) return;
   state.loaded = true;
   await removeLegacySnapshot(vaultPath);
@@ -94,7 +90,9 @@ async function removeLegacySnapshot(vaultPath: string): Promise<void> {
   try {
     file = await cacheFilePath(vaultPath);
   } catch (err) {
-    log.warn("index-cache: snapshot path failed vault-boundary check", { err: err as Error });
+    log.warn("index-cache: snapshot path failed vault-boundary check", {
+      err: err as Error,
+    });
     return;
   }
   try {
@@ -102,16 +100,14 @@ async function removeLegacySnapshot(vaultPath: string): Promise<void> {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
-      log.warn("index-cache: failed to remove legacy snapshot", { file, err: err as Error });
+      log.warn("index-cache: failed to remove legacy snapshot", {
+        file,
+        err: err as Error,
+      });
     }
     return;
   }
   log.debug("index-cache: removed legacy persistent snapshot", { file });
-}
-
-async function flushVaultCache(vaultPath: string, state: VaultCacheState): Promise<void> {
-  state.dirty = false;
-  await removeLegacySnapshot(vaultPath);
 }
 
 export interface ReadAllResult {
@@ -137,7 +133,7 @@ export interface ReadAllResult {
 export async function readAllCached(
   vaultPath: string,
   relPaths: readonly string[],
-  onError?: (relPath: string, err: Error) => void,
+  onError?: (relPath: string, err: Error) => void
 ): Promise<ReadAllResult> {
   const state = stateFor(vaultPath);
   await loadFromDisk(vaultPath, state);
@@ -155,7 +151,9 @@ export async function readAllCached(
     let fullPath: string;
     let opened: Awaited<ReturnType<typeof openVaultFileForRead>> | undefined;
     try {
-      opened = await openVaultFileForRead(vaultPath, relPath, "read", { realVaultRoot });
+      opened = await openVaultFileForRead(vaultPath, relPath, "read", {
+        realVaultRoot,
+      });
       fullPath = opened.fullPath;
     } catch (err) {
       onError?.(relPath, err as Error);
@@ -178,7 +176,7 @@ export async function readAllCached(
       await openedFile.handle.close();
       // ENOENT during stat means the file disappeared between listing and
       // reading — drop the cache entry and skip.
-      if (cache.delete(relPath)) state.dirty = true;
+      cache.delete(relPath);
       onError?.(relPath, err as Error);
       return undefined;
     }
@@ -194,13 +192,12 @@ export async function readAllCached(
       content = await openedFile.handle.readFile("utf-8");
     } catch (err) {
       onError?.(relPath, err as Error);
-      if (cache.delete(relPath)) state.dirty = true;
+      cache.delete(relPath);
       return undefined;
     } finally {
       await openedFile.handle.close();
     }
     cache.set(relPath, { fullPath, relPath, content, mtimeMs });
-    state.dirty = true;
     contents.set(relPath, content);
     cacheMisses++;
     return undefined;
@@ -220,46 +217,26 @@ export async function readAllCached(
     } catch {
       // File no longer exists on disk - evict the stale entry.
       cache.delete(key);
-      state.dirty = true;
     }
   });
 
   return { contents, mtimes, stats: statsByPath, cacheHits, cacheMisses };
 }
 
-/** Best-effort cleanup for legacy disk snapshots during shutdown. */
-export async function flushAllCachesAsync(): Promise<void> {
-  await Promise.all(
-    Array.from(caches.entries()).map(async ([vaultRoot, state]) => {
-      try {
-        await flushVaultCache(vaultRoot, state);
-      } catch {
-        // best-effort; we're shutting down
-      }
-    }),
-  );
-}
-
-/** Force immediate legacy snapshot cleanup for a single vault. */
-export async function flushNow(vaultPath: string): Promise<void> {
-  const state = caches.get(path.resolve(vaultPath));
-  if (!state) {
-    await removeLegacySnapshot(vaultPath);
-    return;
-  }
-  await flushVaultCache(vaultPath, state);
-}
-
 /** For tests / hot reload: drop everything cached for a given vault.
  *  Pass `removeSnapshot: true` to also delete a legacy disk snapshot. */
 export async function clearCache(
   vaultPath: string,
-  options?: { removeSnapshot?: boolean },
+  options?: { removeSnapshot?: boolean }
 ): Promise<void> {
   const root = path.resolve(vaultPath);
   caches.delete(root);
   if (options?.removeSnapshot) {
-    try { await fs.unlink(await cacheFilePath(vaultPath)); } catch { /* ignore */ }
+    try {
+      await fs.unlink(await cacheFilePath(vaultPath));
+    } catch {
+      /* ignore */
+    }
   }
 }
 
