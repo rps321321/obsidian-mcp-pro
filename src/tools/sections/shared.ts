@@ -6,15 +6,9 @@ import {
   resolveVaultPathSafe,
   assertNoteFileSize,
 } from "../../lib/vault.js";
-import {
-  parseHeadings,
-} from "../../lib/sections.js";
+import { parseHeadings } from "../../lib/sections.js";
 import { escapeControlChars } from "../../lib/errors.js";
-import {
-  formatUntrustedVaultContent,
-  indentBlock,
-  untrustedVaultContentMeta,
-} from "../../lib/tool-output.js";
+import type { RichTextBuilder } from "../../lib/tool-seam.js";
 
 export const SECTION_LIST_CACHE_LIMIT = 16;
 export const SECTION_EDIT_PAYLOAD_MAX_CHARS = 1_000_000;
@@ -30,35 +24,25 @@ export interface SectionListCacheEntry {
 
 export const sectionListCache = new Map<string, SectionListCacheEntry>();
 
-export function textResult(text: string) {
-  return { content: [{ type: "text" as const, text }] };
-}
-
-export function textResultWithMeta(text: string, metaLabel: string) {
-  return {
-    content: [{
-      type: "text" as const,
-      text,
-      _meta: untrustedVaultContentMeta(metaLabel),
-    }],
-  };
-}
-
-export function errorResult(text: string) {
-  return { content: [{ type: "text" as const, text }], isError: true as const };
-}
-
 /** Escape control characters before embedding values in section-tool display text. */
 export const displaySectionValue = escapeControlChars;
 
-export function renderResolvedHeading(label: string, heading: string): string {
-  return [
-    "Resolved heading:",
-    indentBlock(formatUntrustedVaultContent(label, displaySectionValue(heading)), "  "),
-  ].join("\n");
+/** Append the "Resolved heading:" line plus the heading as a wrapped untrusted
+ *  block. Shared by insert_at_section and update_section, whose success
+ *  messages both echo the section-path resolution back to the caller. */
+export function richResolvedHeading(
+  b: RichTextBuilder,
+  label: string,
+  heading: string
+): void {
+  b.trusted("Resolved heading:");
+  b.untrusted(label, displaySectionValue(heading), "  ");
 }
 
-export async function assertReadableEditTarget(vaultPath: string, notePath: string): Promise<void> {
+export async function assertReadableEditTarget(
+  vaultPath: string,
+  notePath: string
+): Promise<void> {
   await resolveVaultPathSafe(vaultPath, notePath, "read");
 }
 
@@ -88,7 +72,10 @@ export function regexQuantifierLength(pattern: string, index: number): number {
   return pattern.charAt(i) === "}" ? i - index + 1 : 0;
 }
 
-export function regexQuantifierCanRepeat(pattern: string, index: number): boolean {
+export function regexQuantifierCanRepeat(
+  pattern: string,
+  index: number
+): boolean {
   const ch = pattern.charAt(index);
   if (ch === "*" || ch === "+") return true;
   if (ch === "?") return false;
@@ -115,7 +102,10 @@ export function regexQuantifierCanRepeat(pattern: string, index: number): boolea
   return Number(maxText) > 1;
 }
 
-export function regexCharacterClassEnd(pattern: string, openIndex: number): number {
+export function regexCharacterClassEnd(
+  pattern: string,
+  openIndex: number
+): number {
   for (let i = openIndex + 1; i < pattern.length; i += 1) {
     const ch = pattern.charAt(i);
     if (ch === "\\") {
@@ -155,7 +145,10 @@ export function hasQuantifiedAtom(pattern: string): boolean {
   return false;
 }
 
-export function regexGroupBodyStart(pattern: string, openIndex: number): number {
+export function regexGroupBodyStart(
+  pattern: string,
+  openIndex: number
+): number {
   if (pattern.charAt(openIndex + 1) !== "?") return openIndex + 1;
 
   const kind = pattern.charAt(openIndex + 2);
@@ -255,7 +248,10 @@ export function regexAtomTokens(pattern: string): string[] {
   return tokens;
 }
 
-export function regexTokensSharePrefix(a: readonly string[], b: readonly string[]): boolean {
+export function regexTokensSharePrefix(
+  a: readonly string[],
+  b: readonly string[]
+): boolean {
   const len = Math.min(a.length, b.length);
   if (len === 0) return true;
   for (let i = 0; i < len; i += 1) {
@@ -289,7 +285,10 @@ export function hasAmbiguousAlternation(pattern: string): boolean {
 
     const end = regexGroupEnd(pattern, i);
     const bodyStart = regexGroupBodyStart(pattern, i);
-    if (bodyStart < end && hasAmbiguousAlternation(pattern.slice(bodyStart, end))) {
+    if (
+      bodyStart < end &&
+      hasAmbiguousAlternation(pattern.slice(bodyStart, end))
+    ) {
       return true;
     }
     i = end;
@@ -332,7 +331,10 @@ export function hasUnsafeRepeatedGroup(pattern: string): boolean {
 }
 
 export function splitHeadingPath(section: string): string[] {
-  return section.split("/").map((s) => s.trim()).filter(Boolean);
+  return section
+    .split("/")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export function assertMarkdownSectionListPath(relativePath: string): void {
@@ -341,20 +343,27 @@ export function assertMarkdownSectionListPath(relativePath: string): void {
   }
 }
 
-export function sectionListCacheKey(vaultPath: string, notePath: string): string {
+export function sectionListCacheKey(
+  vaultPath: string,
+  notePath: string
+): string {
   return `${path.resolve(vaultPath)}\0${notePath}`;
 }
 
 export async function getSectionListSignature(
   vaultPath: string,
-  notePath: string,
+  notePath: string
 ): Promise<{ fullPath: string; size: number; mtimeMs: number }> {
   assertMarkdownSectionListPath(notePath);
   let opened: Awaited<ReturnType<typeof openVaultFileForRead>> | undefined;
   try {
     opened = await openVaultFileForRead(vaultPath, notePath);
     assertNoteFileSize(notePath, opened.stats.size);
-    return { fullPath: opened.fullPath, size: opened.stats.size, mtimeMs: opened.stats.mtimeMs };
+    return {
+      fullPath: opened.fullPath,
+      size: opened.stats.size,
+      mtimeMs: opened.stats.mtimeMs,
+    };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       await readNote(vaultPath, notePath);
@@ -367,15 +376,24 @@ export async function getSectionListSignature(
 
 export function renderSectionList(notePath: string, content: string): string {
   const headings = parseHeadings(content);
-  if (headings.length === 0) return `No headings in ${displaySectionValue(notePath)}`;
-  const lines = [`${headings.length} heading(s) in ${displaySectionValue(notePath)}:`, ""];
+  if (headings.length === 0)
+    return `No headings in ${displaySectionValue(notePath)}`;
+  const lines = [
+    `${headings.length} heading(s) in ${displaySectionValue(notePath)}:`,
+    "",
+  ];
   for (const h of headings) {
-    lines.push(`${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${displaySectionValue(h.text)}`);
+    lines.push(
+      `${"  ".repeat(h.level - 1)}${"#".repeat(h.level)} ${displaySectionValue(h.text)}`
+    );
   }
   return lines.join("\n");
 }
 
-export async function readSectionListCached(vaultPath: string, notePath: string): Promise<string> {
+export async function readSectionListCached(
+  vaultPath: string,
+  notePath: string
+): Promise<string> {
   const signature = await getSectionListSignature(vaultPath, notePath);
   const key = sectionListCacheKey(vaultPath, notePath);
   const cached = sectionListCache.get(key);
@@ -416,6 +434,9 @@ export async function readSectionListCached(vaultPath: string, notePath: string)
   return text;
 }
 
-export function invalidateSectionListCache(vaultPath: string, notePath: string): void {
+export function invalidateSectionListCache(
+  vaultPath: string,
+  notePath: string
+): void {
   sectionListCache.delete(sectionListCacheKey(vaultPath, notePath));
 }
