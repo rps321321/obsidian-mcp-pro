@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
-import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
+import {
+  createTestEnv,
+  textContent,
+  isError,
+  type TestEnv,
+} from "./harness.js";
 import { MAX_CANVAS_FILE_BYTES } from "../../lib/vault.js";
 
 let env: TestEnv;
@@ -22,10 +27,14 @@ describe("canvas handlers — list_canvases", () => {
     });
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     const text = textContent(result);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_canvases paths]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: list_canvases paths]"
+    );
     expect(text).toContain("boards/test.canvas");
     expect(text).toMatch(/Found 1 canvas/);
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
   });
 });
 
@@ -47,13 +56,25 @@ describe("canvas handlers — read_canvas", () => {
     expect(text).toContain("[n2] type=file");
     expect(text).toContain("note-a.md");
     expect(text).toContain("n1 -> n2");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge label]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: boards/test.canvas#e1]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge label]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: boards/test.canvas#e1]"
+    );
     expect(text).toContain("refs");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node content]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: boards/test.canvas#n1]");
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
-    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("read_canvas summary");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node content]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: boards/test.canvas#n1]"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "read_canvas summary"
+    );
   });
 
   it("serves repeated reads without changing the rendered summary", async () => {
@@ -83,13 +104,37 @@ describe("canvas handlers — read_canvas", () => {
       canvasPath,
       JSON.stringify({
         nodes: [
-          { id: "n1", type: "text", x: 0, y: 0, width: 200, height: 100, text: "Hello canvas" },
-          { id: "n2", type: "file", x: 300, y: 0, width: 200, height: 100, file: "note-a.md" },
-          { id: "n3", type: "text", x: 500, y: 0, width: 200, height: 100, text: "Fresh edit" },
+          {
+            id: "n1",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            text: "Hello canvas",
+          },
+          {
+            id: "n2",
+            type: "file",
+            x: 300,
+            y: 0,
+            width: 200,
+            height: 100,
+            file: "note-a.md",
+          },
+          {
+            id: "n3",
+            type: "text",
+            x: 500,
+            y: 0,
+            width: 200,
+            height: 100,
+            text: "Fresh edit",
+          },
         ],
         edges: [{ id: "e1", fromNode: "n1", toNode: "n2", label: "refs" }],
       }),
-      "utf-8",
+      "utf-8"
     );
     const future = new Date(Date.now() + 5_000);
     await fs.utimes(canvasPath, future, future);
@@ -133,7 +178,7 @@ describe("canvas handlers — read_canvas", () => {
     await fs.writeFile(
       path.join(env.vaultDir, "bad.canvas"),
       "{ this is not, valid json",
-      "utf-8",
+      "utf-8"
     );
     const result = await env.client.callTool({
       name: "read_canvas",
@@ -147,7 +192,7 @@ describe("canvas handlers — read_canvas", () => {
     await fs.writeFile(
       path.join(env.vaultDir, "huge.canvas"),
       "x".repeat(MAX_CANVAS_FILE_BYTES + 1),
-      "utf-8",
+      "utf-8"
     );
 
     const result = await env.client.callTool({
@@ -180,7 +225,7 @@ describe("canvas handlers — read_canvas", () => {
     await fs.writeFile(
       path.join(env.vaultDir, "crowded.canvas"),
       JSON.stringify({ nodes, edges }),
-      "utf-8",
+      "utf-8"
     );
 
     const result = await env.client.callTool({
@@ -235,7 +280,7 @@ describe("canvas handlers — read_canvas", () => {
           },
         ],
       }),
-      "utf-8",
+      "utf-8"
     );
 
     const result = await env.client.callTool({
@@ -244,21 +289,43 @@ describe("canvas handlers — read_canvas", () => {
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node identity]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node identity: dirty.canvas#bad\\nnode]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node identity]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: canvas node identity: dirty.canvas#bad\\nnode]"
+    );
     expect(text).toContain("[bad\\nnode] type=text");
     expect(text).toContain("content:");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node content]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: dirty.canvas#bad\\nnode]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node content]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: canvas node content: dirty.canvas#bad\\nnode]"
+    );
     expect(text).toContain("first\\nsecond");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node color]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas node color: dirty.canvas#bad\\nnode]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: read_canvas node color]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: canvas node color: dirty.canvas#bad\\nnode]"
+    );
     expect(text).toContain("red\\nblue");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge endpoints]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge endpoints: dirty.canvas#edge-1]");
-    expect(text).toContain("bad\\nnode -> clean (from-side=left\\nside to-side=right)");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge label]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: dirty.canvas#edge-1]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge endpoints]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: canvas edge endpoints: dirty.canvas#edge-1]"
+    );
+    expect(text).toContain(
+      "bad\\nnode -> clean (from-side=left\\nside to-side=right)"
+    );
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: read_canvas edge label]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: canvas edge label: dirty.canvas#edge-1]"
+    );
     expect(text).toContain("label\\nspoof");
     expect(text).not.toContain("bad\nnode");
     expect(text).not.toContain("red\nblue");
@@ -287,9 +354,11 @@ describe("canvas handlers — add_canvas_node", () => {
 
     const canvasRaw = await fs.readFile(
       path.join(env.vaultDir, "boards/test.canvas"),
-      "utf-8",
+      "utf-8"
     );
-    const canvas = JSON.parse(canvasRaw) as { nodes: Array<{ id: string; text?: string }> };
+    const canvas = JSON.parse(canvasRaw) as {
+      nodes: Array<{ id: string; text?: string }>;
+    };
     expect(canvas.nodes).toHaveLength(3);
     const added = canvas.nodes.find((n) => n.id === idMatch![1]);
     expect(added?.text).toBe("A new thought");
@@ -391,17 +460,22 @@ describe("canvas handlers — add_canvas_node", () => {
     expect(isError(result)).toBe(false);
     const canvasRaw = await fs.readFile(
       path.join(env.vaultDir, "boards/test.canvas"),
-      "utf-8",
+      "utf-8"
     );
     const canvas = JSON.parse(canvasRaw) as { nodes: Array<{ url?: string }> };
-    expect(canvas.nodes.some((n) => n.url === "https://example.com/deep/path?q=1")).toBe(true);
+    expect(
+      canvas.nodes.some((n) => n.url === "https://example.com/deep/path?q=1")
+    ).toBe(true);
   });
 
   it("rejects non-web link URL schemes before persisting", async () => {
     const canvasPath = path.join(env.vaultDir, "boards/test.canvas");
     const before = await fs.readFile(canvasPath, "utf-8");
 
-    for (const content of ["file:///C:/Users/me/secret.txt", "obsidian://open?vault=main"]) {
+    for (const content of [
+      "file:///C:/Users/me/secret.txt",
+      "obsidian://open?vault=main",
+    ]) {
       const result = await env.client.callTool({
         name: "add_canvas_node",
         arguments: {
@@ -471,7 +545,7 @@ describe("canvas handlers — add_canvas_edge", () => {
 
     const canvasRaw = await fs.readFile(
       path.join(env.vaultDir, "boards/test.canvas"),
-      "utf-8",
+      "utf-8"
     );
     const canvas = JSON.parse(canvasRaw) as {
       edges: Array<{ fromNode: string; toNode: string; label?: string }>;
@@ -535,5 +609,30 @@ describe("canvas handlers — add_canvas_edge", () => {
     const text = textContent(result);
     expect(text).toContain("Label: safe\\nlabel");
     expect(text).not.toContain("safe\nlabel");
+  });
+
+  it("routes an unexpected failure through the seam's sanitize boundary", async () => {
+    // A malformed canvas throws during parse — before any node check — so the
+    // error is unexpected (not MissingNode/DuplicateEdge) and propagates to the
+    // seam. The seam applies the generic "Error:" prefix and sanitizeError,
+    // which strips the absolute file path. This pins the leak closure that
+    // routing add_canvas_edge through the seam provides.
+    await fs.writeFile(
+      path.join(env.vaultDir, "corrupt.canvas"),
+      "{ not valid json",
+      "utf-8"
+    );
+    const result = await env.client.callTool({
+      name: "add_canvas_edge",
+      arguments: {
+        canvasPath: "corrupt.canvas",
+        fromNode: "a",
+        toNode: "b",
+      },
+    });
+    expect(isError(result)).toBe(true);
+    const text = textContent(result);
+    expect(text.startsWith("Error: ")).toBe(true);
+    expect(text).not.toContain(env.vaultDir);
   });
 });

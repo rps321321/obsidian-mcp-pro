@@ -1,6 +1,6 @@
 # ADR 0001: One deep tool seam behind every MCP tool
 
-- Status: Accepted (read group migrated as the pattern-setter; other 8 groups to follow)
+- Status: Accepted (read group migrated as the pattern-setter, canvas group migrated next; 7 groups to follow)
 - Date: 2026-07-18
 
 ## Context
@@ -24,8 +24,10 @@ The consequences:
 paths or secrets. Untrusted-content wrapping was smeared across ~45 call
 sites and applied inconsistently; a new handler returning a plain`{ type: "text", text }` would compile and silently emit vault text as if it
   were trusted.
-- One real instance already leaked: `add_canvas_edge`'s inner catches returned
-  `err.message` raw, bypassing `sanitizeError`.
+- One tool bypassed the choke point: `add_canvas_edge`'s inner catches returned
+  `err.message` directly — locally escaped via `displayCanvasValue`, but never
+  routed through `sanitizeError`, so the pattern (not those specific messages)
+  was one edit away from surfacing an unsanitized host path or secret.
 
 By contrast, the **log** channel already sanitizes inside `emit()` (a choke
 point), and permissions enforce at a single point in the vault layer. The
@@ -80,10 +82,15 @@ Non-text blocks (to be added when the attachments/canvas groups migrate;
 
 ## Consequences
 
-- Trust-wrapping and error sanitization become choke points. The seam is where
-  `add_canvas_edge`'s raw-`err.message` leak gets fixed once — when the canvas
-  group migrates through it. This change migrates only the read group, so that
-  leak is still open (see Migration).
+- Trust-wrapping and error sanitization become choke points. With the canvas
+  group migrated, `add_canvas_edge`'s **unexpected**-error path now routes
+  through the seam's single `sanitizeError` boundary (it was returned
+  unsanitized before). Its **expected** validation messages (missing/duplicate
+  node, self-loop) stay handler-authored and verbatim per the error model —
+  control-char escaped via `displayCanvasValue`, not re-sanitized. So the
+  closure is structural: no tool-layer terminal catch emits an unsanitized
+  message anymore. Pinned by a `handlers/canvas.test.ts` case that drives an
+  unexpected failure and asserts the generic sanitized result.
 - Output is **byte-preserving**. The seam reuses the existing `tool-output.ts`
   primitives, so every `regression-tools-*` and `handlers/*` interface test
   stays green unchanged. One intentional exception is recorded: the generic
@@ -122,10 +129,13 @@ compiler will not catch mis-threaded `extra`. Verify that plumbing at runtime
 
 ## Migration
 
-Read group first (this change). Remaining 8 groups are file-disjoint and convert
+Read group first (pattern-setter), canvas group next. The canvas group is all
+text, so it migrated using only the existing `text`/`richText`/`error`
+constructors and needed no seam changes; its conversion routes
+`add_canvas_edge`'s unexpected-error path through the seam's sanitize boundary
+(see Consequences). Remaining 7 groups are file-disjoint and convert
 independently, deleting each group's duplicated recipe helpers as it goes and
-extending the seam with the non-text block constructors when
-attachments/canvas migrate. Routing `add_canvas_edge` through the seam closes
-its raw-`err.message` leak as part of the canvas group's conversion. Collapsing the 9 `display*Value` aliases to a single
+extending the seam with the non-text block constructors when the attachments
+group migrates. Collapsing the 9 `display*Value` aliases to a single
 `escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4` is
 rewritten last, once the pattern is proven across all groups.
