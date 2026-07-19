@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listNotes } from "../../lib/vault.js";
 import { defineTool, richText } from "../../lib/tool-seam.js";
-import { displayReadValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerListNotesTool(
   server: McpServer,
@@ -48,13 +48,13 @@ export function registerListNotesTool(
 
       return richText("list_notes paths", (b) => {
         b.trusted(
-          `Found ${totalCount} note(s)${folder ? ` in "${displayReadValue(folder)}"` : ""}${totalCount > limit ? ` (showing first ${limit})` : ""}:`
+          `Found ${totalCount} note(s)${folder ? ` in "${escapeControlChars(folder)}"` : ""}${totalCount > limit ? ` (showing first ${limit})` : ""}:`
         );
         b.trusted("");
         if (limited.length > 0) {
           b.untrusted(
             "list_notes paths",
-            limited.map(displayReadValue).join("\n")
+            limited.map(escapeControlChars).join("\n")
           );
         }
       });

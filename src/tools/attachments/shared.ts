@@ -7,7 +7,6 @@ import { escapeControlChars } from "../../lib/errors.js";
 // sanitization. What remains here are the attachment group's own helpers.
 
 /** Escape control characters in a value before embedding it in a display string. */
-const displayAttachmentValue = escapeControlChars;
 
 function vaultResourceUri(relPath: string): string {
   return `vault://${relPath.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/")}`;
@@ -24,4 +23,4 @@ function safeResourceMimeType(mime: string): string {
   return ACTIVE_TEXT_MIME_TYPES.has(mime.toLowerCase()) ? "text/plain" : mime;
 }
 
-export { displayAttachmentValue, vaultResourceUri, safeResourceMimeType };
+export { escapeControlChars, vaultResourceUri, safeResourceMimeType };

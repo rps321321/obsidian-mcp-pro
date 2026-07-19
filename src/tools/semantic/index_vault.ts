@@ -28,7 +28,7 @@ import {
   MISSING_PROVIDER_HINT,
   INDEX_VAULT_CONFIRMATION,
   EMBED_BATCH_SIZE,
-  displaySemanticValue,
+  escapeControlChars,
 } from "./shared.js";
 
 interface IndexProgress {
@@ -118,7 +118,7 @@ export function registerIndexVaultTool(
         }
         if (confirm !== INDEX_VAULT_CONFIRMATION) {
           return error(
-            `index_vault sends readable note chunks to the configured embedding provider (${displaySemanticValue(provider.id)}/${displaySemanticValue(provider.model)}). ` +
+            `index_vault sends readable note chunks to the configured embedding provider (${escapeControlChars(provider.id)}/${escapeControlChars(provider.model)}). ` +
               `Set confirm to "${INDEX_VAULT_CONFIRMATION}" to proceed.`
           );
         }
@@ -137,7 +137,7 @@ export function registerIndexVaultTool(
         if (notes.length === 0) {
           return text(
             folder
-              ? `No notes in "${displaySemanticValue(folder)}" to index.`
+              ? `No notes in "${escapeControlChars(folder)}" to index.`
               : "Vault is empty — nothing to index."
           );
         }
@@ -311,7 +311,7 @@ export function registerIndexVaultTool(
         // (matching the prior untrustedVaultTextResult-vs-textResult split).
         return richText("index_vault failed notes", (b) => {
           b.trusted(
-            `Indexed${folder ? ` "${displaySemanticValue(folder)}"` : ""} via ${displaySemanticValue(provider.id)}/${displaySemanticValue(provider.model)}`
+            `Indexed${folder ? ` "${escapeControlChars(folder)}"` : ""} via ${escapeControlChars(provider.id)}/${escapeControlChars(provider.model)}`
           );
           b.trusted(`  Notes scanned:   ${stats.notesScanned}`);
           b.trusted(`  Notes embedded:  ${stats.notesEmbedded}`);
@@ -324,7 +324,7 @@ export function registerIndexVaultTool(
             for (const f of stats.failed.slice(0, 5)) {
               b.untrusted(
                 "index_vault failed note",
-                `- ${displaySemanticValue(f.path)}: ${sanitizeError(f.error)}`,
+                `- ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`,
                 "    "
               );
             }

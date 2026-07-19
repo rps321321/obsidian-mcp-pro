@@ -18,7 +18,7 @@ import {
   untrustedResource,
 } from "../../lib/tool-seam.js";
 import {
-  displayAttachmentValue,
+  escapeControlChars,
   vaultResourceUri,
   safeResourceMimeType,
 } from "./shared.js";
@@ -60,7 +60,7 @@ async function assertNoSymlinkAttachmentPath(
     const entry = await fs.lstat(current);
     if (entry.isSymbolicLink()) {
       throw new Error(
-        `Refusing to fetch symlink attachment: ${displayAttachmentValue(relPath)}`
+        `Refusing to fetch symlink attachment: ${escapeControlChars(relPath)}`
       );
     }
   }
@@ -106,7 +106,7 @@ export function registerGetAttachment(
       const hiddenName = hiddenAttachmentSegment(relPath);
       if (hiddenName) {
         return error(
-          `Refusing to fetch hidden attachment "${displayAttachmentValue(relPath)}" via get_attachment.`
+          `Refusing to fetch hidden attachment "${escapeControlChars(relPath)}" via get_attachment.`
         );
       }
 
@@ -118,7 +118,7 @@ export function registerGetAttachment(
         lowerPath.endsWith(".base")
       ) {
         return error(
-          `Refusing to fetch "${displayAttachmentValue(relPath)}" via get_attachment - use get_note / read_canvas / read_base instead.`
+          `Refusing to fetch "${escapeControlChars(relPath)}" via get_attachment - use get_note / read_canvas / read_base instead.`
         );
       }
 
@@ -126,7 +126,7 @@ export function registerGetAttachment(
       const blockedExt = getBlockedExtension(relPath);
       if (blockedExt) {
         return error(
-          `Blocked: "${displayAttachmentValue(relPath)}" has a dangerous extension (${displayAttachmentValue(blockedExt)}). ` +
+          `Blocked: "${escapeControlChars(relPath)}" has a dangerous extension (${escapeControlChars(blockedExt)}). ` +
             `Executable file types are not served as attachments.`
         );
       }
@@ -140,7 +140,7 @@ export function registerGetAttachment(
         // error; anything else is unexpected and rethrown to the seam.
         if ((err as Error).message === `Not a regular file: ${relPath}`) {
           return error(
-            `Attachment "${displayAttachmentValue(relPath)}" is not a regular file.`
+            `Attachment "${escapeControlChars(relPath)}" is not a regular file.`
           );
         }
         throw err;
@@ -156,12 +156,12 @@ export function registerGetAttachment(
         const stat = await handle.stat();
         if (!stat.isFile()) {
           return error(
-            `Attachment "${displayAttachmentValue(relPath)}" is not a regular file.`
+            `Attachment "${escapeControlChars(relPath)}" is not a regular file.`
           );
         }
         if (stat.size > limit) {
           return error(
-            `Attachment "${displayAttachmentValue(relPath)}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`
+            `Attachment "${escapeControlChars(relPath)}" is ${stat.size.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`
           );
         }
         bytes = await handle.readFile();
@@ -170,14 +170,14 @@ export function registerGetAttachment(
       }
       if (bytes.byteLength > limit) {
         return error(
-          `Attachment "${displayAttachmentValue(relPath)}" is ${bytes.byteLength.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`
+          `Attachment "${escapeControlChars(relPath)}" is ${bytes.byteLength.toLocaleString()} bytes - over the ${limit.toLocaleString()}-byte limit. Pass maxBytes to override (hard cap ${ABSOLUTE_GET_ATTACHMENT_LIMIT.toLocaleString()}).`
         );
       }
       const attachmentSize = bytes.byteLength;
       const mime = detectMimeType(relPath);
       const category = categorizeMimeType(mime);
       const basename = path.basename(relPath);
-      const displayedBasename = displayAttachmentValue(basename);
+      const displayedBasename = escapeControlChars(basename);
 
       // SEC-8: SVG files can contain embedded <script> tags and event
       // handlers, making them an XSS vector. Return SVG content as

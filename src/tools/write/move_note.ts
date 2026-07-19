@@ -4,7 +4,7 @@ import { moveNote } from "../../lib/vault.js";
 import { sanitizeError } from "../../lib/errors.js";
 import { defineTool, text, error, richText } from "../../lib/tool-seam.js";
 import { elicitTextConfirmation } from "../../lib/confirmation.js";
-import { displayWriteValue, ensureMdExtension } from "./shared.js";
+import { escapeControlChars, ensureMdExtension } from "./shared.js";
 
 export function registerMoveNote(server: McpServer, vaultPath: string): void {
   defineTool(
@@ -58,14 +58,14 @@ export function registerMoveNote(server: McpServer, vaultPath: string): void {
       if (updateLinks !== false) {
         if (confirmPath?.trim() !== resolvedNew) {
           return error(
-            `Reference rewriting for "${displayWriteValue(resolvedOld)}" requires confirmPath="${displayWriteValue(resolvedNew)}". ` +
+            `Reference rewriting for "${escapeControlChars(resolvedOld)}" requires confirmPath="${escapeControlChars(resolvedNew)}". ` +
               "Set updateLinks=false to move without rewriting references."
           );
         }
         const confirmation = await elicitTextConfirmation(server, {
           tool: "move_note",
           message:
-            `Move "${displayWriteValue(resolvedOld)}" to "${displayWriteValue(resolvedNew)}" and update references across the vault? ` +
+            `Move "${escapeControlChars(resolvedOld)}" to "${escapeControlChars(resolvedNew)}" and update references across the vault? ` +
             "This can rewrite many notes. Type the destination path to confirm.",
           fieldName: "confirmPath",
           fieldDescription:
@@ -73,11 +73,13 @@ export function registerMoveNote(server: McpServer, vaultPath: string): void {
           expectedValue: resolvedNew,
         });
         if (confirmation.status === "cancelled") {
-          return text(`Move of "${displayWriteValue(resolvedOld)}" cancelled.`);
+          return text(
+            `Move of "${escapeControlChars(resolvedOld)}" cancelled.`
+          );
         }
         if (confirmation.status === "mismatch") {
           return error(
-            `Confirmation path did not match "${displayWriteValue(resolvedNew)}"; move aborted.`
+            `Confirmation path did not match "${escapeControlChars(resolvedNew)}"; move aborted.`
           );
         }
       }
@@ -87,7 +89,7 @@ export function registerMoveNote(server: McpServer, vaultPath: string): void {
 
       return richText("move_note failed referrers", (b) => {
         b.trusted(
-          `Moved note from '${displayWriteValue(resolvedOld)}' to '${displayWriteValue(resolvedNew)}'.`
+          `Moved note from '${escapeControlChars(resolvedOld)}' to '${escapeControlChars(resolvedNew)}'.`
         );
         if (updateLinks !== false) {
           const updated = result.updatedReferrers.length;
@@ -109,7 +111,7 @@ export function registerMoveNote(server: McpServer, vaultPath: string): void {
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
               b.untrusted(
                 "move_note failed referrer",
-                `- ${displayWriteValue(f.path)}: ${sanitizeError(f.error)}`,
+                `- ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`,
                 "  "
               );
             }

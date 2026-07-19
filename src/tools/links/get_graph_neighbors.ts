@@ -5,7 +5,7 @@ import { defineTool, richText, error } from "../../lib/tool-seam.js";
 import {
   buildLinkGraph,
   resolveGraphInputPath,
-  displayLinkValue,
+  escapeControlChars,
 } from "./shared.js";
 
 export function registerGetGraphNeighbors(
@@ -69,7 +69,7 @@ export function registerGetGraphNeighbors(
 
       if (!resolvedStart) {
         return error(
-          `No note found matching path: ${displayLinkValue(startPath)}`
+          `No note found matching path: ${escapeControlChars(startPath)}`
         );
       }
 
@@ -138,7 +138,7 @@ export function registerGetGraphNeighbors(
           b.trusted("No neighbors found for:");
           b.untrusted(
             "get_graph_neighbors start path",
-            displayLinkValue(resolvedStart),
+            escapeControlChars(resolvedStart),
             "  "
           );
           b.trusted(`(depth: ${depth}, direction: ${direction})`);
@@ -155,7 +155,7 @@ export function registerGetGraphNeighbors(
       }
 
       const truncatedStr = truncated ? " (TRUNCATED)" : "";
-      const pathTreeLines = [displayLinkValue(resolvedStart)];
+      const pathTreeLines = [escapeControlChars(resolvedStart)];
 
       const sortedDepths = [...byDepth.keys()].sort((a, b) => a - b);
       for (const d of sortedDepths) {
@@ -171,7 +171,7 @@ export function registerGetGraphNeighbors(
                 ? "→"
                 : "↔";
           pathTreeLines.push(
-            `${indent}${arrow} ${displayLinkValue(neighbor.path)} (depth ${d})`
+            `${indent}${arrow} ${escapeControlChars(neighbor.path)} (depth ${d})`
           );
         }
       }
@@ -180,7 +180,7 @@ export function registerGetGraphNeighbors(
         b.trusted("Graph neighbors of:");
         b.untrusted(
           "get_graph_neighbors start path",
-          displayLinkValue(resolvedStart),
+          escapeControlChars(resolvedStart),
           "  "
         );
         b.trusted(

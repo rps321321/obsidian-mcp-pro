@@ -4,7 +4,7 @@ import { deleteNote } from "../../lib/vault.js";
 import { sanitizeError } from "../../lib/errors.js";
 import { defineTool, text, error, richText } from "../../lib/tool-seam.js";
 import { log } from "../../lib/logger.js";
-import { displayWriteValue, ensureMdExtension } from "./shared.js";
+import { escapeControlChars, ensureMdExtension } from "./shared.js";
 
 export function registerDeleteNote(server: McpServer, vaultPath: string): void {
   defineTool(
@@ -61,7 +61,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
       // recoverable, so no confirmation is needed for those.
       if (permanent && !confirm) {
         return error(
-          `Permanent deletion of "${displayWriteValue(resolvedPath)}" requires confirm=true. ` +
+          `Permanent deletion of "${escapeControlChars(resolvedPath)}" requires confirm=true. ` +
             "This is a destructive, irreversible operation. Set confirm to true to proceed, " +
             "or omit permanent (or set it to false) to move the note to the vault's .trash folder instead."
         );
@@ -90,7 +90,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
         try {
           const elicit = await server.server.elicitInput({
             message:
-              `Permanently delete "${displayWriteValue(resolvedPath)}" from the vault?` +
+              `Permanently delete "${escapeControlChars(resolvedPath)}" from the vault?` +
               (removeReferences
                 ? " References across the vault will also be stripped."
                 : "") +
@@ -109,7 +109,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
           });
           if (elicit.action !== "accept") {
             return text(
-              `Deletion of "${displayWriteValue(resolvedPath)}" cancelled.`
+              `Deletion of "${escapeControlChars(resolvedPath)}" cancelled.`
             );
           }
           // An accept with no content (or a missing field) is treated as
@@ -125,7 +125,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
             confirmed === ""
           ) {
             return text(
-              `Deletion of "${displayWriteValue(resolvedPath)}" cancelled (no confirmation provided).`
+              `Deletion of "${escapeControlChars(resolvedPath)}" cancelled (no confirmation provided).`
             );
           }
           if (
@@ -133,7 +133,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
             confirmed.trim() !== resolvedPath
           ) {
             return error(
-              `Confirmation path did not match "${displayWriteValue(resolvedPath)}"; deletion aborted.`
+              `Confirmation path did not match "${escapeControlChars(resolvedPath)}"; deletion aborted.`
             );
           }
         } catch (err) {
@@ -148,7 +148,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
       const method = permanent ? "permanently deleted" : "moved to trash";
 
       return richText("delete_note failed referrers", (b) => {
-        b.trusted(`Note '${displayWriteValue(resolvedPath)}' ${method}.`);
+        b.trusted(`Note '${escapeControlChars(resolvedPath)}' ${method}.`);
         if (removeReferences && permanent) {
           const updated = result.updatedReferrers.length;
           b.trusted(
@@ -164,7 +164,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
             for (const f of result.failedReferrers.slice(0, MAX_DISPLAY)) {
               b.untrusted(
                 "delete_note failed referrer",
-                `- ${displayWriteValue(f.path)}: ${sanitizeError(f.error)}`,
+                `- ${escapeControlChars(f.path)}: ${sanitizeError(f.error)}`,
                 "  "
               );
             }

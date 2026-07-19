@@ -4,7 +4,7 @@ import { z } from "zod";
 import { resolveVaultPathSafe, updateCanvasFile } from "../../lib/vault.js";
 import { defineTool, text, error } from "../../lib/tool-seam.js";
 import type { CanvasNode } from "../../types.js";
-import { displayCanvasValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 import { invalidateCanvasReadCache } from "./read-canvas.js";
 
 const ALLOWED_CANVAS_LINK_PROTOCOLS = new Set(["http:", "https:"]);
@@ -14,13 +14,13 @@ function validateCanvasLinkUrl(value: string): string | null {
   try {
     parsed = new URL(value.trim());
   } catch {
-    return `Invalid URL in "${displayCanvasValue(value)}". Canvas link URLs must be absolute http:// or https:// URLs.`;
+    return `Invalid URL in "${escapeControlChars(value)}". Canvas link URLs must be absolute http:// or https:// URLs.`;
   }
   if (!ALLOWED_CANVAS_LINK_PROTOCOLS.has(parsed.protocol)) {
-    return `Invalid URL scheme in "${displayCanvasValue(value)}". Only http:// and https:// canvas link URLs are allowed.`;
+    return `Invalid URL scheme in "${escapeControlChars(value)}". Only http:// and https:// canvas link URLs are allowed.`;
   }
   if (hasUrlControlChars(value)) {
-    return `Invalid URL in "${displayCanvasValue(value)}". Control characters are not allowed in canvas link URLs.`;
+    return `Invalid URL in "${escapeControlChars(value)}". Control characters are not allowed in canvas link URLs.`;
   }
   return null;
 }
@@ -139,7 +139,7 @@ export function registerAddCanvasNode(
           await resolveVaultPathSafe(vaultPath, content);
         } catch {
           return error(
-            `Invalid file reference: "${displayCanvasValue(content)}" must be a relative path inside the vault.`
+            `Invalid file reference: "${escapeControlChars(content)}" must be a relative path inside the vault.`
           );
         }
       }

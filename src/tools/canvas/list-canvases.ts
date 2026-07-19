@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { listCanvasFiles } from "../../lib/vault.js";
 import { defineTool, text, richText } from "../../lib/tool-seam.js";
-import { displayCanvasValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerListCanvases(
   server: McpServer,
@@ -30,7 +30,7 @@ export function registerListCanvases(
       }
 
       const formatted = files
-        .map((f, i) => `${i + 1}. ${displayCanvasValue(f)}`)
+        .map((f, i) => `${i + 1}. ${escapeControlChars(f)}`)
         .join("\n");
       return richText("list_canvases paths", (b) => {
         b.trusted(`Found ${files.length} canvas file(s):`);

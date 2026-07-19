@@ -4,7 +4,7 @@ import { defineTool, richText, error } from "../../lib/tool-seam.js";
 import {
   buildLinkGraph,
   resolveGraphInputPath,
-  displayLinkValue,
+  escapeControlChars,
   untrustedLinkTarget,
 } from "./shared.js";
 
@@ -45,7 +45,7 @@ export function registerGetOutlinks(
       const resolvedSource = resolveGraphInputPath(graph, notePath);
       if (!resolvedSource) {
         return error(
-          `No note found matching path: ${displayLinkValue(notePath)}`
+          `No note found matching path: ${escapeControlChars(notePath)}`
         );
       }
 
@@ -56,7 +56,7 @@ export function registerGetOutlinks(
           b.trusted("No outgoing links found in:");
           b.untrusted(
             "get_outlinks source path",
-            displayLinkValue(resolvedSource),
+            escapeControlChars(resolvedSource),
             "  "
           );
         });
@@ -69,7 +69,7 @@ export function registerGetOutlinks(
         b.trusted("Outgoing links from:");
         b.untrusted(
           "get_outlinks source path",
-          displayLinkValue(resolvedSource),
+          escapeControlChars(resolvedSource),
           "  "
         );
         b.trusted(
@@ -82,7 +82,7 @@ export function registerGetOutlinks(
             b.trusted("  Resolved path:");
             b.untrusted(
               "get_outlinks resolved path",
-              `${displayLinkValue(r.resolvedPath ?? "")}${r.isEmbed ? " (embed)" : ""}`,
+              `${escapeControlChars(r.resolvedPath ?? "")}${r.isEmbed ? " (embed)" : ""}`,
               "    "
             );
             untrustedLinkTarget(b, "get_outlinks target", r.target, "    ");

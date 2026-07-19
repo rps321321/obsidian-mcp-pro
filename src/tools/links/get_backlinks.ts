@@ -5,7 +5,7 @@ import {
   buildLinkGraph,
   resolveGraphInputPath,
   findLineWithLink,
-  displayLinkValue,
+  escapeControlChars,
   resolveWikilinkWithIndex,
 } from "./shared.js";
 
@@ -43,7 +43,7 @@ export function registerGetBacklinks(
 
       if (!resolvedTarget) {
         return error(
-          `No note found matching path: ${displayLinkValue(targetPath)}`
+          `No note found matching path: ${escapeControlChars(targetPath)}`
         );
       }
 
@@ -53,7 +53,7 @@ export function registerGetBacklinks(
           b.trusted("No backlinks found for:");
           b.untrusted(
             "get_backlinks target path",
-            displayLinkValue(resolvedTarget),
+            escapeControlChars(resolvedTarget),
             "  "
           );
         });
@@ -109,7 +109,7 @@ export function registerGetBacklinks(
         b.trusted("Backlinks to:");
         b.untrusted(
           "get_backlinks target path",
-          displayLinkValue(resolvedTarget),
+          escapeControlChars(resolvedTarget),
           "  "
         );
         b.trusted(`Found: ${deduped.length} backlink(s)\n`);
@@ -118,7 +118,7 @@ export function registerGetBacklinks(
           b.trusted("Source:");
           b.untrusted(
             "get_backlinks source path",
-            `${displayLinkValue(r.source)}${lineStr}`,
+            `${escapeControlChars(r.source)}${lineStr}`,
             "  "
           );
           if (r.context) {
@@ -130,7 +130,7 @@ export function registerGetBacklinks(
             // is unchanged — a purely visual delta, no trust impact.
             b.untrusted(
               "get_backlinks context",
-              displayLinkValue(r.context),
+              escapeControlChars(r.context),
               "  "
             );
           }

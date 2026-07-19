@@ -15,7 +15,7 @@ import {
   richText,
   untrustedText,
 } from "../../lib/tool-seam.js";
-import { displayReadValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerGetDailyNoteTool(
   server: McpServer,
@@ -50,12 +50,12 @@ export function registerGetDailyNoteTool(
 
       if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
         return error(
-          `Invalid date format: "${displayReadValue(targetDate)}". Use YYYY-MM-DD.`
+          `Invalid date format: "${escapeControlChars(targetDate)}". Use YYYY-MM-DD.`
         );
       }
       const parsed = parseLocalDateOnly(targetDate);
       if (!parsed) {
-        return error(`Invalid date: "${displayReadValue(targetDate)}".`);
+        return error(`Invalid date: "${escapeControlChars(targetDate)}".`);
       }
 
       // Build the filename using moment-style tokens (YYYY, MMM, ddd, etc).
@@ -79,9 +79,9 @@ export function registerGetDailyNoteTool(
         return asError(
           richText(pathLabel, (b) => {
             b.trusted(
-              `Daily note not found for ${displayReadValue(targetDate)}.`
+              `Daily note not found for ${escapeControlChars(targetDate)}.`
             );
-            b.untrusted(pathLabel, displayReadValue(notePath));
+            b.untrusted(pathLabel, escapeControlChars(notePath));
           })
         );
       }
@@ -89,8 +89,8 @@ export function registerGetDailyNoteTool(
       const { data: dailyFrontmatter, content: dailyBody } =
         parseFrontmatter(content);
       const header: string[] = [
-        `Daily Note: ${displayReadValue(targetDate)}`,
-        `Path: ${displayReadValue(notePath)}`,
+        `Daily Note: ${escapeControlChars(targetDate)}`,
+        `Path: ${escapeControlChars(notePath)}`,
         "",
       ];
 
@@ -98,7 +98,7 @@ export function registerGetDailyNoteTool(
         header.push("--- Frontmatter ---");
         for (const [key, value] of Object.entries(dailyFrontmatter)) {
           header.push(
-            `${displayReadValue(key)}: ${displayReadValue(JSON.stringify(value) ?? "")}`
+            `${escapeControlChars(key)}: ${escapeControlChars(JSON.stringify(value) ?? "")}`
           );
         }
         header.push("--- End Frontmatter ---");

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { writeNote } from "../../lib/vault.js";
 import { defineTool, text, error } from "../../lib/tool-seam.js";
 import {
-  displayWriteValue,
+  escapeControlChars,
   ensureMdExtension,
   buildFrontmatterContent,
   isPlainObject,
@@ -49,7 +49,7 @@ export function registerCreateNote(server: McpServer, vaultPath: string): void {
     },
     async ({ path: notePath, content, frontmatter }) => {
       const resolvedPath = ensureMdExtension(notePath);
-      const displayedPath = displayWriteValue(resolvedPath);
+      const displayedPath = escapeControlChars(resolvedPath);
 
       let finalContent: string;
 

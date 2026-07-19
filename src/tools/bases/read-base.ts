@@ -3,7 +3,7 @@ import { z } from "zod";
 import { readBaseFile } from "../../lib/vault.js";
 import { parseBaseFile } from "../../lib/bases.js";
 import { defineTool, untrustedText } from "../../lib/tool-seam.js";
-import { displayBaseValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerReadBase(server: McpServer, vaultPath: string): void {
   defineTool(
@@ -31,20 +31,25 @@ export function registerReadBase(server: McpServer, vaultPath: string): void {
     async ({ path: basePath }) => {
       const raw = await readBaseFile(vaultPath, basePath);
       const { doc, warnings } = parseBaseFile(raw);
-      const lines: string[] = [`Base: ${displayBaseValue(basePath)}`, ""];
+      const lines: string[] = [`Base: ${escapeControlChars(basePath)}`, ""];
       if (warnings.length > 0) {
         lines.push("Parse warnings:");
-        for (const w of warnings) lines.push(`  - ${displayBaseValue(w)}`);
+        for (const w of warnings) lines.push(`  - ${escapeControlChars(w)}`);
         lines.push("");
       }
       lines.push("Filters:");
-      lines.push("  " + JSON.stringify(doc.filters ?? null, null, 2).split("\n").join("\n  "));
+      lines.push(
+        "  " +
+          JSON.stringify(doc.filters ?? null, null, 2)
+            .split("\n")
+            .join("\n  ")
+      );
       lines.push("");
       if (doc.properties) {
         lines.push(`Properties (${Object.keys(doc.properties).length}):`);
         for (const [key, spec] of Object.entries(doc.properties)) {
           lines.push(
-            `  - ${displayBaseValue(key)}${spec.displayName ? ` (display: ${displayBaseValue(spec.displayName)})` : ""}`,
+            `  - ${escapeControlChars(key)}${spec.displayName ? ` (display: ${escapeControlChars(spec.displayName)})` : ""}`
           );
         }
         lines.push("");
@@ -53,10 +58,12 @@ export function registerReadBase(server: McpServer, vaultPath: string): void {
         lines.push(`Views (${doc.views.length}):`);
         for (const v of doc.views) {
           const nm = v.name ?? "(unnamed)";
-          lines.push(`  - ${displayBaseValue(nm)} [type: ${displayBaseValue(v.type)}]`);
+          lines.push(
+            `  - ${escapeControlChars(nm)} [type: ${escapeControlChars(v.type)}]`
+          );
         }
       }
       return untrustedText("read_base document", lines.join("\n"));
-    },
+    }
   );
 }

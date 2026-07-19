@@ -161,21 +161,42 @@ All four things are there: range, default, semantics, tradeoff.
 
 ## § 4 — Handler conventions
 
-> **Migration in progress (ADR 0001).** The `read` group now registers through
-> the tool seam (`src/lib/tool-seam.ts`): handlers return a `ToolResult` built
-> via `text` / `untrustedText` / `richText` / `error`, and the seam owns error
-> sanitization and untrusted-content wrapping. When editing a seam-migrated
-> group, follow that pattern, **not** the per-file recipe below. The recipe
-> still describes the 8 groups not yet migrated. See `docs/adr/0001-tool-seam.md`.
+Every tool registers through the **tool seam** (`src/lib/tool-seam.ts`). Do not
+write the old per-file recipe (a terminal `try/catch` + `errorResult` +
+hand-rolled untrusted-content wrapping) — the seam owns all of that. See
+`docs/adr/0001-tool-seam.md` for the full rationale.
 
-Keep handlers thin. The scorer doesn't see handler code, but reviewers do:
+Register with `defineTool(server, vaultPath, spec, handler)`. The `spec` carries
+the client-facing surface (`name` / `title` / `description` / `annotations` /
+`inputSchema`) unchanged; the handler is schema plus pure logic that returns a
+`ToolResult` or throws.
 
-- Use the shared `errorResult(text)` helper at the top of each file.
-- Catch errors, log to `console.error`, return `isError: true`.
-- Text output should be human-readable (grouped, with counts/summaries) —
-  not raw JSON — because LLMs will re-parse this.
-- When a result is empty, still return a friendly message
-  (`"No backlinks found for: ..."`), not just `content: []`.
+- Build the result **only** through the seam constructors — a raw
+  `{ content: [...] }` literal will not type-check:
+  - `text(body)` — one trusted, unwrapped block (confirmations, empty-result
+    messages with no vault content).
+  - `untrustedText(label, body)` — one fully-untrusted vault-text block.
+  - `richText(itemTrustLabel, b => …)` — mixed framing: `b.trusted(line)` for
+    server text, `b.untrusted(label, body, indent?)` for wrapped vault sections.
+    The block-level trust `_meta` is attached only if at least one `b.untrusted`
+    was appended, so conditional-`_meta` cases fall out for free.
+  - `error(message)` — a verbatim, handler-authored error block.
+  - `asError(result)` — flag a built result as an error.
+  - `image` / `audio` / `blobResource` / `untrustedResource` — the `get_attachment`
+    media blocks (caption text + one media block).
+- **Escaping vs wrapping.** Escape any vault-derived value interpolated into
+  trusted text with `escapeControlChars` (from `../../lib/errors.js`). Surface
+  whole pieces of vault content through `untrustedText` / `b.untrusted`, never by
+  hand — the seam BEGIN/END-wraps them and attaches the trust `_meta`.
+- **Errors.** Domain/expected failures return `error(...)` verbatim (already
+  escaped). Just throw on anything unexpected — the seam logs `"<name> failed"`,
+  applies `sanitizeError`, and returns a generic `Error:` result. Never build
+  `isError` results by hand.
+- Use the closure `vaultPath` from the register param; destructure `ctx` only
+  for `extra` (progress) or `server` (elicitation) when a handler needs it.
+- Text output should be human-readable (grouped, with counts/summaries) — not
+  raw JSON — because LLMs re-parse it. When a result is empty, still return a
+  friendly message (`"No backlinks found for: …"`), not `content: []`.
 
 ---
 

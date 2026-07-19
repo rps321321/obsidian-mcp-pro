@@ -5,7 +5,7 @@ import { defineTool, text, richText } from "../../lib/tool-seam.js";
 import type { BrokenLink } from "../../types.js";
 import {
   buildLinkGraph,
-  displayLinkValue,
+  escapeControlChars,
   untrustedLinkTarget,
 } from "./shared.js";
 
@@ -63,7 +63,7 @@ export function registerFindBrokenLinks(
 
       if (brokenBySource.size === 0) {
         const scopeStr = folder
-          ? ` in folder: ${displayLinkValue(folder)}`
+          ? ` in folder: ${escapeControlChars(folder)}`
           : "";
         return text(`No broken links found${scopeStr}`);
       }
@@ -73,7 +73,7 @@ export function registerFindBrokenLinks(
         totalBroken += brokenLinks.length;
       }
 
-      const scopeStr = folder ? ` (folder: ${displayLinkValue(folder)})` : "";
+      const scopeStr = folder ? ` (folder: ${escapeControlChars(folder)})` : "";
 
       return richText("find_broken_links paths and targets", (b) => {
         b.trusted(`Broken links report${scopeStr}\n`);
@@ -84,7 +84,7 @@ export function registerFindBrokenLinks(
           b.trusted("Source:");
           b.untrusted(
             "find_broken_links source path",
-            displayLinkValue(sourcePath),
+            escapeControlChars(sourcePath),
             "  "
           );
           for (const bl of brokenLinks) {

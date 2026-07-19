@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { prependToNote } from "../../lib/vault.js";
 import { defineTool, text } from "../../lib/tool-seam.js";
-import { displayWriteValue, ensureMdExtension } from "./shared.js";
+import { escapeControlChars, ensureMdExtension } from "./shared.js";
 
 export function registerPrependToNote(
   server: McpServer,
@@ -41,7 +41,9 @@ export function registerPrependToNote(
     async ({ path: notePath, content }) => {
       const resolvedPath = ensureMdExtension(notePath);
       await prependToNote(vaultPath, resolvedPath, content);
-      return text(`Prepended content to '${displayWriteValue(resolvedPath)}'.`);
+      return text(
+        `Prepended content to '${escapeControlChars(resolvedPath)}'.`
+      );
     }
   );
 }

@@ -4,7 +4,7 @@ import { searchInContents, listNotes } from "../../lib/vault.js";
 import { readAllCached } from "../../lib/index-cache.js";
 import { log } from "../../lib/logger.js";
 import { defineTool, richText, text } from "../../lib/tool-seam.js";
-import { displayReadValue } from "./shared.js";
+import { escapeControlChars } from "./shared.js";
 
 export function registerSearchNotesTool(
   server: McpServer,
@@ -75,26 +75,26 @@ export function registerSearchNotesTool(
       });
 
       if (results.length === 0) {
-        return text(`No results found for "${displayReadValue(query)}"`);
+        return text(`No results found for "${escapeControlChars(query)}"`);
       }
 
       return richText("search_notes paths and snippets", (b) => {
         b.trusted(
-          `Found ${results.length} result(s) for "${displayReadValue(query)}":`
+          `Found ${results.length} result(s) for "${escapeControlChars(query)}":`
         );
         b.trusted("");
         for (const result of results) {
           b.trusted("Result path:");
           b.untrusted(
             "search_notes result path",
-            displayReadValue(result.relativePath),
+            escapeControlChars(result.relativePath),
             "  "
           );
           for (const match of result.matches) {
             b.trusted(`  Line ${match.line}:`);
             b.untrusted(
               "search_notes snippet",
-              displayReadValue(match.content),
+              escapeControlChars(match.content),
               "    "
             );
           }

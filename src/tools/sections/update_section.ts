@@ -5,7 +5,7 @@ import { findSection, replaceSectionBody } from "../../lib/sections.js";
 import { defineTool, richText, error } from "../../lib/tool-seam.js";
 import {
   SECTION_EDIT_PAYLOAD_MAX_CHARS,
-  displaySectionValue,
+  escapeControlChars,
   richResolvedHeading,
   assertReadableEditTarget,
   invalidateSectionListCache,
@@ -71,7 +71,7 @@ export function registerUpdateSectionTool(
       invalidateSectionListCache(vaultPath, notePath);
       return richText("update_section resolved heading", (b) => {
         b.trusted(
-          `Updated section in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`
+          `Updated section in ${escapeControlChars(notePath)} (${bodyBytes} bytes of new body)`
         );
         richResolvedHeading(
           b,

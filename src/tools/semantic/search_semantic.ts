@@ -19,7 +19,7 @@ import {
 import { defineTool, text, richText, error } from "../../lib/tool-seam.js";
 import {
   MISSING_PROVIDER_HINT,
-  displaySemanticValue,
+  escapeControlChars,
   semanticPathBlock,
   semanticHeadingBlock,
 } from "./shared.js";
@@ -218,12 +218,12 @@ export function registerSearchSemanticTool(
           canReadStoredEmbeddingNote(vaultPath, notePath),
       });
       if (hits.length === 0) {
-        return text(`No matches for "${displaySemanticValue(query)}".`);
+        return text(`No matches for "${escapeControlChars(query)}".`);
       }
 
       return richText("search_semantic vault text", (b) => {
         b.trusted(
-          `${hits.length} match(es) for "${displaySemanticValue(query)}":`
+          `${hits.length} match(es) for "${escapeControlChars(query)}":`
         );
         b.trusted("");
         for (const hit of hits) {
@@ -236,7 +236,7 @@ export function registerSearchSemanticTool(
           }
           if (includeSnippet) {
             const snippet = hit.text.replace(/\s+/g, " ").trim().slice(0, 200);
-            const clipped = `${displaySemanticValue(snippet)}${hit.text.length > 200 ? "..." : ""}`;
+            const clipped = `${escapeControlChars(snippet)}${hit.text.length > 200 ? "..." : ""}`;
             b.untrusted("semantic snippet", clipped, "    ");
           }
         }
