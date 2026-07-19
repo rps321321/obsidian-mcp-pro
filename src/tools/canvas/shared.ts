@@ -1,35 +1,11 @@
 import { escapeControlChars } from "../../lib/errors.js";
-import {
-  formatUntrustedVaultContent,
-  indentBlock,
-  untrustedVaultContentMeta,
-} from "../../lib/tool-output.js";
 
-function errorResult(text: string) {
-  return { content: [{ type: "text" as const, text }], isError: true as const };
-}
+// The error/result/trust-wrapping recipe (errorResult, untrustedCanvasTextResult,
+// untrustedCanvasBlock) now lives in the tool seam (../../lib/tool-seam.ts):
+// handlers return a ToolResult built via `text` / `richText` / `error`, and the
+// seam owns error sanitization. What remains here is the canvas group's own
+// escaping helper.
 
-function displayCanvasValue(value: string): string {
+export function displayCanvasValue(value: string): string {
   return escapeControlChars(value);
 }
-
-function untrustedCanvasTextResult(label: string, text: string) {
-  return {
-    content: [{
-      type: "text" as const,
-      text,
-      _meta: untrustedVaultContentMeta(label),
-    }],
-  };
-}
-
-function untrustedCanvasBlock(label: string, text: string, indent = ""): string {
-  return indentBlock(formatUntrustedVaultContent(label, text), indent);
-}
-
-export {
-  errorResult,
-  displayCanvasValue,
-  untrustedCanvasTextResult,
-  untrustedCanvasBlock,
-};

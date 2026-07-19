@@ -1,18 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { listCanvasFiles } from "../../lib/vault.js";
-import { sanitizeError } from "../../lib/errors.js";
-import { log } from "../../lib/logger.js";
-import {
-  errorResult,
-  displayCanvasValue,
-  untrustedCanvasTextResult,
-  untrustedCanvasBlock,
-} from "./shared.js";
+import { defineTool, text, richText } from "../../lib/tool-seam.js";
+import { displayCanvasValue } from "./shared.js";
 
-export function registerListCanvases(server: McpServer, vaultPath: string): void {
-  server.registerTool(
-    "list_canvases",
+export function registerListCanvases(
+  server: McpServer,
+  vaultPath: string
+): void {
+  defineTool(
+    server,
+    vaultPath,
     {
+      name: "list_canvases",
       title: "List Canvases",
       description:
         "Enumerate every Obsidian canvas file (.canvas) anywhere in the vault, returning a numbered list of relative paths and the total count. Takes no parameters — scans the entire vault. Use to discover available canvases before calling read_canvas, add_canvas_node, or add_canvas_edge.",
@@ -24,22 +23,20 @@ export function registerListCanvases(server: McpServer, vaultPath: string): void
       inputSchema: {},
     },
     async () => {
-      try {
-        const files = await listCanvasFiles(vaultPath);
+      const files = await listCanvasFiles(vaultPath);
 
-        if (files.length === 0) {
-          return { content: [{ type: "text" as const, text: "No canvas files found in the vault." }] };
-        }
-
-        const formatted = files.map((f, i) => `${i + 1}. ${displayCanvasValue(f)}`).join("\n");
-        return untrustedCanvasTextResult(
-          "list_canvases paths",
-          `Found ${files.length} canvas file(s):\n\n${untrustedCanvasBlock("list_canvases paths", formatted)}`,
-        );
-      } catch (err) {
-        log.error("list_canvases failed", { tool: "list_canvases", err: err as Error });
-        return errorResult(`Error listing canvas files: ${sanitizeError(err)}`);
+      if (files.length === 0) {
+        return text("No canvas files found in the vault.");
       }
-    },
+
+      const formatted = files
+        .map((f, i) => `${i + 1}. ${displayCanvasValue(f)}`)
+        .join("\n");
+      return richText("list_canvases paths", (b) => {
+        b.trusted(`Found ${files.length} canvas file(s):`);
+        b.trusted("");
+        b.untrusted("list_canvases paths", formatted);
+      });
+    }
   );
 }
