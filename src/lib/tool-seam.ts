@@ -107,6 +107,91 @@ export function asError(result: ToolResult): ToolResult {
   return seal({ ...(result as CallToolResult), isError: true });
 }
 
+// Non-text media results. `get_attachment` is the only multi-type tool: it
+// returns a server-authored caption text block followed by exactly one media
+// block. Raw base64 bytes (`image`/`audio`/`blobResource`) are NOT model-readable
+// text, so there is no injection surface and they carry no trust `_meta` — only
+// `untrustedResource`, which surfaces model-readable text, wraps and tags. The
+// block taxonomy is closed; see docs/adr/0001-tool-seam.md.
+
+/** A caption text block plus an `image` content block carrying raw base64 bytes. */
+export function image(
+  caption: string,
+  data: string,
+  mimeType: string
+): ToolResult {
+  return seal({
+    content: [
+      { type: "text", text: caption },
+      { type: "image", data, mimeType },
+    ],
+  });
+}
+
+/** A caption text block plus an `audio` content block carrying raw base64 bytes. */
+export function audio(
+  caption: string,
+  data: string,
+  mimeType: string
+): ToolResult {
+  return seal({
+    content: [
+      { type: "text", text: caption },
+      { type: "audio", data, mimeType },
+    ],
+  });
+}
+
+/**
+ * A caption text block plus a `resource` block carrying raw base64 `blob` bytes
+ * under a `vault://` URI. Like image/audio, blobs are not model-readable text
+ * and carry no trust `_meta`.
+ */
+export function blobResource(
+  caption: string,
+  uri: string,
+  mimeType: string,
+  blob: string
+): ToolResult {
+  return seal({
+    content: [
+      { type: "text", text: caption },
+      { type: "resource", resource: { uri, mimeType, blob } },
+    ],
+  });
+}
+
+/**
+ * A caption text block plus a `resource` block carrying model-readable *text*
+ * (e.g. an SVG served as text/plain for XSS safety). The only non-text
+ * constructor that wraps: the resource text is BEGIN/END-wrapped and the trust
+ * `_meta` is attached at BOTH the resource and the block level, so a client that
+ * surfaces either layer still sees the untrusted tag.
+ */
+export function untrustedResource(
+  caption: string,
+  label: string,
+  uri: string,
+  mimeType: string,
+  body: string
+): ToolResult {
+  return seal({
+    content: [
+      { type: "text", text: caption },
+      {
+        type: "resource",
+        resource: {
+          uri,
+          mimeType,
+          text: formatUntrustedVaultContent(label, body),
+          _meta: untrustedVaultContentMeta(label),
+        },
+        _meta: untrustedVaultContentMeta(label),
+      },
+    ],
+  });
+}
+
 /**
  * Builder for a single text block that interleaves server-authored framing with
  * inline untrusted vault-content sections. `trusted` appends framing verbatim;

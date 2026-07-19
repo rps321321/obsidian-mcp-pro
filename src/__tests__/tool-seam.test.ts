@@ -5,10 +5,14 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   asError,
+  audio,
+  blobResource,
   defineTool,
   error,
+  image,
   richText,
   text,
+  untrustedResource,
   untrustedText,
 } from "../lib/tool-seam.js";
 import {
@@ -85,6 +89,104 @@ describe("tool-seam vocabulary", () => {
     expect(flags(result).isError).toBe(true);
     expect(firstItem(result)._meta).toEqual(
       untrustedVaultContentMeta("expected path")
+    );
+  });
+});
+
+describe("tool-seam media vocabulary", () => {
+  // The media constructors return a caption text block followed by exactly one
+  // media block; read the [0] caption and [1] media block.
+  type Block = {
+    type: string;
+    text?: string;
+    data?: string;
+    mimeType?: string;
+    resource?: {
+      uri?: string;
+      mimeType?: string;
+      blob?: string;
+      text?: string;
+      _meta?: Record<string, unknown>;
+    };
+    _meta?: Record<string, unknown>;
+  };
+  function blocks(result: unknown): Block[] {
+    return (result as { content: Block[] }).content;
+  }
+
+  it("image = caption text block + raw image block, no trust _meta", () => {
+    const [caption, media] = blocks(
+      image("Attached: a.png (image/png, 3 bytes)", "AAA", "image/png")
+    );
+    expect(caption).toEqual({
+      type: "text",
+      text: "Attached: a.png (image/png, 3 bytes)",
+    });
+    expect(media).toEqual({
+      type: "image",
+      data: "AAA",
+      mimeType: "image/png",
+    });
+    expect(media._meta).toBeUndefined();
+  });
+
+  it("audio = caption text block + raw audio block, no trust _meta", () => {
+    const [caption, media] = blocks(
+      audio("Attached: a.mp3 (audio/mpeg, 3 bytes)", "BBB", "audio/mpeg")
+    );
+    expect(caption.text).toBe("Attached: a.mp3 (audio/mpeg, 3 bytes)");
+    expect(media).toEqual({
+      type: "audio",
+      data: "BBB",
+      mimeType: "audio/mpeg",
+    });
+    expect(media._meta).toBeUndefined();
+  });
+
+  it("blobResource = caption + a blob resource under a vault:// uri, no trust _meta", () => {
+    const [caption, media] = blocks(
+      blobResource(
+        "Attached: a.pdf (application/pdf, 3 bytes)",
+        "vault://a.pdf",
+        "application/pdf",
+        "CCC"
+      )
+    );
+    expect(caption.type).toBe("text");
+    expect(media.type).toBe("resource");
+    expect(media.resource).toEqual({
+      uri: "vault://a.pdf",
+      mimeType: "application/pdf",
+      blob: "CCC",
+    });
+    expect(media._meta).toBeUndefined();
+    expect(media.resource!._meta).toBeUndefined();
+  });
+
+  it("untrustedResource wraps the resource text and double-tags trust _meta", () => {
+    const [caption, media] = blocks(
+      untrustedResource(
+        "Attached: a.svg (text)",
+        "get_attachment text",
+        "vault://a.svg",
+        "text/plain",
+        "<svg/>"
+      )
+    );
+    expect(caption.type).toBe("text");
+    expect(media.type).toBe("resource");
+    expect(media.resource!.uri).toBe("vault://a.svg");
+    expect(media.resource!.mimeType).toBe("text/plain");
+    // Resource text is BEGIN/END-wrapped, not raw.
+    expect(media.resource!.text).toBe(
+      formatUntrustedVaultContent("get_attachment text", "<svg/>")
+    );
+    // Trust _meta is attached at BOTH the resource and block level.
+    expect(media.resource!._meta).toEqual(
+      untrustedVaultContentMeta("get_attachment text")
+    );
+    expect(media._meta).toEqual(
+      untrustedVaultContentMeta("get_attachment text")
     );
   });
 });
