@@ -1,9 +1,17 @@
-import { indentBlock, formatUntrustedVaultContent, untrustedVaultContentMeta } from "../../lib/tool-output.js";
+import type { RichTextBuilder } from "../../lib/tool-seam.js";
 import { escapeControlChars } from "../../lib/errors.js";
 import path from "path";
-import { getNoteStats, getVaultRootRealPath, listNotes } from "../../lib/vault.js";
+import {
+  getNoteStats,
+  getVaultRootRealPath,
+  listNotes,
+} from "../../lib/vault.js";
 import { readAllCached } from "../../lib/index-cache.js";
-import { extractWikilinks, extractAliases, normalizeWikilinkTargetPath } from "../../lib/markdown.js";
+import {
+  extractWikilinks,
+  extractAliases,
+  normalizeWikilinkTargetPath,
+} from "../../lib/markdown.js";
 import { log } from "../../lib/logger.js";
 import type { LinkInfo, BrokenLink } from "../../types.js";
 
@@ -70,7 +78,7 @@ function setGraphCache(key: string, entry: CachedGraph): void {
 
 function fingerprintFromMtimes(
   notes: string[],
-  mtimes: ReadonlyMap<string, number>,
+  mtimes: ReadonlyMap<string, number>
 ): string {
   // Accumulate a 32-bit FNV-1a hash over "<sortedPath>|<mtimeMs>;" per note.
   // Catches add+delete churn and mtime-restoring edits that count+max-mtime
@@ -90,7 +98,7 @@ function fingerprintFromMtimes(
 
 async function fingerprintVault(
   vaultPath: string,
-  notes: string[],
+  notes: string[]
 ): Promise<string> {
   const mtimes = new Map<string, number>();
   const sorted = [...notes].sort();
@@ -98,7 +106,9 @@ async function fingerprintVault(
   for (let i = 0; i < sorted.length; i += GRAPH_FINGERPRINT_CONCURRENCY) {
     const slice = sorted.slice(i, i + GRAPH_FINGERPRINT_CONCURRENCY);
     const stats = await Promise.all(
-      slice.map((n) => getNoteStats(vaultPath, n, { realVaultRoot }).catch(() => null)),
+      slice.map((n) =>
+        getNoteStats(vaultPath, n, { realVaultRoot }).catch(() => null)
+      )
     );
     for (let j = 0; j < slice.length; j++) {
       const mtime = stats[j]?.modified?.getTime() ?? 0;
@@ -137,12 +147,17 @@ function normalizeGraphInputPath(input: string): string {
   return normalized.replace(/\/+$/g, "").toLowerCase();
 }
 
-export function resolveGraphInputPath(graph: LinkGraphData, input: string): string | null {
+export function resolveGraphInputPath(
+  graph: LinkGraphData,
+  input: string
+): string | null {
   const normalized = normalizeGraphInputPath(input);
   const basename = normalized.split("/").pop() ?? normalized;
-  return graph.sourceLookup.get(`exact:${normalized}`) ??
+  return (
+    graph.sourceLookup.get(`exact:${normalized}`) ??
     graph.sourceLookup.get(`base:${basename}`) ??
-    null;
+    null
+  );
 }
 
 function sharedPathDepth(a: string, b: string): number {
@@ -179,7 +194,7 @@ function resolveWikilinkWithIndex(
   currentNotePath: string,
   allNotePaths: string[],
   index: NotePathIndex,
-  aliasMap: Map<string, string>,
+  aliasMap: Map<string, string>
 ): string | null {
   const cleanLink = link.split("#")[0]!.split("^")[0]!.trim();
   if (!cleanLink) return null;
@@ -195,8 +210,12 @@ function resolveWikilinkWithIndex(
     for (const notePath of allNotePaths) {
       const withoutExt = notePath.replace(/\.md$/i, "").toLowerCase();
       if (withoutExt.endsWith(normalizedLinkLower)) {
-        const prefix = withoutExt.slice(0, withoutExt.length - normalizedLinkLower.length);
-        if (prefix === "" || prefix.endsWith("/")) suffixCandidates.push(notePath);
+        const prefix = withoutExt.slice(
+          0,
+          withoutExt.length - normalizedLinkLower.length
+        );
+        if (prefix === "" || prefix.endsWith("/"))
+          suffixCandidates.push(notePath);
       }
     }
     if (suffixCandidates.length === 1) return suffixCandidates[0]!;
@@ -215,7 +234,10 @@ function resolveWikilinkWithIndex(
   return aliasMap.get(normalizedLinkLower) ?? null;
 }
 
-function nearestNotePath(currentNotePath: string, candidates: readonly string[]): string {
+function nearestNotePath(
+  currentNotePath: string,
+  candidates: readonly string[]
+): string {
   const sourceDir = path.dirname(currentNotePath).replace(/\\/g, "/");
   return [...candidates].sort((a, b) => {
     const da = sharedPathDepth(sourceDir, path.dirname(a).replace(/\\/g, "/"));
@@ -227,7 +249,7 @@ function nearestNotePath(currentNotePath: string, candidates: readonly string[])
 
 export async function buildLinkGraph(
   vaultPath: string,
-  folder?: string,
+  folder?: string
 ): Promise<LinkGraphData> {
   const cacheKey = `${vaultPath}::${folder ?? ""}`;
   const cached = graphCache.get(cacheKey);
@@ -262,7 +284,7 @@ export async function buildLinkGraph(
     allNotes,
     (note, err) => {
       log.warn("link graph: note read failed", { note, err });
-    },
+    }
   );
 
   // Build alias map first so any note can link to any other by alias
@@ -278,7 +300,10 @@ export async function buildLinkGraph(
       if (!key) continue;
       const prior = aliasMap.get(key);
       if (prior && prior !== notePath) {
-        log.warn("Duplicate alias", { alias: REDACTED_ALIAS_LABEL, notes: [prior, notePath] });
+        log.warn("Duplicate alias", {
+          alias: REDACTED_ALIAS_LABEL,
+          notes: [prior, notePath],
+        });
       }
       aliasMap.set(key, notePath);
     }
@@ -307,7 +332,13 @@ export async function buildLinkGraph(
       const targetBase = link.target.split("#")[0]!.trim();
       if (!targetBase) continue;
 
-      const resolved = resolveWikilinkWithIndex(targetBase, notePath, allNotes, pathIndex, aliasMap);
+      const resolved = resolveWikilinkWithIndex(
+        targetBase,
+        notePath,
+        allNotes,
+        pathIndex,
+        aliasMap
+      );
       details.push({
         target: link.target,
         resolvedPath: resolved,
@@ -359,12 +390,12 @@ export async function buildLinkGraph(
 
 export function findLineWithLink(
   lines: string[],
-  linkTarget: string,
+  linkTarget: string
 ): { line: number; content: string } {
   const targetLower = linkTarget.toLowerCase();
   // Exact match: the character after the link name must be ]], |, or #
   // to avoid prefix false positives (e.g. [[note]] matching [[notebook]]).
-  const exactSuffixes = ["]]" , "|", "#"];
+  const exactSuffixes = ["]]", "|", "#"];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined) continue;
@@ -372,7 +403,10 @@ export function findLineWithLink(
     const idx = lineLower.indexOf(`[[${targetLower}`);
     if (idx !== -1) {
       const afterPos = idx + 2 + targetLower.length;
-      if (afterPos <= lineLower.length && exactSuffixes.some((s) => lineLower.startsWith(s, afterPos))) {
+      if (
+        afterPos <= lineLower.length &&
+        exactSuffixes.some((s) => lineLower.startsWith(s, afterPos))
+      ) {
         return { line: i + 1, content: line.trim() };
       }
     }
@@ -386,7 +420,10 @@ export function findLineWithLink(
     const idx = lineLower.indexOf(`[[${basename}`);
     if (idx !== -1) {
       const afterPos = idx + 2 + basename.length;
-      if (afterPos <= lineLower.length && exactSuffixes.some((s) => lineLower.startsWith(s, afterPos))) {
+      if (
+        afterPos <= lineLower.length &&
+        exactSuffixes.some((s) => lineLower.startsWith(s, afterPos))
+      ) {
         return { line: i + 1, content: line.trim() };
       }
     }
@@ -398,43 +435,32 @@ export function displayLinkValue(value: string): string {
   return escapeControlChars(value);
 }
 
-export function untrustedLinkBlock(label: string, text: string, indent = ""): string {
-  return indentBlock(formatUntrustedVaultContent(label, text), indent);
-}
+// Group render helpers that emit through the seam's richText builder — the seam
+// owns the actual BEGIN/END wrapping and the block-level trust `_meta`. These
+// factor the "Target:" and path-rows shapes shared across the link tools.
 
-export function pushUntrustedLinkPathRows(
-  lines: string[],
-  label: string,
-  rows: readonly string[],
-  indent = "",
-): boolean {
-  if (rows.length === 0) return false;
-  lines.push(untrustedLinkBlock(label, rows.map(displayLinkValue).join("\n"), indent));
-  return true;
-}
-
-export function pushUntrustedLinkTarget(
-  lines: string[],
+/** Append a "Target:" label line plus the target as a wrapped untrusted block. */
+export function untrustedLinkTarget(
+  b: RichTextBuilder,
   label: string,
   target: string,
-  indent: string,
+  indent: string
 ): void {
-  lines.push(`${indent}Target:`);
-  lines.push(untrustedLinkBlock(label, displayLinkValue(target), `${indent}  `));
+  b.trusted(`${indent}Target:`);
+  b.untrusted(label, displayLinkValue(target), `${indent}  `);
 }
 
-export function textWithUntrustedMeta(text: string, label: string) {
-  return {
-    content: [{
-      type: "text" as const,
-      text,
-      _meta: untrustedVaultContentMeta(label),
-    }],
-  };
-}
-
-export function errorResult(text: string) {
-  return { content: [{ type: "text" as const, text }], isError: true as const };
+/** Append `rows` as one wrapped untrusted block, or nothing when empty. Emitting
+ *  no untrusted section is what keeps richText from attaching the block-level
+ *  `_meta`, so an all-empty result stays untagged. */
+export function untrustedLinkPathRows(
+  b: RichTextBuilder,
+  label: string,
+  rows: readonly string[],
+  indent = ""
+): void {
+  if (rows.length === 0) return;
+  b.untrusted(label, rows.map(displayLinkValue).join("\n"), indent);
 }
 
 export { resolveWikilinkWithIndex };

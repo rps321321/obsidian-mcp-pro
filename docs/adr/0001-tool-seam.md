@@ -1,6 +1,6 @@
 # ADR 0001: One deep tool seam behind every MCP tool
 
-- Status: Accepted (read group migrated as the pattern-setter, canvas group migrated next; 7 groups to follow)
+- Status: Accepted (read group migrated as the pattern-setter, then canvas and links; 6 groups to follow)
 - Date: 2026-07-18
 
 ## Context
@@ -93,9 +93,17 @@ Non-text blocks (to be added when the attachments/canvas groups migrate;
   unexpected failure and asserts the generic sanitized result.
 - Output is **byte-preserving**. The seam reuses the existing `tool-output.ts`
   primitives, so every `regression-tools-*` and `handlers/*` interface test
-  stays green unchanged. One intentional exception is recorded: the generic
-  thrown-error prefix replaces per-tool verbs (thrown path only; no test pins
-  the wording).
+  stays green unchanged. Two intentional exceptions are recorded:
+  1. The generic thrown-error prefix replaces per-tool verbs (thrown path only;
+     no test pins the wording).
+  2. `get_backlinks` (links group) no longer prefixes each context block with a
+     decorative `→ ` on the BEGIN line. The seam wraps untrusted content as
+     whole indented blocks, and a trusted lead-in on the same line as a BEGIN
+     marker is not expressible without widening the frozen `richText`
+     vocabulary — not worth it for one caller's arrow. The context stays
+     BEGIN/END-wrapped with the same `get_backlinks context` label and the
+     block-level trust `_meta` is unchanged, so the delta is purely visual with
+     no trust impact. No test pins the arrow.
 - `docs/TOOL_AUTHORING.md §4` is superseded: handlers no longer write the recipe.
   The per-tool `title`/`description`/`annotations`/`inputSchema` surface is
   unchanged.
@@ -129,13 +137,19 @@ compiler will not catch mis-threaded `extra`. Verify that plumbing at runtime
 
 ## Migration
 
-Read group first (pattern-setter), canvas group next. The canvas group is all
-text, so it migrated using only the existing `text`/`richText`/`error`
+Read group first (pattern-setter), then canvas, then links. The canvas group is
+all text, so it migrated using only the existing `text`/`richText`/`error`
 constructors and needed no seam changes; its conversion routes
 `add_canvas_edge`'s unexpected-error path through the seam's sanitize boundary
-(see Consequences). Remaining 7 groups are file-disjoint and convert
-independently, deleting each group's duplicated recipe helpers as it goes and
-extending the seam with the non-text block constructors when the attachments
+(see Consequences). The links group is also all text; its shared multi-tool
+render helpers (`untrustedLinkTarget`, `untrustedLinkPathRows`) were rewritten to
+emit through the `richText` builder rather than a `lines[]` array — the same
+builder-passing idiom as canvas's `renderCanvasSummary(b, …)`. `find_orphans`'
+conditional block-level `_meta` now falls out of `richText`'s `hasUntrusted` for
+free, deleting its bookkeeping; the one output delta is `get_backlinks`' dropped
+context arrow (see Consequences). Remaining 6 groups are file-disjoint and
+convert independently, deleting each group's duplicated recipe helpers as it goes
+and extending the seam with the non-text block constructors when the attachments
 group migrates. Collapsing the 9 `display*Value` aliases to a single
 `escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4` is
 rewritten last, once the pattern is proven across all groups.
