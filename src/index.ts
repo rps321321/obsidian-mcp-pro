@@ -3,17 +3,23 @@
 import { readFileSync, realpathSync } from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  McpServer,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
 import { listNotes, readNote } from "./lib/vault.js";
 import { describePermissions } from "./lib/permissions.js";
-import { flushAllCachesAsync, readAllCached } from "./lib/index-cache.js";
+import { readAllCached } from "./lib/index-cache.js";
 import { extractTags } from "./lib/markdown.js";
 import { log, configureLogger } from "./lib/logger.js";
 import { escapeControlChars, sanitizeError } from "./lib/errors.js";
-import { formatUntrustedVaultContent, untrustedVaultContentMeta } from "./lib/tool-output.js";
+import {
+  formatUntrustedVaultContent,
+  untrustedVaultContentMeta,
+} from "./lib/tool-output.js";
 import { formatMomentDate } from "./lib/dates.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
@@ -63,11 +69,13 @@ export function parseArgs(argv: string[]): CliOptions {
       opts.command = "version";
     } else if (a === "--transport" && argv[i + 1]) {
       const v = argv[++i]!;
-      if (v !== "stdio" && v !== "http") throw new Error(`--transport must be stdio or http (got "${v}")`);
+      if (v !== "stdio" && v !== "http")
+        throw new Error(`--transport must be stdio or http (got "${v}")`);
       opts.transport = v;
     } else if (a.startsWith("--transport=")) {
       const v = a.slice("--transport=".length);
-      if (v !== "stdio" && v !== "http") throw new Error(`--transport must be stdio or http (got "${v}")`);
+      if (v !== "stdio" && v !== "http")
+        throw new Error(`--transport must be stdio or http (got "${v}")`);
       opts.transport = v;
     } else if (a === "--port" && argv[i + 1]) {
       opts.port = Number(argv[++i]!);
@@ -78,22 +86,32 @@ export function parseArgs(argv: string[]): CliOptions {
     } else if (a.startsWith("--host=")) {
       opts.host = a.slice("--host=".length);
     } else if (a === "--token" || a.startsWith("--token=")) {
-      throw new Error("--token was removed because command-line secrets can leak. Set MCP_HTTP_TOKEN instead.");
+      throw new Error(
+        "--token was removed because command-line secrets can leak. Set MCP_HTTP_TOKEN instead."
+      );
     } else if (a === "--allow-origin" && argv[i + 1]) {
-      opts.allowedOrigins = argv[++i]!.split(",").map((s) => s.trim()).filter(Boolean);
+      opts.allowedOrigins = argv[++i]!.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     } else if (a.startsWith("--allow-origin=")) {
-      opts.allowedOrigins = a.slice("--allow-origin=".length).split(",").map((s) => s.trim()).filter(Boolean);
+      opts.allowedOrigins = a
+        .slice("--allow-origin=".length)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     } else if (a === "--rate-limit" && argv[i + 1]) {
       opts.rateLimitPerMinute = Number(argv[++i]!);
     } else if (a.startsWith("--rate-limit=")) {
       opts.rateLimitPerMinute = Number(a.slice("--rate-limit=".length));
     } else if (a === "--client" && argv[i + 1]) {
       const v = argv[++i]!;
-      if (v !== "claude" && v !== "cursor") throw new Error(`--client must be claude or cursor`);
+      if (v !== "claude" && v !== "cursor")
+        throw new Error(`--client must be claude or cursor`);
       opts.installClient = v;
     } else if (a.startsWith("--client=")) {
       const v = a.slice("--client=".length);
-      if (v !== "claude" && v !== "cursor") throw new Error(`--client must be claude or cursor`);
+      if (v !== "claude" && v !== "cursor")
+        throw new Error(`--client must be claude or cursor`);
       opts.installClient = v;
     } else if (a === "--vault" && argv[i + 1]) {
       opts.installVaultPath = argv[++i]!;
@@ -174,9 +192,9 @@ function readPackageVersion(): string {
     // build/index.js -> package.json is one level up (project root)
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, "..", "package.json");
-    const pkg = JSON.parse(
-      readFileSync(pkgPath, "utf-8"),
-    ) as { version?: string };
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      version?: string;
+    };
     return pkg.version ?? "0.0.0";
   } catch {
     return "0.0.0";
@@ -198,10 +216,11 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       // server hosts callable starter templates (registered via
       // `registerPrompts`).
       capabilities: { logging: {}, prompts: { listChanged: false } },
-    },
+    }
   );
 
-  const noVaultError = "No Obsidian vault configured. Set OBSIDIAN_VAULT_PATH environment variable.";
+  const noVaultError =
+    "No Obsidian vault configured. Set OBSIDIAN_VAULT_PATH environment variable.";
 
   // --- MCP Resources ---
 
@@ -212,7 +231,9 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
     async (uri: URL, params: Variables) => {
       if (!vaultPath) throw new Error(noVaultError);
       const rawPath = params.path;
-      const notePath = Array.isArray(rawPath) ? rawPath.join("/") : (rawPath ?? "");
+      const notePath = Array.isArray(rawPath)
+        ? rawPath.join("/")
+        : (rawPath ?? "");
 
       if (!notePath) {
         throw new Error("Note path is required");
@@ -232,7 +253,9 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
           ],
         };
       } catch (err) {
-        throw new Error(`Failed to read note: ${sanitizeError(err)}`, { cause: err });
+        throw new Error(`Failed to read note: ${sanitizeError(err)}`, {
+          cause: err,
+        });
       }
     }
   );
@@ -303,7 +326,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
       // same thing — clients need a proper error so they can branch on it.
       const pathLabel = "daily note resource expected path";
       throw new Error(
-        `No daily note found for today.\n${formatUntrustedVaultContent(pathLabel, displayResourceValue(notePath))}`,
+        `No daily note found for today.\n${formatUntrustedVaultContent(pathLabel, displayResourceValue(notePath))}`
       );
     }
   });
@@ -327,7 +350,9 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
   registerSemanticTools(server, vaultForTools);
   registerPrompts(server);
   if (!vaultPath) {
-    log.warn(`Tools registered but vault unconfigured — calls will return errors`);
+    log.warn(
+      `Tools registered but vault unconfigured — calls will return errors`
+    );
   }
 
   return server;
@@ -420,7 +445,11 @@ async function main(): Promise<void> {
   });
 }
 
-export { startHttpServer, type HttpServerHandle, type HttpServerOptions } from "./http-server.js";
+export {
+  startHttpServer,
+  type HttpServerHandle,
+  type HttpServerOptions,
+} from "./http-server.js";
 
 // Only auto-run as CLI when this file is the entrypoint. Library consumers
 // (e.g. the Obsidian plugin wrapper) import named exports and drive the
@@ -458,29 +487,6 @@ function installProcessErrorHandlers(): void {
     log.error("Uncaught exception", { err });
     process.exit(1);
   });
-
-  // Flush the index cache to disk on graceful shutdown so the next run can
-  // skip re-reading every note. `beforeExit` is the right hook for clean
-  // exits; SIGINT/SIGTERM handlers re-raise after the flush so the process
-  // still terminates with the expected exit code. We do NOT flush from
-  // `uncaughtException` — the process is in undefined state and writing
-  // could corrupt the snapshot.
-  let flushed = false;
-  const flush = async (): Promise<void> => {
-    if (flushed) return;
-    flushed = true;
-    try { await flushAllCachesAsync(); } catch { /* best-effort */ }
-  };
-  process.on("beforeExit", () => { void flush(); });
-  for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.on(sig, () => {
-      void flush().finally(() => {
-      // Restore default behavior so the second signal terminates promptly.
-        process.removeAllListeners(sig);
-        process.kill(process.pid, sig);
-      });
-    });
-  }
 }
 
 if (isCliEntry()) {
