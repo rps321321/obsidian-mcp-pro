@@ -65,10 +65,7 @@ export function registerAddCanvasEdge(
           ),
       },
     },
-    async (
-      { canvasPath, fromNode, toNode, label, fromSide, toSide },
-      { vaultPath }
-    ) => {
+    async ({ canvasPath, fromNode, toNode, label, fromSide, toSide }) => {
       // BUG-15: Reject self-loops early before touching the canvas file.
       if (fromNode === toNode) {
         return error(
@@ -125,10 +122,10 @@ export function registerAddCanvasEdge(
         // Expected validation failures carry handler-authored (control-char
         // escaped) messages and pass through verbatim. Anything else is
         // unexpected and re-thrown to the seam's single sanitize point.
-        if (err instanceof MissingNodeError) {
-          return error(`Error: ${err.message}`);
-        }
-        if (err instanceof DuplicateEdgeError) {
+        if (
+          err instanceof MissingNodeError ||
+          err instanceof DuplicateEdgeError
+        ) {
           return error(`Error: ${err.message}`);
         }
         throw err;

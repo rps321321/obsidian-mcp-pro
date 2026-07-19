@@ -116,10 +116,7 @@ export function registerAddCanvasNode(
           ),
       },
     },
-    async (
-      { canvasPath, type, content, x, y, width, height, color },
-      { vaultPath }
-    ) => {
+    async ({ canvasPath, type, content, x, y, width, height, color }) => {
       const id = randomUUID();
       // Coordinate defaulting happens inside the file lock so that the
       // "existing node count" used for stagger reflects the exact state we

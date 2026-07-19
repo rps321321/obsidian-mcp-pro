@@ -219,7 +219,7 @@ export function registerReadCanvas(server: McpServer, vaultPath: string): void {
           ),
       },
     },
-    async ({ path: canvasPath }, { vaultPath }) => {
+    async ({ path: canvasPath }) => {
       const data = await readCanvasDataCached(vaultPath, canvasPath);
       return richText("read_canvas summary", (b) =>
         renderCanvasSummary(b, canvasPath, data)
