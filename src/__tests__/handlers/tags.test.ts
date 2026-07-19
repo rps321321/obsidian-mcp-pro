@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
-import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
+import {
+  createTestEnv,
+  textContent,
+  isError,
+  type TestEnv,
+} from "./harness.js";
 import { setMaxNoteFileBytesForTests } from "../../lib/vault.js";
 
 let env: TestEnv;
@@ -17,7 +22,10 @@ afterEach(async () => {
 
 describe("tag handlers — list_tags", () => {
   it("enumerates unique tags across the vault with counts", async () => {
-    const result = await env.client.callTool({ name: "list_tags", arguments: {} });
+    const result = await env.client.callTool({
+      name: "list_tags",
+      arguments: {},
+    });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
@@ -27,7 +35,12 @@ describe("tag handlers — list_tags", () => {
     expect(text).toMatch(/#review/);
     expect(text).toMatch(/#lonely/);
     expect(text).toMatch(/#nested\/archive/);
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "list_tags values"
+    );
   });
 
   it("escapes frontmatter tag labels in list output", async () => {
@@ -52,7 +65,12 @@ describe("tag handlers — list_tags", () => {
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: list_tags values]");
     expect(text).toContain("#dirty\\x7ftag (1 note)");
     expect(text).not.toContain(dirtyTag);
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "list_tags values"
+    );
   });
 
   it("ignores numeric-only frontmatter tags in list and search", async () => {
@@ -93,7 +111,9 @@ describe("tag handlers — list_tags", () => {
       arguments: {
         path: "whitespace-frontmatter-tag.md",
         content: "Body.",
-        frontmatter: JSON.stringify({ tags: ["project alpha", "project-alpha"] }),
+        frontmatter: JSON.stringify({
+          tags: ["project alpha", "project-alpha"],
+        }),
       },
     });
 
@@ -120,7 +140,10 @@ describe("tag handlers — list_tags", () => {
   });
 
   it("sorts by count desc by default (review appears in 2 notes)", async () => {
-    const result = await env.client.callTool({ name: "list_tags", arguments: {} });
+    const result = await env.client.callTool({
+      name: "list_tags",
+      arguments: {},
+    });
     const text = textContent(result);
     // `#review` appears in note-a AND note-b → 2 notes
     expect(text).toMatch(/#review \(2 notes\)/);
@@ -154,14 +177,27 @@ describe("tag handlers — search_by_tag", () => {
     });
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    const pathMarkers = [...text.matchAll(/\[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path\]/g)];
+    const pathMarkers = [
+      ...text.matchAll(
+        /\[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path\]/g
+      ),
+    ];
     expect(pathMarkers).toHaveLength(2);
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-b.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-b.md]"
+    );
     expect(text).not.toContain("orphan.md");
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "search_by_tag paths"
+    );
   });
 
   it("accepts tags with or without a leading '#'", async () => {
@@ -241,17 +277,30 @@ describe("tag handlers — search_by_tag", () => {
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     // The body of note-b starts with its frontmatter delimiter in a preview.
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path]"
+    );
     expect(text).toContain("note-a.md");
     expect(text).toContain("note-b.md");
     // Frontmatter is now stripped from previews, so verify body content appears instead.
     expect(text).toMatch(/Note A|Note B/);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag preview]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag preview]"
+    );
     expect(text).toContain("# Note A\\n\\nLinks to [[note-b]]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: tag preview: note-a.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: note-a.md]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: tag preview: note-a.md]"
+    );
     expect(text).not.toContain("# Note A\n\nLinks to [[note-b]]");
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "search_by_tag paths and previews"
+    );
   });
 
   it("honors maxResults cap", async () => {
@@ -281,9 +330,13 @@ describe("tag handlers — search_by_tag", () => {
 
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path]"
+    );
     expect(text).toContain("fresh-tag.md");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: fresh-tag.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_by_tag result path: fresh-tag.md]"
+    );
   });
 });
 
@@ -334,7 +387,11 @@ describe("tag handlers — rename_tag", () => {
 
     const result = await env.client.callTool({
       name: "rename_tag",
-      arguments: { oldName: "1a", newName: "2026-goals", confirmTag: "2026-goals" },
+      arguments: {
+        oldName: "1a",
+        newName: "2026-goals",
+        confirmTag: "2026-goals",
+      },
     });
     expect(isError(result)).toBe(false);
     expect(textContent(result)).toMatch(/Rewrote #1a/);
@@ -382,14 +439,24 @@ describe("tag handlers — rename_tag", () => {
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
     expect(text).toContain("Skipped due to errors: 1");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note]"
+    );
     expect(text).toContain("dirty\\x7ffailed.md: Note file exceeds size cap");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note: dirty\\x7ffailed.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: rename_tag failed note: dirty\\x7ffailed.md]"
+    );
     expect(text).not.toContain(dirtyPath);
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
-    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("rename_tag failed notes");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "rename_tag failed notes"
+    );
 
-    await expect(fs.readFile(path.join(env.vaultDir, "ok.md"), "utf-8")).resolves.toBe("#draft\n");
+    await expect(
+      fs.readFile(path.join(env.vaultDir, "ok.md"), "utf-8")
+    ).resolves.toBe("#draft\n");
   });
 
   it("aborts rename_tag when elicitation confirms the wrong tag", async () => {
@@ -408,7 +475,9 @@ describe("tag handlers — rename_tag", () => {
     });
 
     expect(isError(result)).toBe(true);
-    expect(textContent(result)).toContain("Confirmation tag did not match #wip");
+    expect(textContent(result)).toContain(
+      "Confirmation tag did not match #wip"
+    );
     const search = await env.client.callTool({
       name: "search_by_tag",
       arguments: { tag: "draft" },

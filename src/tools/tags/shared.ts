@@ -1,5 +1,4 @@
 import { escapeControlChars } from "../../lib/errors.js";
-import { formatUntrustedVaultContent, indentBlock } from "../../lib/tool-output.js";
 import { extractTags } from "../../lib/markdown.js";
 
 import type { TagInfo } from "../../types.js";
@@ -20,22 +19,14 @@ export interface TagIndexCacheEntry {
 
 export const tagIndexCache = new Map<string, TagIndexCacheEntry>();
 
-export function errorResult(text: string) {
-  return { content: [{ type: "text" as const, text }], isError: true as const };
-}
-
 export function displayTagValue(value: string): string {
   return escapeControlChars(value);
-}
-
-export function untrustedTagBlock(label: string, text: string, indent = ""): string {
-  return indentBlock(formatUntrustedVaultContent(label, text), indent);
 }
 
 export function tagIndexFingerprint(
   notes: readonly string[],
   contents: ReadonlyMap<string, string>,
-  mtimes: ReadonlyMap<string, number>,
+  mtimes: ReadonlyMap<string, number>
 ): string {
   return notes
     .map((notePath) => {
@@ -49,7 +40,7 @@ export function getCachedTagIndex(
   vaultPath: string,
   notes: readonly string[],
   contents: ReadonlyMap<string, string>,
-  mtimes: ReadonlyMap<string, number>,
+  mtimes: ReadonlyMap<string, number>
 ): TagIndexCacheEntry {
   const fingerprint = tagIndexFingerprint(notes, contents, mtimes);
   const cached = tagIndexCache.get(vaultPath);
@@ -82,11 +73,13 @@ export function getCachedTagIndex(
     }
   }
 
-  const tagInfos: TagInfo[] = Array.from(tagMap.values()).map(({ tag, files }) => ({
-    tag,
-    count: files.size,
-    files: [...files],
-  }));
+  const tagInfos: TagInfo[] = Array.from(tagMap.values()).map(
+    ({ tag, files }) => ({
+      tag,
+      count: files.size,
+      files: [...files],
+    })
+  );
   const tagToFiles = new Map<string, string[]>();
   for (const info of tagInfos) tagToFiles.set(info.tag, info.files);
 
