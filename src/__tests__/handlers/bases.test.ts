@@ -81,6 +81,9 @@ describe("base handlers — read_base", () => {
     expect(text).not.toContain("Main\nView");
     expect(text).not.toContain("table\tview");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "read_base document",
+    );
   });
 });
 
@@ -107,6 +110,9 @@ describe("base handlers - list_bases", () => {
     expect(text).toContain("boards/roadmap.base");
     expect(text).toContain("tasks.base");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "list_bases paths",
+    );
   });
 });
 
@@ -193,6 +199,9 @@ describe("base handlers — query_base", () => {
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: query_base result paths]");
     expect(text).toContain("- note.md");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "query_base paths",
+    );
   });
 
   it("escapes control characters in view labels and frontmatter keys", async () => {
@@ -240,6 +249,9 @@ describe("base handlers — query_base", () => {
     expect(text).not.toContain("bad\tkey");
     expect(text).not.toContain("dirty\nvalue");
     expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "query_base paths and frontmatter",
+    );
   });
 
   it("fails closed for missing views instead of returning base-level rows", async () => {
