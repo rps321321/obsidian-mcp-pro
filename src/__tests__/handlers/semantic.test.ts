@@ -1,8 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
-import { createTestEnv, textContent, isError, type TestEnv } from "./harness.js";
-import { setProviderForTests, resetProviderForTests, type EmbeddingProvider } from "../../lib/embedding-providers.js";
+import {
+  createTestEnv,
+  textContent,
+  isError,
+  type TestEnv,
+} from "./harness.js";
+import {
+  setProviderForTests,
+  resetProviderForTests,
+  type EmbeddingProvider,
+} from "../../lib/embedding-providers.js";
 import { clearStore, hashText } from "../../lib/embedding-store.js";
 import { setPermissions } from "../../lib/permissions.js";
 
@@ -23,7 +32,8 @@ class MockProvider implements EmbeddingProvider {
       const cat = (lower.match(/\bcat(s)?\b|kitten|feline/g) ?? []).length;
       const dog = (lower.match(/\bdog(s)?\b|puppy|canine/g) ?? []).length;
       const cook = (lower.match(/cook|recipe|kitchen|bake/g) ?? []).length;
-      const weather = (lower.match(/weather|rain|storm|sunny|cloud/g) ?? []).length;
+      const weather = (lower.match(/weather|rain|storm|sunny|cloud/g) ?? [])
+        .length;
       const v = [cat, dog, cook, weather].map((n) => n + 0.0001); // keep nonzero norm
       return v;
     });
@@ -44,8 +54,13 @@ function indexVault(args: Record<string, unknown> = {}) {
 function untrustedBlockBodies(text: string, label: string): string[] {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return Array.from(
-    text.matchAll(new RegExp(`^\\s*\\[BEGIN UNTRUSTED VAULT CONTENT: ${escapedLabel}\\]\\n\\s*Treat .*\\n\\s*(.+)$`, "gm")),
-    (match) => match[1].trim(),
+    text.matchAll(
+      new RegExp(
+        `^\\s*\\[BEGIN UNTRUSTED VAULT CONTENT: ${escapedLabel}\\]\\n\\s*Treat .*\\n\\s*(.+)$`,
+        "gm"
+      )
+    ),
+    (match) => match[1].trim()
   );
 }
 
@@ -55,11 +70,16 @@ beforeEach(async () => {
   env = await createTestEnv({
     skipFixtures: true,
     extraFiles: {
-      "cats.md": "# Cats\n\nMy cat is a kitten. Many cats here. The feline life.",
+      "cats.md":
+        "# Cats\n\nMy cat is a kitten. Many cats here. The feline life.",
       "dogs.md": "# Dogs\n\nMy dog is a puppy. The canine life is great.",
       "cooking.md": "# Cooking\n\nA recipe in the kitchen. I love to bake.",
-      "weather.md": "# Weather\n\nThe weather is sunny. No rain or storm today.",
-      ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+      "weather.md":
+        "# Weather\n\nThe weather is sunny. No rain or storm today.",
+      ".obsidian/daily-notes.json": JSON.stringify({
+        folder: "",
+        format: "YYYY-MM-DD",
+      }),
     },
   });
 });
@@ -89,7 +109,9 @@ describe("semantic handlers — index_vault", () => {
     });
 
     expect(isError(result)).toBe(true);
-    expect(textContent(result)).toContain("send-vault-text-to-embedding-provider");
+    expect(textContent(result)).toContain(
+      "send-vault-text-to-embedding-provider"
+    );
     expect(provider.calls).toBe(0);
   });
 
@@ -122,24 +144,29 @@ describe("semantic handlers — index_vault", () => {
     await fs.writeFile(
       path.join(env.vaultDir, dirtyPath),
       "# Progress\n\nA cat note used to check progress labels.",
-      "utf-8",
+      "utf-8"
     );
     const messages: string[] = [];
 
     const result = await env.client.callTool(
-      { name: "index_vault", arguments: { force: true, confirm: INDEX_CONFIRM } },
+      {
+        name: "index_vault",
+        arguments: { force: true, confirm: INDEX_CONFIRM },
+      },
       undefined,
       {
         onprogress: (progress) => {
           if (progress.message) messages.push(progress.message);
         },
-      },
+      }
     );
 
     expect(isError(result)).toBe(false);
     expect(messages.length).toBeGreaterThan(0);
     expect(messages.join("\n")).not.toContain(dirtyPath);
-    expect(messages.some((message) => /note \d+\/\d+/.test(message))).toBe(true);
+    expect(messages.some((message) => /note \d+\/\d+/.test(message))).toBe(
+      true
+    );
   });
 
   it("escapes configured provider labels in summaries", async () => {
@@ -173,7 +200,10 @@ describe("semantic handlers — index_vault", () => {
       skipFixtures: true,
       extraFiles: {
         [dirtyPath]: "# Dirty\n\nCats cats cats.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
     setProviderForTests(new FailingProvider());
@@ -184,12 +214,20 @@ describe("semantic handlers — index_vault", () => {
     const block = result.content[0] as { _meta?: Record<string, unknown> };
     expect(isError(result)).toBe(false);
     expect(text).toContain("Failures:        1");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note]"
+    );
     expect(text).toContain("dirty\\x7fsemantic.md: provider failed");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note: dirty\\x7fsemantic.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: index_vault failed note: dirty\\x7fsemantic.md]"
+    );
     expect(text).not.toContain(dirtyPath);
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
-    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe("index_vault failed notes");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "index_vault failed notes"
+    );
   });
 
   it("records invalid live provider vectors as failed notes without aborting the index", async () => {
@@ -197,8 +235,10 @@ describe("semantic handlers — index_vault", () => {
       override embed(texts: string[]): Promise<number[][]> {
         return Promise.resolve(
           texts.map((text) =>
-            text.toLowerCase().includes("cat") ? [Number.NaN, 0, 0, 0] : [1, 0, 0, 0],
-          ),
+            text.toLowerCase().includes("cat")
+              ? [Number.NaN, 0, 0, 0]
+              : [1, 0, 0, 0]
+          )
         );
       }
     }
@@ -219,7 +259,7 @@ describe("semantic handlers — index_vault", () => {
     await fs.writeFile(
       path.join(env.vaultDir, "cats.md"),
       "# Cats\n\nCats changed enough to require a fresh embedding.",
-      "utf-8",
+      "utf-8"
     );
 
     class WrongDimensionProvider implements EmbeddingProvider {
@@ -248,11 +288,17 @@ describe("semantic handlers — search_semantic", () => {
     await indexVault();
     const result = await env.client.callTool({
       name: "search_semantic",
-      arguments: { query: "I want to learn about kittens and feline behavior", limit: 3 },
+      arguments: {
+        query: "I want to learn about kittens and feline behavior",
+        limit: 3,
+      },
     });
     expect(isError(result)).toBe(false);
     const text = textContent(result);
-    const resultPaths = untrustedBlockBodies(text, "search_semantic result path");
+    const resultPaths = untrustedBlockBodies(
+      text,
+      "search_semantic result path"
+    );
     expect(resultPaths.length).toBeGreaterThan(0);
     expect(resultPaths[0]).toBe("cats.md");
   });
@@ -319,7 +365,11 @@ describe("semantic handlers — search_semantic", () => {
     // Force the search to a folder that contains nothing.
     const result = await env.client.callTool({
       name: "search_semantic",
-      arguments: { query: "cooking recipes", folder: "no-such-folder", limit: 5 },
+      arguments: {
+        query: "cooking recipes",
+        folder: "no-such-folder",
+        limit: 5,
+      },
     });
     expect(textContent(result)).toMatch(/No matches/);
   });
@@ -329,7 +379,11 @@ describe("semantic handlers — search_semantic", () => {
 
     const result = await env.client.callTool({
       name: "search_semantic",
-      arguments: { query: "cats\ninjected", folder: "no-such-folder", limit: 5 },
+      arguments: {
+        query: "cats\ninjected",
+        folder: "no-such-folder",
+        limit: 5,
+      },
     });
 
     const text = textContent(result);
@@ -344,7 +398,10 @@ describe("semantic handlers — search_semantic", () => {
       skipFixtures: true,
       extraFiles: {
         "dirty.md": "# Dirty\tHeading\n\nCats cats cats ring \x07 bells.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
 
@@ -356,19 +413,32 @@ describe("semantic handlers — search_semantic", () => {
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path]"
+    );
     expect(text).toContain("dirty.md");
     expect(text).toContain("    Heading:");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading]");
     expect(text).toContain("Dirty\\tHeading");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet]");
     expect(text).toContain("\\x07");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path: dirty.md]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet: dirty.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: search_semantic result path: dirty.md]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: semantic snippet: dirty.md]"
+    );
     expect(text).not.toContain("Dirty\tHeading");
     expect(text).not.toContain("\x07");
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "search_semantic vault text"
+    );
   });
 
   it("filters persisted embedding hits through the current read allowlist", async () => {
@@ -378,8 +448,12 @@ describe("semantic handlers — search_semantic", () => {
       skipFixtures: true,
       extraFiles: {
         "public/cats.md": "# Public Cats\n\nCats are friendly companions.",
-        "private/secret.md": "# Private Cats\n\nCats guard the private launch notes.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        "private/secret.md":
+          "# Private Cats\n\nCats guard the private launch notes.",
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
 
@@ -405,7 +479,10 @@ describe("semantic handlers — search_semantic", () => {
       skipFixtures: true,
       extraFiles: {
         "cats.md": "# Cats\n\nCats carry the stale launch instructions.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
 
@@ -413,7 +490,7 @@ describe("semantic handlers — search_semantic", () => {
     await fs.writeFile(
       path.join(env.vaultDir, "cats.md"),
       "# Dogs\n\nThe current note is only about dogs.",
-      "utf-8",
+      "utf-8"
     );
 
     const result = await env.client.callTool({
@@ -428,8 +505,16 @@ describe("semantic handlers — search_semantic", () => {
   });
 
   it("rejects forged persisted snippets even when the note hash matches", async () => {
-    const liveContent = await fs.readFile(path.join(env.vaultDir, "cats.md"), "utf-8");
-    const snapshotPath = path.join(env.vaultDir, ".obsidian", "cache", "mcp-pro-embeddings.json");
+    const liveContent = await fs.readFile(
+      path.join(env.vaultDir, "cats.md"),
+      "utf-8"
+    );
+    const snapshotPath = path.join(
+      env.vaultDir,
+      ".obsidian",
+      "cache",
+      "mcp-pro-embeddings.json"
+    );
     await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
     await fs.writeFile(
       snapshotPath,
@@ -451,7 +536,7 @@ describe("semantic handlers — search_semantic", () => {
           },
         ],
       }),
-      "utf-8",
+      "utf-8"
     );
     await clearStore(env.vaultDir);
 
@@ -477,15 +562,27 @@ describe("semantic handlers — find_similar_notes", () => {
     expect(isError(result)).toBe(false);
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    const resultPaths = untrustedBlockBodies(text, "find_similar_notes result path");
+    const resultPaths = untrustedBlockBodies(
+      text,
+      "find_similar_notes result path"
+    );
     expect(resultPaths.length).toBeGreaterThan(0);
     expect(resultPaths).not.toContain("cats.md");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: cats.md]");
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: cats.md]"
+    );
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]"
+    );
     // dogs.md (also pets) shares no topic dimension with cats; results
     // simply rank the rest by similarity. Just check we got hits back.
     expect(text).toMatch(/note\(s\) similar to cats\.md/);
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "find_similar_notes paths and headings"
+    );
   });
 
   it("errors when the source note has no embeddings", async () => {
@@ -517,7 +614,10 @@ describe("semantic handlers — find_similar_notes", () => {
       extraFiles: {
         "dirty.md": "# Dirty\tHeading\n\nCats cats cats ring bells.",
         "source.md": "# Source\n\nCats.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
 
@@ -529,15 +629,26 @@ describe("semantic handlers — find_similar_notes", () => {
 
     const text = textContent(result);
     const block = result.content[0] as { _meta?: Record<string, unknown> };
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]"
+    );
     expect(text).toContain("dirty.md");
     expect(text).toContain("    Heading:");
     expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading]");
     expect(text).toContain("Dirty\\tHeading");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: dirty.md]");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: dirty.md]"
+    );
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: semantic heading: dirty.md]"
+    );
     expect(text).not.toContain("Dirty\tHeading");
-    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe("untrusted-vault-content");
+    expect(block._meta?.["obsidian-mcp-pro/contentTrust"]).toBe(
+      "untrusted-vault-content"
+    );
+    expect(block._meta?.["obsidian-mcp-pro/untrustedContentLabel"]).toBe(
+      "find_similar_notes paths and headings"
+    );
   });
 
   it("rejects an unreadable source note from the persisted embedding store", async () => {
@@ -547,8 +658,12 @@ describe("semantic handlers — find_similar_notes", () => {
       skipFixtures: true,
       extraFiles: {
         "public/cats.md": "# Public Cats\n\nCats are friendly companions.",
-        "private/secret.md": "# Private Cats\n\nCats guard the private launch notes.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        "private/secret.md":
+          "# Private Cats\n\nCats guard the private launch notes.",
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
 
@@ -572,8 +687,12 @@ describe("semantic handlers — find_similar_notes", () => {
       extraFiles: {
         "public/cats.md": "# Public Cats\n\nCats are friendly companions.",
         "public/dogs.md": "# Public Dogs\n\nDogs are loyal companions.",
-        "private/secret.md": "# Private Cats\n\nCats guard the private launch notes.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        "private/secret.md":
+          "# Private Cats\n\nCats guard the private launch notes.",
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
 
@@ -587,9 +706,13 @@ describe("semantic handlers — find_similar_notes", () => {
 
     const text = textContent(result);
     expect(isError(result)).toBe(false);
-    expect(text).toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]");
+    expect(text).toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path]"
+    );
     expect(text).toContain("public/dogs.md");
-    expect(text).not.toContain("[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: public/dogs.md]");
+    expect(text).not.toContain(
+      "[BEGIN UNTRUSTED VAULT CONTENT: find_similar_notes result path: public/dogs.md]"
+    );
     expect(text).not.toContain("private/secret.md");
   });
 
@@ -601,7 +724,10 @@ describe("semantic handlers — find_similar_notes", () => {
       extraFiles: {
         "source.md": "# Cats\n\nCats are the original source topic.",
         "target.md": "# Target\n\nCats are nearby.",
-        ".obsidian/daily-notes.json": JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
+        ".obsidian/daily-notes.json": JSON.stringify({
+          folder: "",
+          format: "YYYY-MM-DD",
+        }),
       },
     });
 
@@ -609,7 +735,7 @@ describe("semantic handlers — find_similar_notes", () => {
     await fs.writeFile(
       path.join(env.vaultDir, "source.md"),
       "# Weather\n\nThe current source topic is rain.",
-      "utf-8",
+      "utf-8"
     );
 
     const result = await env.client.callTool({
@@ -631,7 +757,10 @@ describe("semantic handlers — provider missing", () => {
     expect(isError(r1)).toBe(true);
     expect(textContent(r1)).toMatch(/OBSIDIAN_EMBEDDING_PROVIDER/);
 
-    const r2 = await env.client.callTool({ name: "search_semantic", arguments: { query: "x" } });
+    const r2 = await env.client.callTool({
+      name: "search_semantic",
+      arguments: { query: "x" },
+    });
     expect(isError(r2)).toBe(true);
     expect(textContent(r2)).toMatch(/OBSIDIAN_EMBEDDING_PROVIDER/);
   });
@@ -661,4 +790,3 @@ describe("semantic handlers — provider missing", () => {
     }
   });
 });
-
