@@ -15,15 +15,9 @@ import {
   extractWikilinkSpans,
   extractMarkdownLinkSpans,
 } from "../../lib/markdown.js";
-import { sanitizeError } from "../../lib/errors.js";
 import { log } from "../../lib/logger.js";
-import {
-  textResult,
-  textResultWithUntrustedMeta,
-  errorResult,
-  displayAttachmentValue,
-  untrustedAttachmentBlock,
-} from "./shared.js";
+import { defineTool, text, richText } from "../../lib/tool-seam.js";
+import { displayAttachmentValue } from "./shared.js";
 
 const ATTACHMENT_INVENTORY_CACHE_LIMIT = 8;
 
@@ -33,7 +27,10 @@ interface AttachmentInventoryCacheEntry {
   referenced: Set<string>;
 }
 
-const attachmentInventoryCache = new Map<string, AttachmentInventoryCacheEntry>();
+const attachmentInventoryCache = new Map<
+  string,
+  AttachmentInventoryCacheEntry
+>();
 
 function isExternalMarkdownTarget(target: string): boolean {
   if (target.startsWith("//")) return true;
@@ -67,7 +64,7 @@ function normalizeLocalMarkdownTarget(target: string): string {
 function collectReferencedAttachments(
   noteContent: string,
   lowerPathIndex: ReadonlyMap<string, string>,
-  basenameIndex: ReadonlyMap<string, string[]>,
+  basenameIndex: ReadonlyMap<string, string[]>
 ): { resolved: Set<string>; unresolved: string[] } {
   const resolved = new Set<string>();
   const unresolved: string[] = [];
@@ -77,7 +74,7 @@ function collectReferencedAttachments(
     if (isExternalMarkdownTarget(trimmedTarget)) return;
 
     const t = normalizeLocalMarkdownTarget(
-      trimmedTarget.split("#")[0]!.split("^")[0]!.trim(),
+      trimmedTarget.split("#")[0]!.split("^")[0]!.trim()
     );
     if (!t) return;
 
@@ -122,7 +119,7 @@ function attachmentListFingerprint(attachments: readonly string[]): string {
 function noteMtimeFingerprint(
   notes: readonly string[],
   contents: ReadonlyMap<string, string>,
-  mtimes: ReadonlyMap<string, number>,
+  mtimes: ReadonlyMap<string, number>
 ): string {
   return notes
     .map((notePath) => {
@@ -134,7 +131,7 @@ function noteMtimeFingerprint(
 
 async function noteStatsFingerprint(
   vaultPath: string,
-  notes: readonly string[],
+  notes: readonly string[]
 ): Promise<string | undefined> {
   const realVaultRoot = await getVaultRootRealPath(vaultPath);
   const parts = await mapConcurrent(
@@ -142,12 +139,14 @@ async function noteStatsFingerprint(
     16,
     async (notePath): Promise<string | undefined> => {
       try {
-        const stats = await getNoteStats(vaultPath, notePath, { realVaultRoot });
+        const stats = await getNoteStats(vaultPath, notePath, {
+          realVaultRoot,
+        });
         return `${notePath}\0${stats.modified?.getTime() ?? 0}`;
       } catch {
         return undefined;
       }
-    },
+    }
   );
   if (parts.some((part) => part === undefined)) return undefined;
   return parts.join("\0");
@@ -159,7 +158,11 @@ async function getCachedAttachmentInventory(
   notes: readonly string[],
   contents: ReadonlyMap<string, string>,
   mtimes: ReadonlyMap<string, number>,
-  reportProgress: (progress: number, total: number, message?: string) => Promise<void>,
+  reportProgress: (
+    progress: number,
+    total: number,
+    message?: string
+  ) => Promise<void>
 ): Promise<AttachmentInventoryCacheEntry> {
   const attachmentsFingerprint = attachmentListFingerprint(attachments);
   const noteFingerprint = noteMtimeFingerprint(notes, contents, mtimes);
@@ -168,7 +171,8 @@ async function getCachedAttachmentInventory(
   const lowerPathIndex = new Map<string, string>();
   const basenameIndex = new Map<string, string[]>();
   for (const p of attachments) {
-    if (!lowerPathIndex.has(p.toLowerCase())) lowerPathIndex.set(p.toLowerCase(), p);
+    if (!lowerPathIndex.has(p.toLowerCase()))
+      lowerPathIndex.set(p.toLowerCase(), p);
     const base = path.basename(p).toLowerCase();
     const list = basenameIndex.get(base);
     if (list) list.push(p);
@@ -180,11 +184,19 @@ async function getCachedAttachmentInventory(
   for (const notePath of notes) {
     const content = contents.get(notePath);
     if (content !== undefined) {
-      const { resolved } = collectReferencedAttachments(content, lowerPathIndex, basenameIndex);
+      const { resolved } = collectReferencedAttachments(
+        content,
+        lowerPathIndex,
+        basenameIndex
+      );
       for (const r of resolved) referenced.add(r);
     }
     scanned++;
-    await reportProgress(scanned, notes.length, `Scanned ${scanned}/${notes.length} notes`);
+    await reportProgress(
+      scanned,
+      notes.length,
+      `Scanned ${scanned}/${notes.length} notes`
+    );
   }
 
   const fresh = { attachmentsFingerprint, noteFingerprint, referenced };
@@ -201,15 +213,25 @@ async function getReusableAttachmentInventory(
   vaultPath: string,
   attachments: readonly string[],
   notes: readonly string[],
-  reportProgress: (progress: number, total: number, message?: string) => Promise<void>,
+  reportProgress: (
+    progress: number,
+    total: number,
+    message?: string
+  ) => Promise<void>
 ): Promise<AttachmentInventoryCacheEntry | undefined> {
   const cacheKey = path.resolve(vaultPath);
   const cached = attachmentInventoryCache.get(cacheKey);
-  if (!cached || cached.attachmentsFingerprint !== attachmentListFingerprint(attachments)) {
+  if (
+    !cached ||
+    cached.attachmentsFingerprint !== attachmentListFingerprint(attachments)
+  ) {
     return undefined;
   }
   const currentNoteFingerprint = await noteStatsFingerprint(vaultPath, notes);
-  if (currentNoteFingerprint === undefined || currentNoteFingerprint !== cached.noteFingerprint) {
+  if (
+    currentNoteFingerprint === undefined ||
+    currentNoteFingerprint !== cached.noteFingerprint
+  ) {
     return undefined;
   }
   attachmentInventoryCache.delete(cacheKey);
@@ -217,15 +239,24 @@ async function getReusableAttachmentInventory(
   let scanned = 0;
   for (const _notePath of notes) {
     scanned++;
-    await reportProgress(scanned, notes.length, `Scanned ${scanned}/${notes.length} notes`);
+    await reportProgress(
+      scanned,
+      notes.length,
+      `Scanned ${scanned}/${notes.length} notes`
+    );
   }
   return cached;
 }
 
-export function registerFindUnusedAttachments(server: McpServer, vaultPath: string): void {
-  server.registerTool(
-    "find_unused_attachments",
+export function registerFindUnusedAttachments(
+  server: McpServer,
+  vaultPath: string
+): void {
+  defineTool(
+    server,
+    vaultPath,
     {
+      name: "find_unused_attachments",
       title: "Find Unused Attachments",
       description:
         "Locate attachments that no note references — neither via `![[file]]` embeds nor `[text](file)` markdown links. Useful for vault hygiene before archiving or before running a sync. Pair the output with `delete` operations from your shell, since this tool deliberately doesn't unlink files.",
@@ -242,91 +273,102 @@ export function registerFindUnusedAttachments(server: McpServer, vaultPath: stri
           .max(10000)
           .optional()
           .default(200)
-          .describe("Maximum number of unused-attachment paths to return (1-10000, default: 200). Total counts are still reported."),
+          .describe(
+            "Maximum number of unused-attachment paths to return (1-10000, default: 200). Total counts are still reported."
+          ),
         includeBytes: z
           .boolean()
           .optional()
           .default(false)
-          .describe("If true, also stat each unused attachment and report total reclaimable bytes."),
+          .describe(
+            "If true, also stat each unused attachment and report total reclaimable bytes."
+          ),
       },
     },
-    async ({ limit, includeBytes }, extra) => {
-      try {
-        const reportProgress = makeProgressReporter(extra);
-        const attachments = await listAttachments(vaultPath);
-        if (attachments.length === 0) {
-          return textResult("No attachments in this vault — nothing to check.");
-        }
-        const notes = await listNotes(vaultPath);
-        await reportProgress(0, notes.length, "Reading notes…");
-        let inventory = await getReusableAttachmentInventory(vaultPath, attachments, notes, reportProgress);
-        if (!inventory) {
-          const { contents, mtimes } = await readAllCached(vaultPath, notes, (note, err) => {
-            log.warn("find_unused_attachments: note read failed", { note, err });
-          });
-
-          inventory = await getCachedAttachmentInventory(
-            vaultPath,
-            attachments,
-            notes,
-            contents,
-            mtimes,
-            reportProgress,
-          );
-        }
-
-        const unused = attachments.filter((p) => !inventory.referenced.has(p));
-        if (unused.length === 0) {
-          return textResult(
-            `All ${attachments.length} attachment(s) are referenced — nothing to clean up.`,
-          );
-        }
-
-        const truncated = unused.slice(0, limit);
-        const lines: string[] = [
-          `Found ${unused.length} unused attachment(s) of ${attachments.length} total${unused.length > limit ? ` (showing first ${limit})` : ""}:`,
-          "",
-        ];
-
-        if (includeBytes) {
-          // Stat ALL unused attachments so "Total reclaimable" reflects the
-          // full set the user would be deleting, not just the truncated view.
-          // Otherwise a user acting on the number silently under-deletes.
-          let totalBytes = 0;
-          const sizes = new Map<string, number>();
-          for (const p of unused) {
-            try {
-              const stat = await getAttachmentStats(vaultPath, p);
-              sizes.set(p, stat.size);
-              totalBytes += stat.size;
-            } catch {
-              // skip — file may have been removed mid-scan
-            }
-          }
-          lines.push(`Total reclaimable: ${totalBytes.toLocaleString()} bytes (across all ${unused.length} unused attachment(s))`);
-          lines.push("");
-          const rowLines: string[] = [];
-          for (const p of truncated) {
-            const sz = sizes.get(p);
-            const displayedPath = displayAttachmentValue(p);
-            rowLines.push(sz !== undefined ? `- ${displayedPath}  (${sz.toLocaleString()} bytes)` : `- ${displayedPath}`);
-          }
-          lines.push(untrustedAttachmentBlock("find_unused_attachments paths", rowLines.join("\n")));
-        } else {
-          lines.push(untrustedAttachmentBlock(
-            "find_unused_attachments paths",
-            truncated.map((p) => `- ${displayAttachmentValue(p)}`).join("\n"),
-          ));
-        }
-
-        return textResultWithUntrustedMeta(lines.join("\n"), "find_unused_attachments paths");
-      } catch (err) {
-        log.error("find_unused_attachments failed", {
-          tool: "find_unused_attachments",
-          err: err as Error,
-        });
-        return errorResult(`Error finding unused attachments: ${sanitizeError(err)}`);
+    async ({ limit, includeBytes }, { extra }) => {
+      const reportProgress = makeProgressReporter(extra);
+      const attachments = await listAttachments(vaultPath);
+      if (attachments.length === 0) {
+        return text("No attachments in this vault — nothing to check.");
       }
-    },
+      const notes = await listNotes(vaultPath);
+      await reportProgress(0, notes.length, "Reading notes…");
+      let inventory = await getReusableAttachmentInventory(
+        vaultPath,
+        attachments,
+        notes,
+        reportProgress
+      );
+      if (!inventory) {
+        const { contents, mtimes } = await readAllCached(
+          vaultPath,
+          notes,
+          (note, err) => {
+            log.warn("find_unused_attachments: note read failed", {
+              note,
+              err,
+            });
+          }
+        );
+
+        inventory = await getCachedAttachmentInventory(
+          vaultPath,
+          attachments,
+          notes,
+          contents,
+          mtimes,
+          reportProgress
+        );
+      }
+
+      const unused = attachments.filter((p) => !inventory.referenced.has(p));
+      if (unused.length === 0) {
+        return text(
+          `All ${attachments.length} attachment(s) are referenced — nothing to clean up.`
+        );
+      }
+
+      const truncated = unused.slice(0, limit);
+      const header = `Found ${unused.length} unused attachment(s) of ${attachments.length} total${unused.length > limit ? ` (showing first ${limit})` : ""}:`;
+
+      let totalLine: string | null = null;
+      let rowLines: string[];
+      if (includeBytes) {
+        // Stat ALL unused attachments so "Total reclaimable" reflects the
+        // full set the user would be deleting, not just the truncated view.
+        // Otherwise a user acting on the number silently under-deletes.
+        let totalBytes = 0;
+        const sizes = new Map<string, number>();
+        for (const p of unused) {
+          try {
+            const stat = await getAttachmentStats(vaultPath, p);
+            sizes.set(p, stat.size);
+            totalBytes += stat.size;
+          } catch {
+            // skip — file may have been removed mid-scan
+          }
+        }
+        totalLine = `Total reclaimable: ${totalBytes.toLocaleString()} bytes (across all ${unused.length} unused attachment(s))`;
+        rowLines = truncated.map((p) => {
+          const sz = sizes.get(p);
+          const displayedPath = displayAttachmentValue(p);
+          return sz !== undefined
+            ? `- ${displayedPath}  (${sz.toLocaleString()} bytes)`
+            : `- ${displayedPath}`;
+        });
+      } else {
+        rowLines = truncated.map((p) => `- ${displayAttachmentValue(p)}`);
+      }
+
+      return richText("find_unused_attachments paths", (b) => {
+        b.trusted(header);
+        b.trusted("");
+        if (totalLine !== null) {
+          b.trusted(totalLine);
+          b.trusted("");
+        }
+        b.untrusted("find_unused_attachments paths", rowLines.join("\n"));
+      });
+    }
   );
 }

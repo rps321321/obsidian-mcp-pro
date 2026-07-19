@@ -1,34 +1,13 @@
-import {
-  formatUntrustedVaultContent,
-  indentBlock,
-  untrustedVaultContentMeta,
-} from "../../lib/tool-output.js";
 import { escapeControlChars } from "../../lib/errors.js";
 
-function textResult(text: string) {
-  return { content: [{ type: "text" as const, text }] };
-}
-
-function textResultWithUntrustedMeta(text: string, label: string) {
-  return {
-    content: [{
-      type: "text" as const,
-      text,
-      _meta: untrustedVaultContentMeta(label),
-    }],
-  };
-}
-
-function errorResult(text: string) {
-  return { content: [{ type: "text" as const, text }], isError: true as const };
-}
+// The error/result/trust-wrapping recipe (textResult, textResultWithUntrustedMeta,
+// errorResult, untrustedAttachmentBlock) now lives in the tool seam
+// (../../lib/tool-seam.ts): handlers return a ToolResult built via `text` /
+// `richText` / `error` / the media constructors, and the seam owns error
+// sanitization. What remains here are the attachment group's own helpers.
 
 /** Escape control characters in a value before embedding it in a display string. */
 const displayAttachmentValue = escapeControlChars;
-
-function untrustedAttachmentBlock(label: string, text: string, indent = ""): string {
-  return indentBlock(formatUntrustedVaultContent(label, text), indent);
-}
 
 function vaultResourceUri(relPath: string): string {
   return `vault://${relPath.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/")}`;
@@ -45,12 +24,4 @@ function safeResourceMimeType(mime: string): string {
   return ACTIVE_TEXT_MIME_TYPES.has(mime.toLowerCase()) ? "text/plain" : mime;
 }
 
-export {
-  textResult,
-  textResultWithUntrustedMeta,
-  errorResult,
-  displayAttachmentValue,
-  untrustedAttachmentBlock,
-  vaultResourceUri,
-  safeResourceMimeType,
-};
+export { displayAttachmentValue, vaultResourceUri, safeResourceMimeType };

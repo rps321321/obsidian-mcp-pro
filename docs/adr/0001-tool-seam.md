@@ -1,6 +1,6 @@
 # ADR 0001: One deep tool seam behind every MCP tool
 
-- Status: Accepted (read group migrated as the pattern-setter, then canvas, links, and a Wave-1 fan-out of write/tags/sections/bases; 2 groups to follow: attachments, semantic)
+- Status: Accepted (read group migrated as the pattern-setter, then canvas, links, a Wave-1 fan-out of write/tags/sections/bases, and attachments (which extended the seam with the non-text media constructors); 1 group to follow: semantic)
 - Date: 2026-07-18
 
 ## Context
@@ -60,10 +60,26 @@ Text (used by the read group):
 - `asError(result)` - flag a built result as an error (e.g. an error message
   that carries an untrusted path).
 
-Non-text blocks (to be added when the attachments/canvas groups migrate;
-`get_attachment` is the only multi-type tool): `image`, `audio`, `blobResource`,
-`untrustedResource`. The block taxonomy is closed - no tool uses
-`structuredContent`/`outputSchema`, and every result `_meta` is trust metadata.
+Non-text media (added with the attachments group; `get_attachment` is the only
+multi-type tool). Each returns a server-authored caption text block followed by
+exactly one media block:
+
+- `image(caption, data, mimeType)` / `audio(caption, data, mimeType)` - raw
+  base64 bytes.
+- `blobResource(caption, uri, mimeType, blob)` - raw base64 bytes as a
+  `resource` block under a `vault://` URI.
+- `untrustedResource(caption, label, uri, mimeType, body)` - a `resource` block
+  carrying model-readable _text_ (the SVG-as-text/plain XSS mitigation).
+
+**Why only one of the four wraps.** image/audio/blob carry raw base64 bytes,
+which are not model-readable text - no injection surface, so no wrapping and no
+trust `_meta`. `untrustedResource` is the lone trust-bearing constructor: it
+BEGIN/END-wraps the resource text and attaches the trust `_meta` at BOTH the
+resource and block level, so a client that surfaces either layer sees the
+untrusted tag. This is what keeps the closed taxonomy safe: a media block is
+exempt from wrapping precisely because it is not text a model can be steered by.
+The block taxonomy is closed - no tool uses `structuredContent`/`outputSchema`,
+and every result `_meta` is trust metadata.
 
 ### Context
 
@@ -151,10 +167,12 @@ context arrow (see Consequences). write, tags, sections, and bases then migrated
 together as a parallel Wave-1 fan-out (one worktree-isolated agent per group),
 each following the same idioms and staying byte-preserving except the generic
 `Error:` prefix (exception #1); no group needed a new exception or a seam change.
-Remaining 2 groups are file-disjoint and convert independently: **attachments**
-extends the seam with the non-text block constructors (`image`/`audio`/
-`blobResource`/`untrustedResource`; `get_attachment` is the only multi-type
-tool), and **semantic** carries the `extra`-boundary type-cast caveat (verify
-progress plumbing at runtime). Collapsing the 9 `display*Value` aliases to a
-single `escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4`
-is rewritten last, once the pattern is proven across all groups.
+The **attachments** group then migrated and extended the seam with the non-text
+media constructors (see Result vocabulary); `find_unused_attachments` also
+became the first tool to thread `ctx.extra` for progress, guarded now by a
+runtime progress-notification test (the `extra`-boundary the callback cast
+cannot type-check). The one **remaining** group, **semantic**, carries the same
+`extra`-boundary caveat for `index_vault`/`search_semantic` (verify progress
+plumbing at runtime). Collapsing the 9 `display*Value` aliases to a single
+`escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4` is
+rewritten last, once the pattern is proven across all groups.
