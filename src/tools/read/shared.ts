@@ -1,29 +1,13 @@
-import {
-  formatUntrustedVaultContent,
-  indentBlock,
-  untrustedTextContent,
-} from "../../lib/tool-output.js";
 import { escapeControlChars } from "../../lib/errors.js";
+
+// The error/result/trust-wrapping recipe (errorResult, untrustedReadBlock,
+// untrustedTextContent) now lives in the tool seam (../../lib/tool-seam.ts):
+// handlers return a ToolResult built via `text` / `untrustedText` / `richText`
+// / `error`, and the seam owns error sanitization. What remains here are the
+// read group's own parsing/escaping helpers.
 
 export function displayReadValue(value: string): string {
   return escapeControlChars(value);
-}
-
-export function errorResult(text: string, meta?: Record<string, unknown>) {
-  return {
-    content: [
-      { type: "text" as const, text, ...(meta ? { _meta: meta } : {}) },
-    ],
-    isError: true as const,
-  };
-}
-
-export function untrustedReadBlock(
-  label: string,
-  text: string,
-  indent = ""
-): string {
-  return indentBlock(formatUntrustedVaultContent(label, text), indent);
 }
 
 export function frontmatterValueForProperty(
@@ -98,5 +82,3 @@ export function parseSince(input: string): number | null {
   if (!Number.isNaN(parsed)) return parsed;
   return null;
 }
-
-export { untrustedTextContent };

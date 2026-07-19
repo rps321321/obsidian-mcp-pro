@@ -40,13 +40,13 @@ C-grade even if the schema is perfect (empirically: 2.9–3.5/5).
 
 A complete description answers **five questions**, in roughly this order:
 
-| Question | Example from `find_broken_links` |
-|---|---|
-| **What does it do?** | "Scan notes for wikilinks whose target does not resolve" |
-| **What's in the return value?** | "Returns a per-source report grouping each note with its broken link text and line numbers, plus a total count" |
-| **When should you reach for it?** | "Use after renaming, moving, or deleting notes to catch dangling references" |
-| **Any important edge cases?** | "Resolution uses the whole vault even when scanning a single folder" |
-| **Cross-references to related tools?** | (implicit — mentions renaming/moving/deleting workflows) |
+| Question                               | Example from `find_broken_links`                                                                                |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **What does it do?**                   | "Scan notes for wikilinks whose target does not resolve"                                                        |
+| **What's in the return value?**        | "Returns a per-source report grouping each note with its broken link text and line numbers, plus a total count" |
+| **When should you reach for it?**      | "Use after renaming, moving, or deleting notes to catch dangling references"                                    |
+| **Any important edge cases?**          | "Resolution uses the whole vault even when scanning a single folder"                                            |
+| **Cross-references to related tools?** | (implicit — mentions renaming/moving/deleting workflows)                                                        |
 
 ### Good description template
 
@@ -74,23 +74,23 @@ Every tool gets an `annotations` object. The flags are **hints** — MCP
 clients may use them to surface confirmation UIs, cache results, or
 reorder calls.
 
-| Flag | Meaning | When `true` |
-|---|---|---|
-| `readOnlyHint` | Does not modify any state | Tool only reads the vault |
-| `destructiveHint` | May destroy or overwrite user data | `delete_note`, `move_note`, `update_frontmatter` (overwrites keys) |
-| `idempotentHint` | Calling N times ≡ calling once (same args → same final state) | All read-only tools; also `update_frontmatter` |
-| `openWorldHint` | Interacts with external systems (network, shell, APIs) | Always `false` in this server (local filesystem only) |
+| Flag              | Meaning                                                       | When `true`                                                        |
+| ----------------- | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `readOnlyHint`    | Does not modify any state                                     | Tool only reads the vault                                          |
+| `destructiveHint` | May destroy or overwrite user data                            | `delete_note`, `move_note`, `update_frontmatter` (overwrites keys) |
+| `idempotentHint`  | Calling N times ≡ calling once (same args → same final state) | All read-only tools; also `update_frontmatter`                     |
+| `openWorldHint`   | Interacts with external systems (network, shell, APIs)        | Always `false` in this server (local filesystem only)              |
 
 ### Decision matrix for this server's tools
 
-| Category | readOnly | destructive | idempotent |
-|---|---|---|---|
-| `get_*`, `list_*`, `search_*`, `read_*`, `find_*` | `true` | (omit) | `true` |
-| `create_*` | `false` | `false` | `false` (fails on second call) |
-| `append_*`, `prepend_*` | `false` | `false` | `false` (content grows each call) |
-| `update_frontmatter` | `false` | `true` | `true` (same payload → same state) |
-| `move_note`, `delete_note` | `false` | `true` | `false` (source no longer exists) |
-| `add_canvas_node`, `add_canvas_edge` | `false` | `false` | `false` (new UUID each call) |
+| Category                                          | readOnly | destructive | idempotent                         |
+| ------------------------------------------------- | -------- | ----------- | ---------------------------------- |
+| `get_*`, `list_*`, `search_*`, `read_*`, `find_*` | `true`   | (omit)      | `true`                             |
+| `create_*`                                        | `false`  | `false`     | `false` (fails on second call)     |
+| `append_*`, `prepend_*`                           | `false`  | `false`     | `false` (content grows each call)  |
+| `update_frontmatter`                              | `false`  | `true`      | `true` (same payload → same state) |
+| `move_note`, `delete_note`                        | `false`  | `true`      | `false` (source no longer exists)  |
+| `add_canvas_node`, `add_canvas_edge`              | `false`  | `false`     | `false` (new UUID each call)       |
 
 ### Subtle choices to watch for
 
@@ -124,14 +124,14 @@ folder: z
 
 ### Add every applicable constraint
 
-| Constraint | Use it for |
-|---|---|
-| `.min(1)` | Required non-empty strings (paths, queries, ids) |
-| `.int()` | Integer counts (`maxResults`, `depth`, `width`, `height`) |
-| `.min(N).max(M)` | Numeric bounds with clear rationale (e.g. depth 1–5) |
-| `.enum([...])` | Finite choice sets (`sortBy`, `direction`, node `type`) |
-| `.regex(/pattern/, "message")` | Structured strings (e.g., `YYYY-MM-DD` dates) |
-| `.optional().default(X)` | Optional with a sensible fallback |
+| Constraint                     | Use it for                                                |
+| ------------------------------ | --------------------------------------------------------- |
+| `.min(1)`                      | Required non-empty strings (paths, queries, ids)          |
+| `.int()`                       | Integer counts (`maxResults`, `depth`, `width`, `height`) |
+| `.min(N).max(M)`               | Numeric bounds with clear rationale (e.g. depth 1–5)      |
+| `.enum([...])`                 | Finite choice sets (`sortBy`, `direction`, node `type`)   |
+| `.regex(/pattern/, "message")` | Structured strings (e.g., `YYYY-MM-DD` dates)             |
+| `.optional().default(X)`       | Optional with a sensible fallback                         |
 
 ### Parameter description template
 
@@ -160,6 +160,13 @@ All four things are there: range, default, semantics, tradeoff.
 ---
 
 ## § 4 — Handler conventions
+
+> **Migration in progress (ADR 0001).** The `read` group now registers through
+> the tool seam (`src/lib/tool-seam.ts`): handlers return a `ToolResult` built
+> via `text` / `untrustedText` / `richText` / `error`, and the seam owns error
+> sanitization and untrusted-content wrapping. When editing a seam-migrated
+> group, follow that pattern, **not** the per-file recipe below. The recipe
+> still describes the 8 groups not yet migrated. See `docs/adr/0001-tool-seam.md`.
 
 Keep handlers thin. The scorer doesn't see handler code, but reviewers do:
 
