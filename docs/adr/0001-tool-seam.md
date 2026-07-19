@@ -1,6 +1,6 @@
 # ADR 0001: One deep tool seam behind every MCP tool
 
-- Status: Accepted (read group migrated as the pattern-setter, then canvas, links, a Wave-1 fan-out of write/tags/sections/bases, and attachments (which extended the seam with the non-text media constructors); 1 group to follow: semantic)
+- Status: Accepted and complete — all 9 groups migrated (read as the pattern-setter, then canvas, links, a Wave-1 fan-out of write/tags/sections/bases, attachments which extended the seam with the non-text media constructors, and finally semantic). Follow-up sweep remaining: collapse the `display*Value` aliases and rewrite `TOOL_AUTHORING.md §4`.
 - Date: 2026-07-18
 
 ## Context
@@ -171,8 +171,12 @@ The **attachments** group then migrated and extended the seam with the non-text
 media constructors (see Result vocabulary); `find_unused_attachments` also
 became the first tool to thread `ctx.extra` for progress, guarded now by a
 runtime progress-notification test (the `extra`-boundary the callback cast
-cannot type-check). The one **remaining** group, **semantic**, carries the same
-`extra`-boundary caveat for `index_vault`/`search_semantic` (verify progress
-plumbing at runtime). Collapsing the 9 `display*Value` aliases to a single
-`escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4` is
-rewritten last, once the pattern is proven across all groups.
+cannot type-check). The **semantic** group migrated last: `index_vault` threads
+`ctx.extra` for progress (guarded by the existing note-path progress test) and
+its conditional failed-notes `_meta` falls out of `richText`'s `hasUntrusted`;
+its failed-paths block — the layout flagged during the read-group gates as the
+hairiest — was expressible via `richText` + `b.untrusted(..., indent)` exactly
+as predicted, with no seam change. All 9 groups are now through the seam.
+Collapsing the 9 `display*Value` aliases to a single `escapeControlChars` import
+is the remaining follow-up sweep, and `TOOL_AUTHORING.md §4` is rewritten with
+it now that the pattern is proven across all groups.
