@@ -1,8 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { sanitizeError } from "../../lib/errors.js";
-import { log } from "../../lib/logger.js";
-import { defineTool, untrustedText, error } from "../../lib/tool-seam.js";
+import { defineTool, untrustedText } from "../../lib/tool-seam.js";
 import { readSectionListCached } from "./shared.js";
 
 export function registerListSectionsTool(
@@ -27,18 +25,10 @@ export function registerListSectionsTool(
       },
     },
     async ({ path: notePath }) => {
-      try {
-        return untrustedText(
-          "list_sections headings",
-          await readSectionListCached(vaultPath, notePath)
-        );
-      } catch (err) {
-        log.error("list_sections failed", {
-          tool: "list_sections",
-          err: err as Error,
-        });
-        return error(`Error listing sections: ${sanitizeError(err)}`);
-      }
+      return untrustedText(
+        "list_sections headings",
+        await readSectionListCached(vaultPath, notePath)
+      );
     }
   );
 }

@@ -2,8 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { updateNote } from "../../lib/vault.js";
 import { findSection, replaceSectionBody } from "../../lib/sections.js";
-import { sanitizeError } from "../../lib/errors.js";
-import { log } from "../../lib/logger.js";
 import { defineTool, richText, error } from "../../lib/tool-seam.js";
 import {
   SECTION_EDIT_PAYLOAD_MAX_CHARS,
@@ -54,41 +52,33 @@ export function registerUpdateSectionTool(
       },
     },
     async ({ path: notePath, section, newBody }) => {
-      try {
-        const headingPath = splitHeadingPath(section);
-        if (headingPath.length === 0) return error("section must not be empty");
+      const headingPath = splitHeadingPath(section);
+      if (headingPath.length === 0) return error("section must not be empty");
 
-        let resolvedHeading = "";
-        let bodyBytes = 0;
-        await assertReadableEditTarget(vaultPath, notePath);
-        await updateNote(vaultPath, notePath, (existing) => {
-          const found = findSection(existing, headingPath);
-          if (!found) {
-            throw new Error(`Section not found: "${section}"`);
-          }
-          resolvedHeading = found.heading.text;
-          const updated = replaceSectionBody(existing, found, newBody);
-          bodyBytes = Buffer.byteLength(newBody, "utf-8");
-          return updated;
-        });
-        invalidateSectionListCache(vaultPath, notePath);
-        return richText("update_section resolved heading", (b) => {
-          b.trusted(
-            `Updated section in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`
-          );
-          richResolvedHeading(
-            b,
-            "update_section resolved heading",
-            resolvedHeading
-          );
-        });
-      } catch (err) {
-        log.error("update_section failed", {
-          tool: "update_section",
-          err: err as Error,
-        });
-        return error(`Error updating section: ${sanitizeError(err)}`);
-      }
+      let resolvedHeading = "";
+      let bodyBytes = 0;
+      await assertReadableEditTarget(vaultPath, notePath);
+      await updateNote(vaultPath, notePath, (existing) => {
+        const found = findSection(existing, headingPath);
+        if (!found) {
+          throw new Error(`Section not found: "${section}"`);
+        }
+        resolvedHeading = found.heading.text;
+        const updated = replaceSectionBody(existing, found, newBody);
+        bodyBytes = Buffer.byteLength(newBody, "utf-8");
+        return updated;
+      });
+      invalidateSectionListCache(vaultPath, notePath);
+      return richText("update_section resolved heading", (b) => {
+        b.trusted(
+          `Updated section in ${displaySectionValue(notePath)} (${bodyBytes} bytes of new body)`
+        );
+        richResolvedHeading(
+          b,
+          "update_section resolved heading",
+          resolvedHeading
+        );
+      });
     }
   );
 }

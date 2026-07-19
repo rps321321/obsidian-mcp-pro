@@ -2,9 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { updateNote } from "../../lib/vault.js";
 import { findBlockById } from "../../lib/sections.js";
-import { sanitizeError } from "../../lib/errors.js";
-import { log } from "../../lib/logger.js";
-import { defineTool, text, error } from "../../lib/tool-seam.js";
+import { defineTool, text } from "../../lib/tool-seam.js";
 import {
   SECTION_EDIT_PAYLOAD_MAX_CHARS,
   displaySectionValue,
@@ -51,31 +49,23 @@ export function registerEditBlockTool(
       },
     },
     async ({ path: notePath, block, newContent }) => {
-      try {
-        await assertReadableEditTarget(vaultPath, notePath);
-        await updateNote(vaultPath, notePath, (existing) => {
-          const found = findBlockById(existing, block);
-          if (!found) throw new Error(`Block not found: "^${block}"`);
-          const before = existing.slice(0, found.start);
-          const after = existing.slice(found.end);
-          const body = newContent.replace(/\n+$/, "");
-          const isMultiline = body.includes("\n");
-          const replacement = isMultiline
-            ? `${body}\n^${block}\n`
-            : `${body} ^${block}\n`;
-          return before + replacement + after;
-        });
-        invalidateSectionListCache(vaultPath, notePath);
-        return text(
-          `Updated block ^${displaySectionValue(block)} in ${displaySectionValue(notePath)}`
-        );
-      } catch (err) {
-        log.error("edit_block failed", {
-          tool: "edit_block",
-          err: err as Error,
-        });
-        return error(`Error editing block: ${sanitizeError(err)}`);
-      }
+      await assertReadableEditTarget(vaultPath, notePath);
+      await updateNote(vaultPath, notePath, (existing) => {
+        const found = findBlockById(existing, block);
+        if (!found) throw new Error(`Block not found: "^${block}"`);
+        const before = existing.slice(0, found.start);
+        const after = existing.slice(found.end);
+        const body = newContent.replace(/\n+$/, "");
+        const isMultiline = body.includes("\n");
+        const replacement = isMultiline
+          ? `${body}\n^${block}\n`
+          : `${body} ^${block}\n`;
+        return before + replacement + after;
+      });
+      invalidateSectionListCache(vaultPath, notePath);
+      return text(
+        `Updated block ^${displaySectionValue(block)} in ${displaySectionValue(notePath)}`
+      );
     }
   );
 }

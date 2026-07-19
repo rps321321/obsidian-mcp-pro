@@ -2,8 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { updateNote } from "../../lib/vault.js";
 import { findSection, insertAfterHeading } from "../../lib/sections.js";
-import { sanitizeError } from "../../lib/errors.js";
-import { log } from "../../lib/logger.js";
 import { defineTool, richText, error } from "../../lib/tool-seam.js";
 import {
   SECTION_EDIT_PAYLOAD_MAX_CHARS,
@@ -51,52 +49,44 @@ export function registerInsertAtSectionTool(
       },
     },
     async ({ path: notePath, section, content, position }) => {
-      try {
-        const headingPath = splitHeadingPath(section);
-        if (headingPath.length === 0) return error("section must not be empty");
+      const headingPath = splitHeadingPath(section);
+      if (headingPath.length === 0) return error("section must not be empty");
 
-        let resolvedHeading = "";
-        await assertReadableEditTarget(vaultPath, notePath);
-        await updateNote(vaultPath, notePath, (existing) => {
-          const found = findSection(existing, headingPath);
-          if (!found) {
-            throw new Error(`Section not found: "${section}"`);
-          }
-          resolvedHeading = found.heading.text;
-          if (position === "after-heading") {
-            return insertAfterHeading(existing, found, content);
-          }
-          if (position === "before") {
-            const before = existing.slice(0, found.start);
-            const after = existing.slice(found.start);
-            const trailing = content.endsWith("\n") ? "" : "\n";
-            return before + content + trailing + after;
-          }
-          const before = existing.slice(0, found.end);
-          const after = existing.slice(found.end);
-          let payload = content;
-          if (!before.endsWith("\n")) payload = "\n" + payload;
-          if (!payload.endsWith("\n")) payload += "\n";
-          return before + payload + after;
-        });
-        invalidateSectionListCache(vaultPath, notePath);
-        return richText("insert_at_section resolved heading", (b) => {
-          b.trusted(
-            `Inserted ${Buffer.byteLength(content, "utf-8")} bytes (${position}) in ${displaySectionValue(notePath)}`
-          );
-          richResolvedHeading(
-            b,
-            "insert_at_section resolved heading",
-            resolvedHeading
-          );
-        });
-      } catch (err) {
-        log.error("insert_at_section failed", {
-          tool: "insert_at_section",
-          err: err as Error,
-        });
-        return error(`Error inserting at section: ${sanitizeError(err)}`);
-      }
+      let resolvedHeading = "";
+      await assertReadableEditTarget(vaultPath, notePath);
+      await updateNote(vaultPath, notePath, (existing) => {
+        const found = findSection(existing, headingPath);
+        if (!found) {
+          throw new Error(`Section not found: "${section}"`);
+        }
+        resolvedHeading = found.heading.text;
+        if (position === "after-heading") {
+          return insertAfterHeading(existing, found, content);
+        }
+        if (position === "before") {
+          const before = existing.slice(0, found.start);
+          const after = existing.slice(found.start);
+          const trailing = content.endsWith("\n") ? "" : "\n";
+          return before + content + trailing + after;
+        }
+        const before = existing.slice(0, found.end);
+        const after = existing.slice(found.end);
+        let payload = content;
+        if (!before.endsWith("\n")) payload = "\n" + payload;
+        if (!payload.endsWith("\n")) payload += "\n";
+        return before + payload + after;
+      });
+      invalidateSectionListCache(vaultPath, notePath);
+      return richText("insert_at_section resolved heading", (b) => {
+        b.trusted(
+          `Inserted ${Buffer.byteLength(content, "utf-8")} bytes (${position}) in ${displaySectionValue(notePath)}`
+        );
+        richResolvedHeading(
+          b,
+          "insert_at_section resolved heading",
+          resolvedHeading
+        );
+      });
     }
   );
 }
