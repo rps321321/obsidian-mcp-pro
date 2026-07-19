@@ -80,14 +80,15 @@ Non-text blocks (to be added when the attachments/canvas groups migrate;
 
 ## Consequences
 
-- Trust-wrapping and error sanitization become choke points. `add_canvas_edge`'s
-  raw-`err.message` leak is fixed once, at the seam.
+- Trust-wrapping and error sanitization become choke points. The seam is where
+  `add_canvas_edge`'s raw-`err.message` leak gets fixed once — when the canvas
+  group migrates through it. This change migrates only the read group, so that
+  leak is still open (see Migration).
 - Output is **byte-preserving**. The seam reuses the existing `tool-output.ts`
   primitives, so every `regression-tools-*` and `handlers/*` interface test
-  stays green unchanged. Two intentional exceptions are recorded:
-  1. `add_canvas_edge` inner catches are now sanitized.
-  2. The generic thrown-error prefix replaces per-tool verbs (thrown path only;
-     no test pins the wording).
+  stays green unchanged. One intentional exception is recorded: the generic
+  thrown-error prefix replaces per-tool verbs (thrown path only; no test pins
+  the wording).
 - `docs/TOOL_AUTHORING.md §4` is superseded: handlers no longer write the recipe.
   The per-tool `title`/`description`/`annotations`/`inputSchema` surface is
   unchanged.
@@ -124,6 +125,7 @@ compiler will not catch mis-threaded `extra`. Verify that plumbing at runtime
 Read group first (this change). Remaining 8 groups are file-disjoint and convert
 independently, deleting each group's duplicated recipe helpers as it goes and
 extending the seam with the non-text block constructors when
-attachments/canvas migrate. Collapsing the 9 `display*Value` aliases to a single
+attachments/canvas migrate. Routing `add_canvas_edge` through the seam closes
+its raw-`err.message` leak as part of the canvas group's conversion. Collapsing the 9 `display*Value` aliases to a single
 `escapeControlChars` import is a follow-up sweep. `TOOL_AUTHORING.md §4` is
 rewritten last, once the pattern is proven across all groups.
