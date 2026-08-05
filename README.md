@@ -4,6 +4,8 @@
 
 # obsidian-mcp-pro
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Frps321321%2Fobsidian-mcp-pro.svg)](https://mcptoplist.com/server/glama%2Frps321321%2Fobsidian-mcp-pro)
+
 **The most feature-complete MCP server for Obsidian vaults.**
 
 ⭐ **Please [star us on GitHub](https://github.com/rps321321/obsidian-mcp-pro), it helps us reach more users!**
