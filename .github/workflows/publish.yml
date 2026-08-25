@@ -41,8 +41,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=stateless-heartbeat,enable=${{ github.ref == 'refs/heads/Stateless+HearBeat' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/Stateless+HearBeat' }}
+            type=raw,value=stateless-heartbeat
+            type=raw,value=latest
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha
