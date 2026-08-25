@@ -1,0 +1,48 @@
+services:
+  obsidian-mcp-pro:
+    build: .
+    image: obsidian-mcp-pro:4.0.1-local
+    container_name: obsidian-mcp-pro-test
+    restart: unless-stopped
+    networks:
+      - lobehub_lobe-net
+    ports:
+      - "3334:3333"
+    volumes:
+      - ${VAULT_PATH}:/vault
+    environment:
+      TZ: Asia/Shanghai
+      OBSIDIAN_VAULT_PATH: /vault
+      MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN}
+      LOG_LEVEL: info
+      LOG_FORMAT: text
+      OBSIDIAN_READ_PATHS: .
+
+      # SSE keep-alive 心跳（stateful 模式防断联，调试用）
+      SSE_KEEPALIVE_ENABLED: "true"
+      SSE_KEEPALIVE_INTERVAL_MS: "15000"
+
+      # 传输模式（二选一）
+      #   "false"(默认) = stateful + SSE 心跳：session 管理 + 长连接保活，兼容所有客户端
+      #   "true"        = stateless：无 session/长连接，每次请求独立，彻底免疫反代断联（治本）；
+      #                   与 Outline MCP 同款架构。切换后心跳自动失效（无长连接），
+      #                   LobeHub 需重新连接该 MCP
+      STATELESS_MODE: ${STATELESS_MODE:-false}
+
+      # Semantic Search（如启用）
+      OBSIDIAN_EMBEDDING_PROVIDER: openai
+      OBSIDIAN_EMBEDDING_MODEL: qwen3.7-text-embedding
+      OBSIDIAN_EMBEDDING_URL: ${OBSIDIAN_EMBEDDING_URL:-https://your-aliyun-bailian-endpoint/compatible-mode/v1}
+      OBSIDIAN_EMBEDDING_API_KEY: ${OBSIDIAN_EMBEDDING_API_KEY}
+
+    env_file:
+      - .env
+    command:
+      - "--transport=http"
+      - "--host=0.0.0.0"
+      - "--port=3333"
+      - "--rate-limit=600"
+
+networks:
+  lobehub_lobe-net:
+    external: true
