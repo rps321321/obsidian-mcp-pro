@@ -49,6 +49,33 @@ const REQUEST_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 const installedSignalHandlers = new Map<NodeJS.Signals, () => void>();
 
+// --- SSE keep-alive 心跳（环境变量可配置，便于调试）---
+// SSE_KEEPALIVE_ENABLED      "true"(默认)/"false" —— 关闭时完全不启动心跳，无任何副作用
+// SSE_KEEPALIVE_INTERVAL_MS  心跳间隔毫秒，默认 15000；<=0 或非法值视为关闭心跳
+const SSE_KEEPALIVE_ENABLED =
+  (process.env.SSE_KEEPALIVE_ENABLED ?? "true").trim().toLowerCase() !== "false";
+const parsedKeepaliveInterval = Number(process.env.SSE_KEEPALIVE_INTERVAL_MS ?? "15000");
+const SSE_KEEPALIVE_INTERVAL_MS =
+  Number.isFinite(parsedKeepaliveInterval) && parsedKeepaliveInterval > 0
+    ? parsedKeepaliveInterval
+    : 0;
+
+// --- Stateless 模式（可选，治本方案；与 Outline MCP 同款架构）---
+// STATELESS_MODE=true 时启用无状态模式：
+//   - 每次请求独立创建 transport（sessionIdGenerator: undefined），无 sessionId、无长连接、无 GET SSE 流
+//   - 彻底免疫反代/网络掐断导致的断联，无需心跳
+// 关闭（默认 false）时使用 stateful + SSE 心跳模式（现有逻辑原样保留）。
+// 两种模式互不干扰，切换仅需改环境变量。
+// 用函数而非模块级常量：每次请求读取 process.env，便于测试 stub 与运行时热切换。
+// 无副作用保证：
+//   - stateless 时 GET/DELETE 走 405 分支，不会误入 stateful 的 session/SSE/心跳逻辑
+//   - stateless 时心跳不启动（心跳只存在于 stateful 的 GET SSE 流内）
+//   - stateless 时 session 表（transports/lastActivity）不参与，sweeper 仅清理限流窗口
+function isStatelessMode(): boolean {
+  const raw = process.env.STATELESS_MODE ?? "false";
+  return raw.trim().toLowerCase() === "true";
+}
+
 class BodyTooLargeError extends Error {
   constructor() {
     super("Request body too large");
@@ -449,6 +476,23 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           throw err;
         }
 
+        // --- Stateless 模式（STATELESS_MODE=true）：每个请求独立创建 transport ---
+        // 不生成 sessionId，不做 session 校验，每次请求自包含；GET/DELETE 走 405 分支。
+        // 与 Outline MCP 完全一致，天然免疫反代掐断/客户端重连导致的断联。
+        if (isStatelessMode()) {
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+            allowedHosts,
+            allowedOrigins,
+            enableDnsRebindingProtection: true,
+          });
+          const sessionServer = opts.buildMcpServer();
+          await sessionServer.connect(transport);
+          await transport.handleRequest(req, res, body);
+          return;
+        }
+
+        // --- Stateful 模式（默认）：session 表 + 心跳（原逻辑）---
         if (sessionId && transports.has(sessionId)) {
           touch(sessionId);
           await transports.get(sessionId)!.handleRequest(req, res, body);
@@ -494,19 +538,53 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
         sendJson(res, 400, {
           jsonrpc: "2.0",
-          error: { code: -32000, message: "Invalid session or non-initialize request without session" },
+          error: { code: -32000, message: "Invalid session or non-initialize request without session (No valid session ID provided)" },
           id: null,
         });
         return;
       }
 
       if (req.method === "GET" || req.method === "DELETE") {
+        // Stateless 模式：无 session 概念，不支持 GET SSE 长连接 / DELETE session。
+        // 客户端在 stateless 下不会建立 GET 流（initialize 无 sessionId 响应），
+        // 无长连接 = 无被反代掐断风险，也无需心跳。
+        if (isStatelessMode()) {
+          sendJson(res, 405, {
+            error: "Method not allowed in stateless mode. Use POST for MCP requests.",
+          });
+          return;
+        }
+
         if (!sessionId || !transports.has(sessionId)) {
           sendJson(res, 404, { error: "Session not found" });
           return;
         }
         touch(sessionId);
-        await transports.get(sessionId)!.handleRequest(req, res);
+        const transport = transports.get(sessionId)!;
+
+        // --- SSE keep-alive 心跳（可配置）：GET SSE 流建立后按 SSE_KEEPALIVE_INTERVAL_MS
+        //     周期发送 SSE 注释行，防止中间代理/NAT/反代因静默超时掐断长连接。
+        //     注意：不能依赖"首次写数据后启动"——若无推送事件，服务端可能长时间不写任何字节。 ---
+        if (req.method === "GET") {
+          // 关闭心跳（enabled=false 或 interval<=0）：完全跳过，不创建 timer、不注册监听、不写字节
+          if (SSE_KEEPALIVE_ENABLED && SSE_KEEPALIVE_INTERVAL_MS > 0) {
+            const keepAliveTimer = setInterval(() => {
+              if (!res.writableEnded) {
+                try {
+                  res.write(":\n\n"); // SSE 注释行，客户端自动忽略
+                } catch {
+                  /* 忽略写失败，由 close/finish 清理 */
+                }
+              }
+            }, SSE_KEEPALIVE_INTERVAL_MS);
+            keepAliveTimer.unref?.();
+            const stopKeepAlive = () => clearInterval(keepAliveTimer);
+            res.on("close", stopKeepAlive);
+            res.on("finish", stopKeepAlive);
+          }
+        }
+
+        await transport.handleRequest(req, res);
         return;
       }
 
@@ -528,6 +606,14 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   await new Promise<void>((resolve) => {
     httpServer.listen(opts.port, opts.host, () => resolve());
   });
+
+  const keepaliveActive = SSE_KEEPALIVE_ENABLED && SSE_KEEPALIVE_INTERVAL_MS > 0;
+  log.info(
+    keepaliveActive
+      ? `SSE keep-alive enabled (interval=${SSE_KEEPALIVE_INTERVAL_MS}ms)`
+      : "SSE keep-alive disabled",
+    { sseKeepAliveEnabled: keepaliveActive, sseKeepAliveIntervalMs: SSE_KEEPALIVE_INTERVAL_MS }
+  );
 
   // When port 0 is passed (OS-assigned port, used by tests and embedders
   // that don't care about a specific port), surface the actual bound port
