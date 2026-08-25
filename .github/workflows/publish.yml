@@ -1,18 +1,19 @@
 name: publish-ghcr
 
-# 触发：推送 Stateless+HearBeat 分支 / 打 v* 标签 / 手动触发
+# 触发：推送 Stateless+* 分支（GitHub 会规范化分支拼写，用通配符兼容）/ 打 v* 标签 / 手动触发
 on:
   push:
     branches:
-      - 'Stateless+HearBeat'
+      - 'Stateless+*'
     tags:
       - 'v*'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  # ghcr 镜像名必须全小写：ghcr.io/nickshee/obsidian-mcp-pro
-  IMAGE_NAME: ${{ lower(github.repository) }}
+  # ghcr 镜像名必须全小写。GitHub Actions 表达式没有 lower() 函数，
+  # 因此直接硬编码小写镜像名（避免 workflow 校验失败）。
+  IMAGE_NAME: nickshee/obsidian-mcp-pro
 
 jobs:
   build-and-push:
