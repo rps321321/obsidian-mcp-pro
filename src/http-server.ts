@@ -49,9 +49,9 @@ const REQUEST_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 const installedSignalHandlers = new Map<NodeJS.Signals, () => void>();
 
-// --- SSE keep-alive 心跳（环境变量可配置，便于调试）---
-// SSE_KEEPALIVE_ENABLED      "true"(默认)/"false" —— 关闭时完全不启动心跳，无任何副作用
-// SSE_KEEPALIVE_INTERVAL_MS  心跳间隔毫秒，默认 15000；<=0 或非法值视为关闭心跳
+// --- SSE keep-alive heartbeat (env-configurable) ---
+// SSE_KEEPALIVE_ENABLED      "true" (default) / "false" — disabled means no heartbeat at all
+// SSE_KEEPALIVE_INTERVAL_MS  heartbeat interval in ms, default 15000; <=0 or invalid disables it
 const SSE_KEEPALIVE_ENABLED =
   (process.env.SSE_KEEPALIVE_ENABLED ?? "true").trim().toLowerCase() !== "false";
 const parsedKeepaliveInterval = Number(process.env.SSE_KEEPALIVE_INTERVAL_MS ?? "15000");
@@ -60,17 +60,22 @@ const SSE_KEEPALIVE_INTERVAL_MS =
     ? parsedKeepaliveInterval
     : 0;
 
-// --- Stateless 模式（可选，治本方案；与 Outline MCP 同款架构）---
-// STATELESS_MODE=true 时启用无状态模式：
-//   - 每次请求独立创建 transport（sessionIdGenerator: undefined），无 sessionId、无长连接、无 GET SSE 流
-//   - 彻底免疫反代/网络掐断导致的断联，无需心跳
-// 关闭（默认 false）时使用 stateful + SSE 心跳模式（现有逻辑原样保留）。
-// 两种模式互不干扰，切换仅需改环境变量。
-// 用函数而非模块级常量：每次请求读取 process.env，便于测试 stub 与运行时热切换。
-// 无副作用保证：
-//   - stateless 时 GET/DELETE 走 405 分支，不会误入 stateful 的 session/SSE/心跳逻辑
-//   - stateless 时心跳不启动（心跳只存在于 stateful 的 GET SSE 流内）
-//   - stateless 时 session 表（transports/lastActivity）不参与，sweeper 仅清理限流窗口
+// --- Stateless mode (optional, same architecture as Outline MCP) ---
+// When STATELESS_MODE=true:
+//   - A fresh transport is created per request (sessionIdGenerator: undefined):
+//     no session ids, no long-lived connections, no GET SSE stream.
+//   - Fully immune to reverse-proxy / network disconnects; no heartbeat needed.
+// When false (default): stateful + SSE heartbeat mode (original behaviour preserved).
+// The two modes are independent; switching only requires changing the env var.
+// Read as a function (not a module-level constant) so each request reads
+// process.env — easier to stub in tests and to hot-switch at runtime.
+// No-side-effect guarantees:
+//   - In stateless mode GET/DELETE go down the 405 branch and never touch the
+//     stateful session/SSE/heartbeat logic.
+//   - Heartbeat never starts in stateless mode (it only lives inside the
+//     stateful GET SSE stream).
+//   - The session table (transports/lastActivity) is not involved; the sweeper
+//     only cleans up rate-limit windows.
 function isStatelessMode(): boolean {
   const raw = process.env.STATELESS_MODE ?? "false";
   return raw.trim().toLowerCase() === "true";
@@ -476,9 +481,11 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           throw err;
         }
 
-        // --- Stateless 模式（STATELESS_MODE=true）：每个请求独立创建 transport ---
-        // 不生成 sessionId，不做 session 校验，每次请求自包含；GET/DELETE 走 405 分支。
-        // 与 Outline MCP 完全一致，天然免疫反代掐断/客户端重连导致的断联。
+        // --- Stateless mode (STATELESS_MODE=true): one transport per request ---
+        // No session id is generated and no session is looked up; each request
+        // is self-contained and GET/DELETE fall through to the 405 branch.
+        // Same architecture as Outline MCP, naturally immune to reverse-proxy
+        // disconnects and client reconnects.
         if (isStatelessMode()) {
           const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: undefined,
@@ -492,7 +499,7 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           return;
         }
 
-        // --- Stateful 模式（默认）：session 表 + 心跳（原逻辑）---
+        // --- Stateful mode (default): session table + heartbeat (original logic) ---
         if (sessionId && transports.has(sessionId)) {
           touch(sessionId);
           await transports.get(sessionId)!.handleRequest(req, res, body);
@@ -545,9 +552,9 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       }
 
       if (req.method === "GET" || req.method === "DELETE") {
-        // Stateless 模式：无 session 概念，不支持 GET SSE 长连接 / DELETE session。
-        // 客户端在 stateless 下不会建立 GET 流（initialize 无 sessionId 响应），
-        // 无长连接 = 无被反代掐断风险，也无需心跳。
+        // Stateless mode: no session concept, so GET SSE streams / DELETE session
+        // are not supported. Clients never open a GET stream (initialize returns
+        // no session id), hence no long-lived connection and no heartbeat needed.
         if (isStatelessMode()) {
           sendJson(res, 405, {
             error: "Method not allowed in stateless mode. Use POST for MCP requests.",
@@ -562,18 +569,23 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         touch(sessionId);
         const transport = transports.get(sessionId)!;
 
-        // --- SSE keep-alive 心跳（可配置）：GET SSE 流建立后按 SSE_KEEPALIVE_INTERVAL_MS
-        //     周期发送 SSE 注释行，防止中间代理/NAT/反代因静默超时掐断长连接。
-        //     注意：不能依赖"首次写数据后启动"——若无推送事件，服务端可能长时间不写任何字节。 ---
+        // --- SSE keep-alive heartbeat (configurable): after the GET SSE stream
+        //     is established, write an SSE comment line every
+        //     SSE_KEEPALIVE_INTERVAL_MS to stop intermediate proxies / NAT /
+        //     reverse proxies from silently timing out and dropping the long
+        //     lived connection.
+        //     Note: can't rely on "start after first write" — without push
+        //     events the server may not write any bytes for a long time. ---
         if (req.method === "GET") {
-          // 关闭心跳（enabled=false 或 interval<=0）：完全跳过，不创建 timer、不注册监听、不写字节
+          // Heartbeat disabled (enabled=false or interval<=0): skip entirely —
+          // no timer, no listeners, no bytes written.
           if (SSE_KEEPALIVE_ENABLED && SSE_KEEPALIVE_INTERVAL_MS > 0) {
             const keepAliveTimer = setInterval(() => {
               if (!res.writableEnded) {
                 try {
-                  res.write(":\n\n"); // SSE 注释行，客户端自动忽略
+                  res.write(":\n\n"); // SSE comment line, clients ignore it
                 } catch {
-                  /* 忽略写失败，由 close/finish 清理 */
+                  /* Ignore write failures; cleaned up by close/finish */
                 }
               }
             }, SSE_KEEPALIVE_INTERVAL_MS);
