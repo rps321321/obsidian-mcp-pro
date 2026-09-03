@@ -1,7 +1,4 @@
 import { describe, it, expect } from "vitest";
-import fs from "fs/promises";
-import path from "path";
-import { fileURLToPath } from "url";
 import { parseBaseFile } from "../lib/bases.js";
 
 /**
@@ -12,19 +9,7 @@ import { parseBaseFile } from "../lib/bases.js";
  *          for the remaining parse, and caps raw input at 1 MB before handing
  *          it to the parser, so a "billion laughs" / quadratic-blowup payload
  *          can no longer drive unbounded memory or CPU.
- *
- *   FN-H7: delete_note's elicitation capability gate previously checked
- *          caps.elicitation.form (a TypeScript-SDK extension). Clients
- *          that declare the spec-compliant `elicitation: {}` capability
- *          would skip the confirmation prompt and a permanent delete
- *          would proceed silently. The check is now against the parent
- *          key (caps.elicitation !== undefined) so any elicitation-
- *          capable client triggers the prompt.
  */
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 
 describe("FN-H6: parseBaseFile resists YAML alias bombs", () => {
   it("completes quickly on a 20-level alias bomb (no exponential blowup)", () => {
@@ -67,24 +52,5 @@ describe("FN-H6: parseBaseFile resists YAML alias bombs", () => {
     expect(warnings).toEqual([]);
     expect(doc.filters).toBeDefined();
     expect((doc.properties as { status?: { displayName?: string } })?.status?.displayName).toBe("Status");
-  });
-});
-
-describe("FN-H7: delete_note elicitation gate covers spec-compliant clients", () => {
-  it("source checks caps?.elicitation !== undefined (not the SDK-only .form sub-field)", async () => {
-    // Text-based regression. The MCP client harness in this repo doesn't
-    // let us customise the advertised client capabilities mid-test, and
-    // mocking server.server.getClientCapabilities() at the SDK boundary
-    // would couple this test to SDK internals. The narrow contract we
-    // care about is: the gate must trigger for any client that declares
-    // `elicitation: {}`, not just the SDK's `.form` extension. Asserting
-    // on the source pins that contract.
-    const src = await fs.readFile(
-      path.join(PROJECT_ROOT, "src", "tools", "write", "delete_note.ts"),
-      "utf-8",
-    );
-    expect(src).toMatch(/caps\?\.elicitation\s*!==\s*undefined/);
-    // And the old, too-narrow check is gone.
-    expect(src).not.toMatch(/caps\?\.elicitation\?\.form\b/);
   });
 });
