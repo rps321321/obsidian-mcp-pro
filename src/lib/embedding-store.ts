@@ -5,18 +5,15 @@ import { log } from "./logger.js";
 import {
   openVaultInternalFileForRead,
   resolveVaultInternalPathSafe,
-} from "./vault.js";
+} from "./vault-fs.js";
 import { renameWithRetry } from "./fs-ops.js";
 
 /**
  * Persistent embedding store.
  *
- * Each entry is keyed by `<vault-relative-path>::<chunk-index>` and carries:
- *   - the embedding vector
- *   - a content hash (sha-256 of the chunk text) for incremental updates
- *   - the original chunk text (kept on disk so we can show snippets without
- *     re-reading the source note)
- *   - the headingPath the chunk came from
+ * Each handle is bound to exactly one resolved vault root and owns all mutable
+ * index state for that vault. There is intentionally no module-global vault
+ * registry: callers open one handle and share it across the semantic tools.
  *
  * Persistence: JSON snapshot at
  * `<vault>/.obsidian/cache/mcp-pro-embeddings.json`. Vector dimensionality
@@ -35,24 +32,10 @@ const NOTE_FOCUS_WEIGHT = 0.2;
 const NOTE_FOCUS_CHUNKS = 3;
 const SIMILAR_SOURCE_MIN_CHUNK_WEIGHT = 0.05;
 const SIMILAR_SOURCE_ANCHOR_POWER = 2;
-// Hard cap on the on-disk snapshot size. A 50k-note vault with 768-dim
-// vectors can produce a multi-GB JSON blob, at which point persisting it
-// each pass costs more than the cold-start re-embed it saves. When the
-// serialized snapshot exceeds this, we keep the in-memory store live and
-// skip the write; the next process start re-indexes from scratch. 256MB
-// covers ~85k chunks at 768 dims (rough), which is well past the point
-// where a user should switch to a real vector DB anyway.
 const MAX_EMBEDDING_BYTES_DEFAULT = 256 * 1024 * 1024;
-let maxEmbeddingBytes = MAX_EMBEDDING_BYTES_DEFAULT;
-/** Test seam — temporarily lower the persistence cap so we can exercise the
- *  oversize branch without producing a real 256MB fixture. Pass `null` to
- *  reset to the production default. */
-export function setMaxEmbeddingBytesForTests(bytes: number | null): void {
-  maxEmbeddingBytes = bytes === null ? MAX_EMBEDDING_BYTES_DEFAULT : bytes;
-}
 
 /** Whether the embedding store may persist to disk. Disabled via
- *  `OBSIDIAN_CACHE_DISABLED` (`1`/`true`/`yes`). */
+ * `OBSIDIAN_CACHE_DISABLED` (`1`/`true`/`yes`). */
 function isPersistenceEnabled(): boolean {
   const v = process.env.OBSIDIAN_CACHE_DISABLED;
   return !(v === "1" || v === "true" || v === "yes");
@@ -84,57 +67,37 @@ interface StoreSnapshot {
   embeddings: ChunkEmbedding[];
 }
 
-interface StoreState {
-  byKey: Map<string, ChunkEmbedding>;
-  /** Per-note: chunk keys it owns. Lets us drop a note's old chunks
-   *  efficiently when it changes. */
-  byNote: Map<string, Set<string>>;
-  /** Per-note hash, used to short-circuit re-chunk + re-embed when a note
-   *  hasn't changed since the last index. */
-  noteHashes: Map<string, string>;
-  loaded: boolean;
-  dirty: boolean;
-  /** Cached promise so concurrent callers await the same load. */
-  loadingPromise: Promise<StoreState> | null;
-  /** True while a saveStore write is in progress. */
-  saving: boolean;
-  /** True if another save was requested while one was already in flight. */
-  saveAgain: boolean;
+export interface EmbeddingStoreStats {
+  totalChunks: number;
+  totalNotes: number;
   providerId: string | null;
   model: string | null;
   dimension: number | null;
 }
 
-const stores = new Map<string, StoreState>(); // resolved vault root -> state
-
-function freshState(): StoreState {
-  return {
-    byKey: new Map(),
-    byNote: new Map(),
-    noteHashes: new Map(),
-    loaded: false,
-    dirty: false,
-    loadingPromise: null,
-    saving: false,
-    saveAgain: false,
-    providerId: null,
-    model: null,
-    dimension: null,
-  };
+export interface EmbeddingStoreOptions {
+  /** Persistence cap for this handle. Intended primarily for tests/embedders
+   * that need a stricter local cap; defaults to 256 MiB. */
+  maxEmbeddingBytes?: number;
 }
 
-function stateFor(vaultPath: string): StoreState {
-  const root = path.resolve(vaultPath);
-  let s = stores.get(root);
-  if (!s) {
-    s = freshState();
-    stores.set(root, s);
-  }
-  return s;
+export interface SearchHit {
+  notePath: string;
+  chunkIndex: number;
+  headingPath: string[];
+  text: string;
+  score: number;
 }
 
-function storePath(vaultPath: string): Promise<string> {
-  return resolveVaultInternalPathSafe(vaultPath, STORE_REL_PATH);
+export interface SearchOptions {
+  limit?: number;
+  /** Restrict to a folder prefix. */
+  folder?: string;
+  /** Excluded note paths — used by `find_similar_notes` to drop the source
+   *  note from its own results. */
+  excludeNotes?: ReadonlySet<string>;
+  /** Optional policy check applied before scoring/ranking each stored note. */
+  filterNote?: (notePath: string) => boolean;
 }
 
 function key(notePath: string, chunkIndex: number): string {
@@ -183,38 +146,85 @@ export function hashText(text: string): string {
   return createHash("sha256").update(text, "utf-8").digest("hex");
 }
 
-export async function loadStore(vaultPath: string): Promise<StoreState> {
-  const state = stateFor(vaultPath);
-  if (state.loaded) return state;
-  // If another caller is already loading, await the same promise instead of
-  // starting a parallel read that would race against it.
-  if (state.loadingPromise) return state.loadingPromise;
+/**
+ * A single-vault embedding index handle.
+ *
+ * Construction is synchronous and side-effect free. Call `load()` before
+ * using persisted state; concurrent `load()` callers share one in-flight
+ * promise. The handle is deliberately stateful so the ownership boundary is
+ * explicit instead of hidden behind module globals.
+ */
+export class EmbeddingStore {
+  readonly vaultPath: string;
+  private readonly maxEmbeddingBytes: number;
 
-  const doLoad = async (): Promise<StoreState> => {
-    if (!isPersistenceEnabled()) {
-      state.loaded = true;
-      state.loadingPromise = null;
-      return state;
+  private readonly byKey = new Map<string, ChunkEmbedding>();
+  private readonly byNote = new Map<string, Set<string>>();
+  private readonly noteHashes = new Map<string, string>();
+
+  private loaded = false;
+  private dirty = false;
+  private loadingPromise: Promise<void> | null = null;
+  private saving = false;
+  private saveAgain = false;
+  private providerId: string | null = null;
+  private model: string | null = null;
+  private dimension: number | null = null;
+
+  private constructor(vaultPath: string, options: EmbeddingStoreOptions = {}) {
+    this.vaultPath = path.resolve(vaultPath);
+    this.maxEmbeddingBytes =
+      options.maxEmbeddingBytes ?? MAX_EMBEDDING_BYTES_DEFAULT;
+  }
+
+  static open(
+    vaultPath: string,
+    options: EmbeddingStoreOptions = {}
+  ): EmbeddingStore {
+    return new EmbeddingStore(vaultPath, options);
+  }
+
+  private storePath(): Promise<string> {
+    return resolveVaultInternalPathSafe(this.vaultPath, STORE_REL_PATH);
+  }
+
+  async load(): Promise<void> {
+    if (this.loaded) return;
+    if (this.loadingPromise) return this.loadingPromise;
+
+    const pending = this.loadFromDisk();
+    this.loadingPromise = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.loadingPromise === pending) this.loadingPromise = null;
     }
+  }
+
+  private async loadFromDisk(): Promise<void> {
+    if (!isPersistenceEnabled()) {
+      this.loaded = true;
+      return;
+    }
+
     let raw: string;
     try {
       const opened = await openVaultInternalFileForRead(
-        vaultPath,
+        this.vaultPath,
         STORE_REL_PATH
       );
       const stat = opened.stats;
-      if (stat.size > maxEmbeddingBytes) {
+      if (stat.size > this.maxEmbeddingBytes) {
         await opened.handle.close();
         log.warn(
           "embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES; ignoring",
           {
             bytes: stat.size,
-            max: maxEmbeddingBytes,
+            max: this.maxEmbeddingBytes,
           }
         );
-        state.loaded = true;
-        state.loadingPromise = null;
-        return state;
+        this.loaded = true;
+        return;
       }
       try {
         raw = await opened.handle.readFile("utf-8");
@@ -227,10 +237,10 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
           err: err as Error,
         });
       }
-      state.loaded = true;
-      state.loadingPromise = null;
-      return state;
+      this.loaded = true;
+      return;
     }
+
     let snapshot: StoreSnapshot;
     try {
       snapshot = JSON.parse(raw) as StoreSnapshot;
@@ -238,10 +248,10 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       log.warn("embedding-store: snapshot is invalid JSON; ignoring", {
         err: err as Error,
       });
-      state.loaded = true;
-      state.loadingPromise = null;
-      return state;
+      this.loaded = true;
+      return;
     }
+
     if (
       !snapshot ||
       snapshot.version !== STORE_VERSION ||
@@ -251,286 +261,318 @@ export async function loadStore(vaultPath: string): Promise<StoreState> {
       !isPositiveInteger(snapshot.dimension)
     ) {
       log.warn("embedding-store: snapshot has unexpected shape; ignoring");
-      state.loaded = true;
-      state.loadingPromise = null;
-      return state;
+      this.loaded = true;
+      return;
     }
-    const expectedRoot = path.resolve(vaultPath);
-    if (snapshot.vaultRoot !== expectedRoot) {
+
+    if (snapshot.vaultRoot !== this.vaultPath) {
       log.info("embedding-store: snapshot vault root differs; discarding", {
         snapshotRoot: snapshot.vaultRoot,
-        currentRoot: expectedRoot,
+        currentRoot: this.vaultPath,
       });
-      state.loaded = true;
-      state.loadingPromise = null;
-      return state;
+      this.loaded = true;
+      return;
     }
-    state.providerId = snapshot.providerId;
-    state.model = snapshot.model;
-    state.dimension = snapshot.dimension;
+
+    this.providerId = snapshot.providerId;
+    this.model = snapshot.model;
+    this.dimension = snapshot.dimension;
     for (const entry of snapshot.embeddings) {
       if (!isSnapshotEntry(entry)) continue;
-      // Silently drop entries whose vector length doesn't match the snapshot's
-      // declared dimension. Guards against hand-edited or partially-corrupted
-      // snapshots where one row's length drifted from the rest.
       if (validateEmbeddingVector(entry.vector, snapshot.dimension) !== null)
         continue;
-      state.byKey.set(key(entry.notePath, entry.chunkIndex), entry);
-      let owned = state.byNote.get(entry.notePath);
+      const entryKey = key(entry.notePath, entry.chunkIndex);
+      this.byKey.set(entryKey, entry);
+      let owned = this.byNote.get(entry.notePath);
       if (!owned) {
         owned = new Set();
-        state.byNote.set(entry.notePath, owned);
+        this.byNote.set(entry.notePath, owned);
       }
-      owned.add(key(entry.notePath, entry.chunkIndex));
+      owned.add(entryKey);
     }
     for (const [note, hash] of Object.entries(snapshot.noteHashes ?? {})) {
-      if (typeof hash === "string" && state.byNote.has(note))
-        state.noteHashes.set(note, hash);
-    }
-    // Mark loaded only AFTER all async I/O and parsing is complete.
-    state.loaded = true;
-    state.loadingPromise = null;
-    return state;
-  };
-
-  state.loadingPromise = doLoad();
-  return state.loadingPromise;
-}
-
-export async function saveStore(vaultPath: string): Promise<void> {
-  const state = stateFor(vaultPath);
-  if (!state.dirty) return;
-  if (state.providerId === null || state.model === null) return; // nothing valid to write
-  if (!isPersistenceEnabled()) {
-    state.dirty = false;
-    return;
-  }
-
-  // If a save is already in flight, mark that another pass is needed and
-  // return. The in-flight save will re-check the flag when it finishes.
-  if (state.saving) {
-    state.saveAgain = true;
-    return;
-  }
-
-  state.saving = true;
-  try {
-    await doSave(vaultPath, state);
-  } finally {
-    state.saving = false;
-  }
-
-  // If someone requested another save while we were writing, run one more
-  // pass to pick up any changes that arrived after we serialized.
-  if (state.saveAgain) {
-    state.saveAgain = false;
-    await saveStore(vaultPath);
-  }
-}
-
-async function doSave(vaultPath: string, state: StoreState): Promise<void> {
-  const snapshot: StoreSnapshot = {
-    version: STORE_VERSION,
-    vaultRoot: path.resolve(vaultPath),
-    providerId: state.providerId!,
-    model: state.model!,
-    dimension: state.dimension ?? 0,
-    noteHashes: Object.fromEntries(state.noteHashes),
-    embeddings: Array.from(state.byKey.values()),
-  };
-  const serialized = JSON.stringify(snapshot);
-  // Guard against unbounded on-disk growth. Serialize once, measure the
-  // result, and refuse to persist if it would exceed MAX_EMBEDDING_BYTES.
-  // The in-memory store stays intact (current-process queries still work);
-  // we just degrade cold-start performance until the user prunes the vault
-  // or switches to a dedicated vector backend. `Buffer.byteLength` on the
-  // UTF-8 string gives the actual write size, not the JS string length.
-  const byteLength = Buffer.byteLength(serialized, "utf-8");
-  if (byteLength > maxEmbeddingBytes) {
-    log.warn(
-      "embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES, persistence skipped",
-      {
-        bytes: byteLength,
-        max: maxEmbeddingBytes,
-        chunks: state.byKey.size,
-        notes: state.byNote.size,
+      if (typeof hash === "string" && this.byNote.has(note)) {
+        this.noteHashes.set(note, hash);
       }
-    );
-    return;
+    }
+    this.loaded = true;
   }
-  let file: string;
-  try {
-    file = await storePath(vaultPath);
-  } catch (err) {
-    log.warn("embedding-store: snapshot path failed vault-boundary check", {
-      err: err as Error,
-    });
-    return;
-  }
-  // Include a random suffix so two concurrent saves in the same process
-  // (same PID) don't fight over the same tmp file and clobber each other.
-  const tmp = `${file}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
-  try {
-    await fs.mkdir(path.dirname(file), { recursive: true });
+
+  async save(): Promise<void> {
+    if (!this.dirty) return;
+    if (this.providerId === null || this.model === null) return;
+    if (!isPersistenceEnabled()) {
+      this.dirty = false;
+      return;
+    }
+
+    if (this.saving) {
+      this.saveAgain = true;
+      return;
+    }
+
+    this.saving = true;
     try {
-      await fs.writeFile(tmp, serialized, { encoding: "utf-8", mode: 0o600 });
-      await renameWithRetry(tmp, file);
-    } catch (innerErr) {
-      // Best-effort cleanup: if writeFile succeeded but rename failed, the
-      // tmp file is still on disk. ENOENT (writeFile never created it) is
-      // fine to swallow here.
+      await this.doSave();
+    } finally {
+      this.saving = false;
+    }
+
+    if (this.saveAgain) {
+      this.saveAgain = false;
+      await this.save();
+    }
+  }
+
+  private async doSave(): Promise<void> {
+    const snapshot: StoreSnapshot = {
+      version: STORE_VERSION,
+      vaultRoot: this.vaultPath,
+      providerId: this.providerId!,
+      model: this.model!,
+      dimension: this.dimension ?? 0,
+      noteHashes: Object.fromEntries(this.noteHashes),
+      embeddings: Array.from(this.byKey.values()),
+    };
+    const serialized = JSON.stringify(snapshot);
+    const byteLength = Buffer.byteLength(serialized, "utf-8");
+    if (byteLength > this.maxEmbeddingBytes) {
+      log.warn(
+        "embedding-store: snapshot exceeds MAX_EMBEDDING_BYTES, persistence skipped",
+        {
+          bytes: byteLength,
+          max: this.maxEmbeddingBytes,
+          chunks: this.byKey.size,
+          notes: this.byNote.size,
+        }
+      );
+      return;
+    }
+
+    let file: string;
+    try {
+      file = await this.storePath();
+    } catch (err) {
+      log.warn("embedding-store: snapshot path failed vault-boundary check", {
+        err: err as Error,
+      });
+      return;
+    }
+
+    const tmp = `${file}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    try {
+      await fs.mkdir(path.dirname(file), { recursive: true });
       try {
-        await fs.unlink(tmp);
+        await fs.writeFile(tmp, serialized, {
+          encoding: "utf-8",
+          mode: 0o600,
+        });
+        await renameWithRetry(tmp, file);
+      } catch (innerErr) {
+        try {
+          await fs.unlink(tmp);
+        } catch {
+          /* ignore */
+        }
+        throw innerErr;
+      }
+      this.dirty = false;
+    } catch (err) {
+      log.warn("embedding-store: failed to persist snapshot", {
+        err: err as Error,
+      });
+    }
+  }
+
+  /** Reset this handle to a fresh in-memory state. The next `load()` reads the
+   * snapshot again. Pass `removeSnapshot: true` to also unlink persisted data. */
+  async clear(options?: { removeSnapshot?: boolean }): Promise<void> {
+    this.byKey.clear();
+    this.byNote.clear();
+    this.noteHashes.clear();
+    this.loaded = false;
+    this.dirty = false;
+    this.loadingPromise = null;
+    this.saveAgain = false;
+    this.providerId = null;
+    this.model = null;
+    this.dimension = null;
+
+    if (options?.removeSnapshot) {
+      try {
+        await fs.unlink(await this.storePath());
       } catch {
         /* ignore */
       }
-      throw innerErr;
-    }
-    state.dirty = false;
-  } catch (err) {
-    log.warn("embedding-store: failed to persist snapshot", {
-      err: err as Error,
-    });
-  }
-}
-
-/** Drop everything we know about this vault. The next `loadStore` re-reads
- *  from disk; pass `removeSnapshot: true` to also unlink the snapshot file
- *  (e.g. when the user wants to fully reset the index). */
-export async function clearStore(
-  vaultPath: string,
-  options?: { removeSnapshot?: boolean }
-): Promise<void> {
-  stores.delete(path.resolve(vaultPath));
-  if (options?.removeSnapshot) {
-    try {
-      await fs.unlink(await storePath(vaultPath));
-    } catch {
-      /* ignore */
     }
   }
-}
 
-/** Drop a snapshot incompatible with the current provider/model (different
- *  dimension or label). Called by the indexer at startup. */
-export function invalidateIfIncompatible(
-  vaultPath: string,
-  providerId: string,
-  model: string
-): void {
-  const state = stateFor(vaultPath);
-  if (!state.loaded) return;
-  if (state.providerId === providerId && state.model === model) return;
-  state.byKey.clear();
-  state.byNote.clear();
-  state.noteHashes.clear();
-  state.providerId = providerId;
-  state.model = model;
-  state.dimension = null;
-  state.dirty = true;
-}
-
-/** Has the given note's content changed since the last index pass? */
-export function noteIsCurrent(
-  vaultPath: string,
-  notePath: string,
-  contentHash: string
-): boolean {
-  const state = stateFor(vaultPath);
-  return state.noteHashes.get(notePath) === contentHash;
-}
-
-/** Replace all chunks for `notePath`. Pass empty `chunks` to drop a note. */
-export function setNoteChunks(
-  vaultPath: string,
-  notePath: string,
-  contentHash: string,
-  chunks: ChunkEmbedding[],
-  providerId: string,
-  model: string
-): void {
-  const state = stateFor(vaultPath);
-  let nextDimension = state.dimension;
-  for (const ch of chunks) {
-    const error = validateEmbeddingVector(ch.vector, nextDimension);
-    if (error !== null) {
-      throw new Error(
-        `Invalid embedding vector at chunk ${ch.chunkIndex}: ${error}`
-      );
-    }
-    if (nextDimension === null) nextDimension = ch.vector.length;
+  /** Drop a snapshot incompatible with the current provider/model. */
+  invalidateIfIncompatible(providerId: string, model: string): void {
+    if (!this.loaded) return;
+    if (this.providerId === providerId && this.model === model) return;
+    this.byKey.clear();
+    this.byNote.clear();
+    this.noteHashes.clear();
+    this.providerId = providerId;
+    this.model = model;
+    this.dimension = null;
+    this.dirty = true;
   }
-  // Drop any prior chunks owned by this note.
-  const prior = state.byNote.get(notePath);
-  if (prior) {
-    for (const k of prior) state.byKey.delete(k);
+
+  /** Has the given note's content changed since the last index pass? */
+  noteIsCurrent(notePath: string, contentHash: string): boolean {
+    return this.noteHashes.get(notePath) === contentHash;
   }
-  if (chunks.length === 0) {
-    state.byNote.delete(notePath);
-    state.noteHashes.delete(notePath);
-  } else {
-    const owned = new Set<string>();
+
+  /** Replace all chunks for `notePath`. Pass empty `chunks` to drop a note. */
+  setNoteChunks(
+    notePath: string,
+    contentHash: string,
+    chunks: ChunkEmbedding[],
+    providerId: string,
+    model: string
+  ): void {
+    let nextDimension = this.dimension;
     for (const ch of chunks) {
-      const k = key(ch.notePath, ch.chunkIndex);
-      state.byKey.set(k, ch);
-      owned.add(k);
+      const error = validateEmbeddingVector(ch.vector, nextDimension);
+      if (error !== null) {
+        throw new Error(
+          `Invalid embedding vector at chunk ${ch.chunkIndex}: ${error}`
+        );
+      }
+      if (nextDimension === null) nextDimension = ch.vector.length;
     }
-    state.dimension = nextDimension;
-    state.byNote.set(notePath, owned);
-    state.noteHashes.set(notePath, contentHash);
+
+    const prior = this.byNote.get(notePath);
+    if (prior) {
+      for (const priorKey of prior) this.byKey.delete(priorKey);
+    }
+
+    if (chunks.length === 0) {
+      this.byNote.delete(notePath);
+      this.noteHashes.delete(notePath);
+    } else {
+      const owned = new Set<string>();
+      for (const ch of chunks) {
+        const chunkKey = key(ch.notePath, ch.chunkIndex);
+        this.byKey.set(chunkKey, ch);
+        owned.add(chunkKey);
+      }
+      this.dimension = nextDimension;
+      this.byNote.set(notePath, owned);
+      this.noteHashes.set(notePath, contentHash);
+    }
+    this.providerId = providerId;
+    this.model = model;
+    this.dirty = true;
   }
-  state.providerId = providerId;
-  state.model = model;
-  state.dirty = true;
+
+  dropNoteChunks(notePath: string): boolean {
+    const owned = this.byNote.get(notePath);
+    const hadHash = this.noteHashes.delete(notePath);
+    if (!owned && !hadHash) return false;
+    if (owned) {
+      for (const ownedKey of owned) this.byKey.delete(ownedKey);
+    }
+    this.byNote.delete(notePath);
+    this.dirty = true;
+    return true;
+  }
+
+  /** Drop chunks for notes that no longer exist in the vault. */
+  pruneMissingNotes(currentNotes: Iterable<string>): number {
+    const live = new Set<string>(currentNotes);
+    let pruned = 0;
+    for (const note of Array.from(this.byNote.keys())) {
+      if (live.has(note)) continue;
+      if (this.dropNoteChunks(note)) pruned++;
+    }
+    return pruned;
+  }
+
+  stats(): EmbeddingStoreStats {
+    return {
+      totalChunks: this.byKey.size,
+      totalNotes: this.byNote.size,
+      providerId: this.providerId,
+      model: this.model,
+      dimension: this.dimension,
+    };
+  }
+
+  isEmpty(): boolean {
+    return this.byKey.size === 0;
+  }
+
+  search(queryVector: number[], options: SearchOptions = {}): SearchHit[] {
+    const limit = options.limit ?? 10;
+    const folder = normalizeSearchFolder(options.folder);
+    const exclude = options.excludeNotes ?? null;
+    const filterNote = options.filterNote ?? null;
+
+    const hits: SearchHit[] = [];
+    for (const entry of this.byKey.values()) {
+      if (folder !== null) {
+        if (
+          entry.notePath !== folder &&
+          !entry.notePath.startsWith(folder + "/")
+        )
+          continue;
+      }
+      if (exclude && exclude.has(entry.notePath)) continue;
+      if (filterNote && !filterNote(entry.notePath)) continue;
+      const score = cosineSimilarity(queryVector, entry.vector);
+      hits.push({
+        notePath: entry.notePath,
+        chunkIndex: entry.chunkIndex,
+        headingPath: entry.headingPath,
+        text: entry.text,
+        score,
+      });
+    }
+
+    const byNote = new Map<string, { best: SearchHit; scores: number[] }>();
+    for (const hit of hits) {
+      const existing = byNote.get(hit.notePath);
+      if (!existing) {
+        byNote.set(hit.notePath, { best: hit, scores: [hit.score] });
+      } else {
+        existing.scores.push(hit.score);
+        if (hit.score > existing.best.score) existing.best = hit;
+      }
+    }
+    const out = Array.from(byNote.values())
+      .map(({ best, scores }) => ({ ...best, score: noteFocusScore(scores) }))
+      .sort((a, b) => {
+        const scoreDelta = b.score - a.score;
+        if (scoreDelta !== 0) return scoreDelta;
+        return a.notePath.localeCompare(b.notePath);
+      });
+    return out.slice(0, limit);
+  }
+
+  /** Get the embeddings owned by a specific note. */
+  getNoteEmbeddings(notePath: string): ChunkEmbedding[] {
+    const owned = this.byNote.get(notePath);
+    if (!owned) return [];
+    const out: ChunkEmbedding[] = [];
+    for (const ownedKey of owned) {
+      const entry = this.byKey.get(ownedKey);
+      if (entry) out.push(entry);
+    }
+    return out;
+  }
 }
 
-export function dropNoteChunks(vaultPath: string, notePath: string): boolean {
-  const state = stateFor(vaultPath);
-  const owned = state.byNote.get(notePath);
-  const hadHash = state.noteHashes.delete(notePath);
-  if (!owned && !hadHash) return false;
-  if (owned) {
-    for (const k of owned) state.byKey.delete(k);
-  }
-  state.byNote.delete(notePath);
-  state.dirty = true;
-  return true;
-}
-
-/** Drop chunks for notes that no longer exist in the vault. Called at the
- *  end of an index pass. */
-export function pruneMissingNotes(
+export function openEmbeddingStore(
   vaultPath: string,
-  currentNotes: Iterable<string>
-): number {
-  const state = stateFor(vaultPath);
-  const live = new Set<string>(currentNotes);
-  let pruned = 0;
-  for (const note of Array.from(state.byNote.keys())) {
-    if (live.has(note)) continue;
-    if (dropNoteChunks(vaultPath, note)) pruned++;
-  }
-  return pruned;
+  options: EmbeddingStoreOptions = {}
+): EmbeddingStore {
+  return EmbeddingStore.open(vaultPath, options);
 }
 
-export function snapshotForTests(vaultPath: string): {
-  totalChunks: number;
-  totalNotes: number;
-  providerId: string | null;
-  model: string | null;
-  dimension: number | null;
-} {
-  const state = stateFor(vaultPath);
-  return {
-    totalChunks: state.byKey.size,
-    totalNotes: state.byNote.size,
-    providerId: state.providerId,
-    model: state.model,
-    dimension: state.dimension,
-  };
-}
-
-// ─── cosine similarity + search ─────────────────────────────────────
+// ─── pure similarity helpers ────────────────────────────────────────
 
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) {
@@ -553,25 +595,6 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-export interface SearchHit {
-  notePath: string;
-  chunkIndex: number;
-  headingPath: string[];
-  text: string;
-  score: number;
-}
-
-export interface SearchOptions {
-  limit?: number;
-  /** Restrict to a folder prefix. */
-  folder?: string;
-  /** Excluded note paths — used by `find_similar_notes` to drop the source
-   *  note from its own results. */
-  excludeNotes?: ReadonlySet<string>;
-  /** Optional policy check applied before scoring/ranking each stored note. */
-  filterNote?: (notePath: string) => boolean;
-}
-
 function normalizeSearchFolder(folder: string | undefined): string | null {
   if (!folder) return null;
   const slashed = folder
@@ -583,61 +606,6 @@ function normalizeSearchFolder(folder: string | undefined): string | null {
   if (normalized === "." || normalized === "") return null;
   if (normalized === ".." || normalized.startsWith("../")) return slashed;
   return normalized;
-}
-
-export function searchEmbeddings(
-  vaultPath: string,
-  queryVector: number[],
-  options: SearchOptions = {}
-): SearchHit[] {
-  const state = stateFor(vaultPath);
-  const limit = options.limit ?? 10;
-  const folder = normalizeSearchFolder(options.folder);
-  const exclude = options.excludeNotes ?? null;
-  const filterNote = options.filterNote ?? null;
-
-  const hits: SearchHit[] = [];
-  for (const entry of state.byKey.values()) {
-    if (folder !== null) {
-      if (entry.notePath !== folder && !entry.notePath.startsWith(folder + "/"))
-        continue;
-    }
-    if (exclude && exclude.has(entry.notePath)) continue;
-    if (filterNote && !filterNote(entry.notePath)) continue;
-    const score = cosineSimilarity(queryVector, entry.vector);
-    hits.push({
-      notePath: entry.notePath,
-      chunkIndex: entry.chunkIndex,
-      headingPath: entry.headingPath,
-      text: entry.text,
-      score,
-    });
-  }
-  // Per-note ranking: keep the highest-scoring chunk for the snippet, but
-  // sort notes with a small focus signal from their top chunks. This avoids
-  // one incidental perfect chunk outranking notes that are consistently about
-  // the query.
-  const byNote = new Map<string, { best: SearchHit; scores: number[] }>();
-  for (const h of hits) {
-    const existing = byNote.get(h.notePath);
-    if (!existing) {
-      byNote.set(h.notePath, { best: h, scores: [h.score] });
-    } else {
-      existing.scores.push(h.score);
-      if (h.score > existing.best.score) existing.best = h;
-    }
-  }
-  const out = Array.from(byNote.values())
-    .map(({ best, scores }) => {
-      const score = noteFocusScore(scores);
-      return { ...best, score };
-    })
-    .sort((a, b) => {
-      const scoreDelta = b.score - a.score;
-      if (scoreDelta !== 0) return scoreDelta;
-      return a.notePath.localeCompare(b.notePath);
-    });
-  return out.slice(0, limit);
 }
 
 function noteFocusScore(scores: number[]): number {
@@ -680,22 +648,6 @@ export function buildSimilarNotesQueryVector(
   if (totalWeight === 0) return out;
   for (let d = 0; d < dim; d++) {
     out[d] = out[d]! / totalWeight;
-  }
-  return out;
-}
-
-/** Get the embeddings owned by a specific note (used by find_similar). */
-export function getNoteEmbeddings(
-  vaultPath: string,
-  notePath: string
-): ChunkEmbedding[] {
-  const state = stateFor(vaultPath);
-  const owned = state.byNote.get(notePath);
-  if (!owned) return [];
-  const out: ChunkEmbedding[] = [];
-  for (const k of owned) {
-    const e = state.byKey.get(k);
-    if (e) out.push(e);
   }
   return out;
 }
