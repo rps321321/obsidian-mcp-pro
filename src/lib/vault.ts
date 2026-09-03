@@ -5,7 +5,9 @@
  *
  * Module map (each depends only on layers above it):
  *   vault-fs      path safety · locking · atomic writes · byte guards · traversal
- *   note-reads    readNote · readNoteLineRange · listNotes
+ *   note-reads    pure point reads: readNote · readNoteLineRange · listNotes
+ *   index-cache   stateful mtime-cached batch reads
+ *   vault-reads   canonical seam exposing fresh point + cached batch reads
  *   canvas        list/read/write/update canvas files
  *   bases         Base filter engine + list/read base files
  *   link-rewriter plan/apply move + delete link rewrites
@@ -13,7 +15,9 @@
  *   vault-search  searchInContents / searchNotes
  *   vault-stats   getNoteStats / listAttachments / getAttachmentStats
  *
- * New code should import from the specific module, not this barrel.
+ * New library code should import from the specific module. Read-oriented code
+ * should prefer `vault-reads.js`, where the fresh-single vs cached-batch split
+ * is explicit and discoverable.
  */
 
 // Re-export foundation primitives so external call sites keep importing from vault.js.
@@ -34,13 +38,17 @@ export {
   type ValidatedVaultFile,
 } from "./vault-fs.js";
 
-// Re-export note-read APIs so external call sites keep importing from vault.js.
+// Re-export the canonical read seam so external call sites can discover both
+// always-fresh point reads and the cached vault-wide batch reader together.
 export {
   readNote,
   readNoteLineRange,
   listNotes,
+  readAllCached,
   type NoteLineRangeRead,
-} from "./note-reads.js";
+  type CachedFileStats,
+  type ReadAllResult,
+} from "./vault-reads.js";
 
 // Re-export canvas + bases file-type APIs so external call sites keep
 // importing from vault.js.
