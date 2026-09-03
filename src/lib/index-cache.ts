@@ -5,7 +5,7 @@ import {
   getVaultRootRealPath,
   openVaultFileForRead,
   resolveVaultInternalPathSafe,
-} from "./vault.js";
+} from "./vault-fs.js";
 import { mapConcurrent } from "./concurrency.js";
 import { log } from "./logger.js";
 
