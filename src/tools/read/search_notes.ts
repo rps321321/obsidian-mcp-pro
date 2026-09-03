@@ -1,8 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { searchInContents, listNotes } from "../../lib/vault.js";
-import { readAllCached } from "../../lib/index-cache.js";
-import { log } from "../../lib/logger.js";
+import { searchNotes } from "../../lib/vault.js";
 import { defineTool, richText, text } from "../../lib/tool-seam.js";
 import { escapeControlChars } from "./shared.js";
 
@@ -58,20 +56,10 @@ export function registerSearchNotesTool(
       },
     },
     async ({ query, caseSensitive, maxResults, folder }) => {
-      // Pull notes via the mtime cache so repeat searches with hot files
-      // skip re-reads. The pure matcher (`searchInContents`) does the
-      // line-level scan on the in-memory map.
-      const notes = await listNotes(vaultPath, folder);
-      const { contents } = await readAllCached(
-        vaultPath,
-        notes,
-        (note, err) => {
-          log.warn("search_notes: note read failed", { note, err });
-        }
-      );
-      const results = searchInContents(notes, contents, query, {
+      const results = await searchNotes(vaultPath, query, {
         caseSensitive,
         maxResults,
+        folder,
       });
 
       if (results.length === 0) {
