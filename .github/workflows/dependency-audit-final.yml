@@ -1,0 +1,27 @@
+name: Final dependency audit probe
+
+on:
+  push:
+    branches:
+      - rps/dependency-audit-final
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Production audit
+        run: npm audit --omit=dev --json || true
+      - name: Full audit
+        run: npm audit --json || true
+      - name: Dependency chains for any known residuals
+        run: npm ls body-parser brace-expansion nanoid postcss @modelcontextprotocol/sdk express raw-body --all || true
