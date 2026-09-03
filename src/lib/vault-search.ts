@@ -1,11 +1,6 @@
-import { mapConcurrent } from "./concurrency.js";
-import { listNotes, readNote } from "./note-reads.js";
+import { listNotes, readAllCached } from "./vault-reads.js";
 import type { SearchResult, SearchMatch } from "../types.js";
 
-// Bounded fan-out for vault-wide scans. Higher values saturate the event loop
-// on spinning disks; lower values leave SSD throughput on the table. 8 is the
-// sweet spot on a typical developer workstation.
-const SCAN_CONCURRENCY = 8;
 const SEARCH_PATH_MATCH_BOOST = 4;
 const SEARCH_HEADING_MATCH_BOOST = 4;
 const SEARCH_MATCH_COUNT_WEIGHT = 0.25;
@@ -14,11 +9,9 @@ const SEARCH_SNIPPET_MAX_CHARS = 240;
 const SEARCH_SNIPPET_OMISSION = "...";
 
 /**
- * Pure scanner: search a pre-loaded set of note contents for `query`. Used by
- * both `searchNotes` (which loads its own content) and the `search_notes`
- * tool (which loads via the mtime cache). Keeping the matching logic
- * separate from the I/O loop lets the tool avoid duplicate reads when the
- * same vault has been scanned recently.
+ * Pure scanner: search a pre-loaded set of note contents for `query`.
+ * `searchNotes` owns the vault-wide I/O path and loads those contents through
+ * the canonical cached batch-read seam.
  */
 export function searchInContents(
   notes: readonly string[],
@@ -150,22 +143,11 @@ export async function searchNotes(
 ): Promise<SearchResult[]> {
   const notes = await listNotes(vaultPath, options?.folder);
 
-  // Scan notes in parallel with bounded concurrency. Sequential iteration
-  // would pay one realpath syscall per note on every query — unusable on
-  // 10k+ note vaults. Errors are swallowed per-item (documented
-  // `mapConcurrent` contract) so one unreadable note doesn't abort the
-  // search. We intentionally do NOT log the relative note path here — it
-  // used to go to stderr and could leak vault layout into shared logs.
-  const contents = new Map<string, string>();
-  await mapConcurrent(notes, SCAN_CONCURRENCY, async (notePath) => {
-    try {
-      const content = await readNote(vaultPath, notePath);
-      contents.set(notePath, content);
-    } catch {
-      // ignore per-file failures
-    }
-    return undefined;
-  });
+  // Vault-wide search is a batch semantic: reuse unchanged note bodies across
+  // repeated scans while keeping point reads (`readNote`) direct and fresh.
+  // Per-file failures are intentionally omitted without logging note paths so
+  // one unreadable note does not abort the search or leak vault layout.
+  const { contents } = await readAllCached(vaultPath, notes);
 
   return searchInContents(notes, contents, query, options);
 }
