@@ -90,19 +90,16 @@ function hasIncidentalBeforeFocused(results) {
 
 export async function runSemanticRankingQualityBench() {
   const {
-    loadStore,
-    setNoteChunks,
-    searchEmbeddings,
+    openEmbeddingStore,
     hashText,
-    clearStore,
   } = await import(pathToFileURL(storeEntry).href);
 
   const vault = mkdtempSync(join(tmpdir(), "ompro-semantic-ranking-"));
+  const store = openEmbeddingStore(vault);
   try {
-    await loadStore(vault);
+    await store.load();
     for (const note of notes) {
-      setNoteChunks(
-        vault,
+      store.setNoteChunks(
         note.path,
         hashText(note.path),
         note.chunks.map((chunk, index) => ({
@@ -118,7 +115,7 @@ export async function runSemanticRankingQualityBench() {
       );
     }
 
-    const hits = searchEmbeddings(vault, QUERY_VECTOR, { limit: LIMIT });
+    const hits = store.search(QUERY_VECTOR, { limit: LIMIT });
     const relevanceByPath = new Map(notes.map((note) => [note.path, note.relevance]));
     const rows = hits.map((hit, index) => ({
       rank: index + 1,
@@ -140,7 +137,7 @@ export async function runSemanticRankingQualityBench() {
       rows,
     };
   } finally {
-    await clearStore(vault, { removeSnapshot: true });
+    await store.clear({ removeSnapshot: true });
     rmSync(vault, { recursive: true, force: true });
   }
 }

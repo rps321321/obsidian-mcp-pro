@@ -87,21 +87,17 @@ function ndcgAt(results, k) {
 
 export async function runSimilarNotesQualityBench() {
   const {
-    loadStore,
-    setNoteChunks,
-    searchEmbeddings,
-    getNoteEmbeddings,
+    openEmbeddingStore,
     buildSimilarNotesQueryVector,
     hashText,
-    clearStore,
   } = await import(pathToFileURL(storeEntry).href);
 
   const vault = mkdtempSync(join(tmpdir(), "ompro-similar-quality-"));
+  const store = openEmbeddingStore(vault);
   try {
-    await loadStore(vault);
+    await store.load();
     for (const note of notes) {
-      setNoteChunks(
-        vault,
+      store.setNoteChunks(
         note.path,
         hashText(note.path),
         note.chunks.map((chunk, index) => ({
@@ -117,9 +113,9 @@ export async function runSimilarNotesQualityBench() {
       );
     }
 
-    const ownChunks = getNoteEmbeddings(vault, SOURCE_NOTE);
+    const ownChunks = store.getNoteEmbeddings(SOURCE_NOTE);
     const queryVector = buildSimilarNotesQueryVector(ownChunks);
-    const hits = searchEmbeddings(vault, queryVector, {
+    const hits = store.search(queryVector, {
       limit: LIMIT,
       excludeNotes: new Set([SOURCE_NOTE]),
     });
@@ -149,7 +145,7 @@ export async function runSimilarNotesQualityBench() {
       rows,
     };
   } finally {
-    await clearStore(vault, { removeSnapshot: true });
+    await store.clear({ removeSnapshot: true });
     rmSync(vault, { recursive: true, force: true });
   }
 }

@@ -9,17 +9,11 @@ import { readAllCached } from "../../lib/index-cache.js";
 import { chunkNote } from "../../lib/chunker.js";
 import { getActiveProvider } from "../../lib/embedding-providers.js";
 import {
-  loadStore,
-  saveStore,
-  getNoteEmbeddings,
   hashText,
-  noteIsCurrent,
-  setNoteChunks,
-  pruneMissingNotes,
-  invalidateIfIncompatible,
   validateEmbeddingVector,
   type ChunkEmbedding,
-} from "../../lib/embedding-store.js";
+  type EmbeddingStore,
+} from "../../lib/embedding-store-handle.js";
 import { makeProgressReporter } from "../../lib/progress.js";
 import { sanitizeError } from "../../lib/errors.js";
 import { log } from "../../lib/logger.js";
@@ -48,11 +42,11 @@ function headingPathsEqual(
 }
 
 function storedChunksMatchLiveChunks(
-  vaultPath: string,
+  store: EmbeddingStore,
   notePath: string,
   chunks: ReturnType<typeof chunkNote>
 ): boolean {
-  const stored = getNoteEmbeddings(vaultPath, notePath);
+  const stored = store.getNoteEmbeddings(notePath);
   if (stored.length !== chunks.length) return false;
   const storedByIndex = new Map(
     stored.map((chunk) => [chunk.chunkIndex, chunk])
@@ -69,7 +63,8 @@ function storedChunksMatchLiveChunks(
 
 export function registerIndexVaultTool(
   server: McpServer,
-  vaultPath: string
+  vaultPath: string,
+  store: EmbeddingStore
 ): void {
   defineTool(
     server,
@@ -123,8 +118,8 @@ export function registerIndexVaultTool(
           );
         }
 
-        await loadStore(vaultPath);
-        invalidateIfIncompatible(vaultPath, provider.id, provider.model);
+        await store.load();
+        store.invalidateIfIncompatible(provider.id, provider.model);
 
         const progressMeta: Parameters<typeof makeProgressReporter>[0] = {
           ...(extra._meta?.progressToken != null
@@ -177,8 +172,8 @@ export function registerIndexVaultTool(
           const chunks = chunkNote(content);
           if (
             !force &&
-            noteIsCurrent(vaultPath, notePath, contentHash) &&
-            storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
+            store.noteIsCurrent(notePath, contentHash) &&
+            storedChunksMatchLiveChunks(store, notePath, chunks)
           ) {
             stats.notesUnchanged++;
             stats.notesScanned++;
@@ -279,8 +274,7 @@ export function registerIndexVaultTool(
             continue;
           }
           try {
-            setNoteChunks(
-              vaultPath,
+            store.setNoteChunks(
               notePath,
               contentHash,
               chunks,
@@ -300,15 +294,11 @@ export function registerIndexVaultTool(
         }
 
         if (!folder) {
-          stats.notesPruned = pruneMissingNotes(vaultPath, notes);
+          stats.notesPruned = store.pruneMissingNotes(notes);
         }
 
-        await saveStore(vaultPath);
+        await store.save();
 
-        // Conditional block-level _meta: richText attaches the
-        // "index_vault failed notes" trust tag only if a failed-path
-        // untrusted section is appended, so a clean run stays untagged
-        // (matching the prior untrustedVaultTextResult-vs-textResult split).
         return richText("index_vault failed notes", (b) => {
           b.trusted(
             `Indexed${folder ? ` "${escapeControlChars(folder)}"` : ""} via ${escapeControlChars(provider.id)}/${escapeControlChars(provider.model)}`

@@ -4,17 +4,11 @@ import { resolveVaultPath, readNote } from "../../lib/vault.js";
 import { chunkNote } from "../../lib/chunker.js";
 import { getActiveProvider } from "../../lib/embedding-providers.js";
 import {
-  loadStore,
-  saveStore,
   hashText,
-  noteIsCurrent,
-  dropNoteChunks,
-  getNoteEmbeddings,
-  searchEmbeddings,
   buildSimilarNotesQueryVector,
-  invalidateIfIncompatible,
+  type EmbeddingStore,
   type SearchHit,
-} from "../../lib/embedding-store.js";
+} from "../../lib/embedding-store-handle.js";
 import { defineTool, text, richText, error } from "../../lib/tool-seam.js";
 import {
   escapeControlChars,
@@ -30,6 +24,7 @@ interface FreshSearchOptions {
 }
 
 async function searchFreshEmbeddings(
+  store: EmbeddingStore,
   vaultPath: string,
   queryVector: number[],
   options: FreshSearchOptions
@@ -47,11 +42,10 @@ async function searchFreshEmbeddings(
   }
 
   function storedChunksMatchLiveChunks(
-    vaultPath: string,
     notePath: string,
     chunks: ReturnType<typeof chunkNote>
   ): boolean {
-    const stored = getNoteEmbeddings(vaultPath, notePath);
+    const stored = store.getNoteEmbeddings(notePath);
     if (stored.length !== chunks.length) return false;
     const storedByIndex = new Map(
       stored.map((chunk) => [chunk.chunkIndex, chunk])
@@ -66,29 +60,23 @@ async function searchFreshEmbeddings(
     return true;
   }
 
-  async function storedNoteIsCurrent(
-    vaultPath: string,
-    notePath: string
-  ): Promise<boolean> {
+  async function storedNoteIsCurrent(notePath: string): Promise<boolean> {
     try {
       const content = await readNote(vaultPath, notePath);
       const chunks = chunkNote(content);
       return (
-        noteIsCurrent(vaultPath, notePath, hashText(content)) &&
-        storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
+        store.noteIsCurrent(notePath, hashText(content)) &&
+        storedChunksMatchLiveChunks(notePath, chunks)
       );
     } catch {
       return false;
     }
   }
 
-  async function pruneStaleStoredNote(
-    vaultPath: string,
-    notePath: string
-  ): Promise<boolean> {
-    const current = await storedNoteIsCurrent(vaultPath, notePath);
+  async function pruneStaleStoredNote(notePath: string): Promise<boolean> {
+    const current = await storedNoteIsCurrent(notePath);
     if (current) return false;
-    return dropNoteChunks(vaultPath, notePath);
+    return store.dropNoteChunks(notePath);
   }
 
   for (let pass = 0; pass < 10 && hits.length < options.limit; pass++) {
@@ -96,7 +84,7 @@ async function searchFreshEmbeddings(
     for (const notePath of accepted) exclude.add(notePath);
     for (const notePath of stale) exclude.add(notePath);
     const batchLimit = Math.min(100, Math.max(options.limit - hits.length, 20));
-    const candidates = searchEmbeddings(vaultPath, queryVector, {
+    const candidates = store.search(queryVector, {
       limit: batchLimit,
       ...(options.folder ? { folder: options.folder } : {}),
       ...(exclude.size > 0 ? { excludeNotes: exclude } : {}),
@@ -106,7 +94,7 @@ async function searchFreshEmbeddings(
     let advanced = false;
     for (const hit of candidates) {
       if (accepted.has(hit.notePath)) continue;
-      if (await pruneStaleStoredNote(vaultPath, hit.notePath)) {
+      if (await pruneStaleStoredNote(hit.notePath)) {
         stale.add(hit.notePath);
         stalePruned++;
         advanced = true;
@@ -119,7 +107,7 @@ async function searchFreshEmbeddings(
     }
     if (!advanced) break;
   }
-  if (stalePruned > 0) await saveStore(vaultPath);
+  if (stalePruned > 0) await store.save();
   return { hits, stalePruned };
 }
 
@@ -137,7 +125,8 @@ function canReadStoredEmbeddingNote(
 
 export function registerFindSimilarNotesTool(
   server: McpServer,
-  vaultPath: string
+  vaultPath: string,
+  store: EmbeddingStore
 ): void {
   defineTool(
     server,
@@ -173,33 +162,17 @@ export function registerFindSimilarNotesTool(
       },
     },
     async ({ path: notePath, limit }) => {
-      await loadStore(vaultPath);
+      await store.load();
       const provider = getActiveProvider();
       if (provider) {
-        invalidateIfIncompatible(vaultPath, provider.id, provider.model);
+        store.invalidateIfIncompatible(provider.id, provider.model);
       }
       resolveVaultPath(vaultPath, notePath, "read");
-      const ownChunks = getNoteEmbeddings(vaultPath, notePath);
+      const ownChunks = store.getNoteEmbeddings(notePath);
       if (ownChunks.length === 0) {
         return error(
           `No embeddings found for "${escapeControlChars(notePath)}". Run \`index_vault\` first (or check the path is correct).`
         );
-      }
-
-      async function storedNoteIsCurrent(
-        vaultPath: string,
-        notePath: string
-      ): Promise<boolean> {
-        try {
-          const content = await readNote(vaultPath, notePath);
-          const chunks = chunkNote(content);
-          return (
-            noteIsCurrent(vaultPath, notePath, hashText(content)) &&
-            storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
-          );
-        } catch {
-          return false;
-        }
       }
 
       function headingPathsEqual(
@@ -212,11 +185,10 @@ export function registerFindSimilarNotesTool(
       }
 
       function storedChunksMatchLiveChunks(
-        vaultPath: string,
-        notePath: string,
+        currentPath: string,
         chunks: ReturnType<typeof chunkNote>
       ): boolean {
-        const stored = getNoteEmbeddings(vaultPath, notePath);
+        const stored = store.getNoteEmbeddings(currentPath);
         if (stored.length !== chunks.length) return false;
         const storedByIndex = new Map(
           stored.map((chunk) => [chunk.chunkIndex, chunk])
@@ -231,28 +203,44 @@ export function registerFindSimilarNotesTool(
         return true;
       }
 
-      async function pruneStaleStoredNote(
-        vaultPath: string,
-        notePath: string
-      ): Promise<boolean> {
-        const current = await storedNoteIsCurrent(vaultPath, notePath);
-        if (current) return false;
-        return dropNoteChunks(vaultPath, notePath);
+      async function storedNoteIsCurrent(currentPath: string): Promise<boolean> {
+        try {
+          const content = await readNote(vaultPath, currentPath);
+          const chunks = chunkNote(content);
+          return (
+            store.noteIsCurrent(currentPath, hashText(content)) &&
+            storedChunksMatchLiveChunks(currentPath, chunks)
+          );
+        } catch {
+          return false;
+        }
       }
 
-      if (await pruneStaleStoredNote(vaultPath, notePath)) {
-        await saveStore(vaultPath);
+      async function pruneStaleStoredNote(currentPath: string): Promise<boolean> {
+        const current = await storedNoteIsCurrent(currentPath);
+        if (current) return false;
+        return store.dropNoteChunks(currentPath);
+      }
+
+      if (await pruneStaleStoredNote(notePath)) {
+        await store.save();
         return error(
           `No current embeddings found for "${escapeControlChars(notePath)}". Run \`index_vault\` to refresh it.`
         );
       }
       const queryVector = buildSimilarNotesQueryVector(ownChunks);
       const exclude = new Set([notePath]);
-      const { hits } = await searchFreshEmbeddings(vaultPath, queryVector, {
-        limit,
-        excludeNotes: exclude,
-        filterNote: (hitPath) => canReadStoredEmbeddingNote(vaultPath, hitPath),
-      });
+      const { hits } = await searchFreshEmbeddings(
+        store,
+        vaultPath,
+        queryVector,
+        {
+          limit,
+          excludeNotes: exclude,
+          filterNote: (hitPath) =>
+            canReadStoredEmbeddingNote(vaultPath, hitPath),
+        }
+      );
       const ranked = hits.map((h) => ({
         notePath: h.notePath,
         score: h.score,

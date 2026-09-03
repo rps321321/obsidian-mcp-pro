@@ -21,6 +21,10 @@ import {
   untrustedVaultContentMeta,
 } from "./lib/tool-output.js";
 import { formatMomentDate } from "./lib/dates.js";
+import {
+  openEmbeddingStore,
+  type EmbeddingStore,
+} from "./lib/embedding-store-handle.js";
 import { registerReadTools } from "./tools/read.js";
 import { registerWriteTools } from "./tools/write.js";
 import { registerTagTools } from "./tools/tags.js";
@@ -46,6 +50,19 @@ interface CliOptions {
   installVaultPath?: string;
   installVaultName?: string;
   installServerName?: string;
+}
+
+export interface McpServerServices {
+  /** Explicitly owned semantic index state. Reuse one services object across
+   * multiple MCP server instances that serve the same vault (e.g. HTTP
+   * sessions) so semantic tools share one in-memory embedding index. */
+  embeddingStore: EmbeddingStore;
+}
+
+export function createMcpServerServices(
+  vaultPath: string | undefined
+): McpServerServices {
+  return { embeddingStore: openEmbeddingStore(vaultPath ?? "") };
 }
 
 export function parseArgs(argv: string[]): CliOptions {
@@ -199,7 +216,10 @@ function readPackageVersion(): string {
   }
 }
 
-export function buildMcpServer(vaultPath: string | undefined): McpServer {
+export function buildMcpServer(
+  vaultPath: string | undefined,
+  services: McpServerServices = createMcpServerServices(vaultPath)
+): McpServer {
   const server = new McpServer(
     {
       name: "obsidian-mcp-pro",
@@ -345,7 +365,7 @@ export function buildMcpServer(vaultPath: string | undefined): McpServer {
   registerSectionTools(server, vaultForTools);
   registerBaseTools(server, vaultForTools);
   registerAttachmentTools(server, vaultForTools);
-  registerSemanticTools(server, vaultForTools);
+  registerSemanticTools(server, vaultForTools, services.embeddingStore);
   registerPrompts(server);
   if (!vaultPath) {
     log.warn(
@@ -405,17 +425,18 @@ async function main(): Promise<void> {
     if (!bearerToken) {
       throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN.");
     }
-    // Single McpServer instance shared across sessions — the canonical SDK
-    // pattern (one server, one transport per session, transports share the
-    // server's tool/resource registry). Tools here are stateless, so nothing
-    // bleeds between clients. Vault resolution happens once at startup.
+    // HTTP transport creates one McpServer per session because the SDK
+    // Protocol permits only one active transport per server. Keep runtime
+    // services outside that session boundary so all clients serving this vault
+    // share one semantic index handle rather than diverging in memory.
+    const services = createMcpServerServices(vaultPath);
     await startHttpServer({
       host: opts.host,
       port: opts.port,
       bearerToken,
       allowedOrigins: opts.allowedOrigins,
       rateLimitPerMinute: opts.rateLimitPerMinute,
-      buildMcpServer: () => buildMcpServer(vaultPath),
+      buildMcpServer: () => buildMcpServer(vaultPath, services),
       version: readPackageVersion(),
     });
     const perms = describePermissions();
