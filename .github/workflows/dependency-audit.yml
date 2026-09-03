@@ -19,6 +19,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Vulnerable dependency chains
+        run: npm ls @hono/node-server body-parser fast-uri hono ip-address js-yaml qs brace-expansion nanoid postcss --all || true
+      - name: Semver-safe audit fix dry run
+        run: npm audit fix --package-lock-only --dry-run --json || true
       - name: Production dependency audit
         run: npm audit --omit=dev --json || true
       - name: Full dependency audit
