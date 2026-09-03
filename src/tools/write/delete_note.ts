@@ -2,8 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { deleteNote } from "../../lib/vault.js";
 import { sanitizeError } from "../../lib/errors.js";
+import { elicitTextConfirmation } from "../../lib/confirmation.js";
 import { defineTool, text, error, richText } from "../../lib/tool-seam.js";
-import { log } from "../../lib/logger.js";
 import { escapeControlChars, ensureMdExtension } from "./shared.js";
 
 export function registerDeleteNote(server: McpServer, vaultPath: string): void {
@@ -67,77 +67,34 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
         );
       }
 
-      // Elicit a typed confirmation before permanent deletion if the client
-      // declares elicitation support. Trash deletes (`permanent: false`)
-      // are recoverable, so we don't gate them. Errors from the elicit
-      // path (network blip, schema mismatch, client that announced
-      // elicitation but can't actually fulfil it) fall through to the
-      // delete: the tool annotation `destructiveHint: true` already gives
-      // the host a chance to confirm, so this is a defense-in-depth
-      // check, not a mandatory gate.
-      //
-      // The MCP spec defines the capability as `elicitation: {}` at the
-      // top level; `form` is a TypeScript-SDK extension. Checking only
-      // for `.form` silently skipped this gate for spec-compliant
-      // clients that declared `elicitation: {}` but not the SDK-specific
-      // `form` sub-field, letting permanent deletes proceed without any
-      // confirmation prompt. Check the parent key instead so any
-      // elicitation-capable client triggers the prompt; if the client
-      // can't actually elicit, `elicitInput` throws and the surrounding
-      // try/catch logs and falls through.
-      const caps = server.server.getClientCapabilities();
-      if (permanent && caps?.elicitation !== undefined) {
-        try {
-          const elicit = await server.server.elicitInput({
-            message:
-              `Permanently delete "${escapeControlChars(resolvedPath)}" from the vault?` +
-              (removeReferences
-                ? " References across the vault will also be stripped."
-                : "") +
-              ` This cannot be undone. Type the note's path to confirm.`,
-            requestedSchema: {
-              type: "object",
-              properties: {
-                confirmPath: {
-                  type: "string",
-                  description:
-                    "Re-type the path to confirm permanent deletion.",
-                },
-              },
-              required: ["confirmPath"],
-            },
-          });
-          if (elicit.action !== "accept") {
-            return text(
-              `Deletion of "${escapeControlChars(resolvedPath)}" cancelled.`
-            );
-          }
-          // An accept with no content (or a missing field) is treated as
-          // a cancel rather than an error: the user dismissed the form
-          // without filling it in. Only a non-matching string counts as
-          // a true confirmation failure worth surfacing as an error.
-          const content = elicit.content as
-            { confirmPath?: unknown } | undefined;
-          const confirmed = content?.confirmPath;
-          if (
-            confirmed === undefined ||
-            confirmed === null ||
-            confirmed === ""
-          ) {
-            return text(
-              `Deletion of "${escapeControlChars(resolvedPath)}" cancelled (no confirmation provided).`
-            );
-          }
-          if (
-            typeof confirmed !== "string" ||
-            confirmed.trim() !== resolvedPath
-          ) {
-            return error(
-              `Confirmation path did not match "${escapeControlChars(resolvedPath)}"; deletion aborted.`
-            );
-          }
-        } catch (err) {
-          log.warn("delete_note: elicitation skipped", { err: err as Error });
+      // Elicit a typed confirmation before permanent deletion. The shared
+      // confirmation seam owns capability detection and best-effort fallback:
+      // clients without elicitation support (or clients whose elicitation
+      // request fails) return "skipped" and fall through to the delete. The
+      // confirm=true hard gate above remains the mandatory safety latch.
+      if (permanent) {
+        const confirmation = await elicitTextConfirmation(server, {
+          tool: "delete_note",
+          message:
+            `Permanently delete "${escapeControlChars(resolvedPath)}" from the vault?` +
+            (removeReferences
+              ? " References across the vault will also be stripped."
+              : "") +
+            ` This cannot be undone. Type the note's path to confirm.`,
+          fieldName: "confirmPath",
+          fieldDescription: "Re-type the path to confirm permanent deletion.",
+          expectedValue: resolvedPath,
+        });
+
+        if (confirmation.status === "cancelled") {
+          return text(
+            `Deletion of "${escapeControlChars(resolvedPath)}" cancelled.`
+          );
+        }
+        if (confirmation.status === "mismatch") {
+          return error(
+            `Confirmation path did not match "${escapeControlChars(resolvedPath)}"; deletion aborted.`
+          );
         }
       }
 
