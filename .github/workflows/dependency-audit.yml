@@ -1,0 +1,25 @@
+name: Dependency audit probe
+
+on:
+  push:
+    branches:
+      - rps/dependency-audit
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Production dependency audit
+        run: npm audit --omit=dev --json || true
+      - name: Full dependency audit
+        run: npm audit --json || true
