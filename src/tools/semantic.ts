@@ -1,3 +1,4 @@
+import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   openEmbeddingStore,
@@ -12,6 +13,9 @@ export function registerSemanticTools(
   vaultPath: string,
   store: EmbeddingStore = openEmbeddingStore(vaultPath)
 ): void {
+  if (store.vaultPath !== path.resolve(vaultPath)) {
+    throw new Error("EmbeddingStore vault does not match semantic tool vault");
+  }
   registerIndexVaultTool(server, vaultPath, store);
   registerSearchSemanticTool(server, vaultPath, store);
   registerFindSimilarNotesTool(server, vaultPath, store);
