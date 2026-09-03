@@ -4,18 +4,11 @@ import { resolveVaultPath, readNote } from "../../lib/vault.js";
 import { chunkNote } from "../../lib/chunker.js";
 import { getActiveProvider } from "../../lib/embedding-providers.js";
 import {
-  loadStore,
-  snapshotForTests,
-  searchEmbeddings,
-  invalidateIfIncompatible,
   validateEmbeddingVector,
-  dropNoteChunks,
-  getNoteEmbeddings,
-  saveStore,
   hashText,
-  noteIsCurrent,
+  type EmbeddingStore,
   type SearchHit,
-} from "../../lib/embedding-store.js";
+} from "../../lib/embedding-store-handle.js";
 import { defineTool, text, richText, error } from "../../lib/tool-seam.js";
 import {
   MISSING_PROVIDER_HINT,
@@ -32,6 +25,7 @@ interface FreshSearchOptions {
 }
 
 async function searchFreshEmbeddings(
+  store: EmbeddingStore,
   vaultPath: string,
   queryVector: number[],
   options: FreshSearchOptions
@@ -44,11 +38,10 @@ async function searchFreshEmbeddings(
   }
 
   function storedChunksMatchLiveChunks(
-    vaultPath: string,
     notePath: string,
     chunks: ReturnType<typeof chunkNote>
   ): boolean {
-    const stored = getNoteEmbeddings(vaultPath, notePath);
+    const stored = store.getNoteEmbeddings(notePath);
     if (stored.length !== chunks.length) return false;
     const storedByIndex = new Map(
       stored.map((chunk) => [chunk.chunkIndex, chunk])
@@ -63,29 +56,23 @@ async function searchFreshEmbeddings(
     return true;
   }
 
-  async function storedNoteIsCurrent(
-    vaultPath: string,
-    notePath: string
-  ): Promise<boolean> {
+  async function storedNoteIsCurrent(notePath: string): Promise<boolean> {
     try {
       const content = await readNote(vaultPath, notePath);
       const chunks = chunkNote(content);
       return (
-        noteIsCurrent(vaultPath, notePath, hashText(content)) &&
-        storedChunksMatchLiveChunks(vaultPath, notePath, chunks)
+        store.noteIsCurrent(notePath, hashText(content)) &&
+        storedChunksMatchLiveChunks(notePath, chunks)
       );
     } catch {
       return false;
     }
   }
 
-  async function pruneStaleStoredNote(
-    vaultPath: string,
-    notePath: string
-  ): Promise<boolean> {
-    const current = await storedNoteIsCurrent(vaultPath, notePath);
+  async function pruneStaleStoredNote(notePath: string): Promise<boolean> {
+    const current = await storedNoteIsCurrent(notePath);
     if (current) return false;
-    return dropNoteChunks(vaultPath, notePath);
+    return store.dropNoteChunks(notePath);
   }
 
   const hits: SearchHit[] = [];
@@ -97,7 +84,7 @@ async function searchFreshEmbeddings(
     for (const notePath of accepted) exclude.add(notePath);
     for (const notePath of stale) exclude.add(notePath);
     const batchLimit = Math.min(100, Math.max(options.limit - hits.length, 20));
-    const candidates = searchEmbeddings(vaultPath, queryVector, {
+    const candidates = store.search(queryVector, {
       limit: batchLimit,
       ...(options.folder ? { folder: options.folder } : {}),
       ...(exclude.size > 0 ? { excludeNotes: exclude } : {}),
@@ -107,7 +94,7 @@ async function searchFreshEmbeddings(
     let advanced = false;
     for (const hit of candidates) {
       if (accepted.has(hit.notePath)) continue;
-      if (await pruneStaleStoredNote(vaultPath, hit.notePath)) {
+      if (await pruneStaleStoredNote(hit.notePath)) {
         stale.add(hit.notePath);
         stalePruned++;
         advanced = true;
@@ -120,7 +107,7 @@ async function searchFreshEmbeddings(
     }
     if (!advanced) break;
   }
-  if (stalePruned > 0) await saveStore(vaultPath);
+  if (stalePruned > 0) await store.save();
   return { hits, stalePruned };
 }
 
@@ -138,7 +125,8 @@ function canReadStoredEmbeddingNote(
 
 export function registerSearchSemanticTool(
   server: McpServer,
-  vaultPath: string
+  vaultPath: string,
+  store: EmbeddingStore
 ): void {
   defineTool(
     server,
@@ -192,12 +180,12 @@ export function registerSearchSemanticTool(
           `Semantic search has no embedding provider configured. ${MISSING_PROVIDER_HINT}`
         );
       }
-      await loadStore(vaultPath);
-      invalidateIfIncompatible(vaultPath, provider.id, provider.model);
-      const snap = snapshotForTests(vaultPath);
-      if (snap.totalChunks === 0) {
+      await store.load();
+      store.invalidateIfIncompatible(provider.id, provider.model);
+      const stats = store.stats();
+      if (store.isEmpty()) {
         return error(
-          `Embedding index is empty${snap.providerId === null ? "" : " for the active provider/model"}. Run \`index_vault\` to build it before searching semantically.`
+          `Embedding index is empty${stats.providerId === null ? "" : " for the active provider/model"}. Run \`index_vault\` to build it before searching semantically.`
         );
       }
 
@@ -205,13 +193,13 @@ export function registerSearchSemanticTool(
       if (!Array.isArray(vector)) {
         return error("Provider did not return a vector for the query.");
       }
-      const vectorError = validateEmbeddingVector(vector, snap.dimension);
+      const vectorError = validateEmbeddingVector(vector, stats.dimension);
       if (vectorError !== null) {
         return error(
           `Provider returned an invalid query vector: ${vectorError}.`
         );
       }
-      const { hits } = await searchFreshEmbeddings(vaultPath, vector, {
+      const { hits } = await searchFreshEmbeddings(store, vaultPath, vector, {
         limit,
         ...(folder ? { folder } : {}),
         filterNote: (notePath) =>
