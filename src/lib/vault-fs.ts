@@ -341,14 +341,23 @@ export async function getRealVaultRoot(vaultPath: string): Promise<string> {
   try {
     return await fs.realpath(key);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // ENOENT: vault root doesn't exist (yet). Fall back to the resolved path
-    // so callers can proceed with creation workflows. Log so the misconfiguration
-    // is visible in server logs.
-    log.warn("Vault path does not exist, falling back to resolved path", {
-      vaultPath: key,
-    });
-    return key;
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      // Vault root doesn't exist (yet). Fall back to the resolved path so
+      // creation workflows can proceed; this path is intentionally logged as
+      // configuration context rather than surfaced in a client error.
+      log.warn("Vault path does not exist, falling back to resolved path", {
+        vaultPath: key,
+      });
+      return key;
+    }
+    if (code === "EACCES" || code === "EPERM") {
+      // `fs.realpath` includes the absolute target in its raw error message.
+      // Fail closed without attaching the original error as `cause`, because
+      // callers may surface causes and thereby leak the restricted ancestor.
+      throw new Error("Path traversal check failed");
+    }
+    throw err;
   }
 }
 
