@@ -355,6 +355,7 @@ export async function getRealVaultRoot(vaultPath: string): Promise<string> {
       // `fs.realpath` includes the absolute target in its raw error message.
       // Fail closed without attaching the original error as `cause`, because
       // callers may surface causes and thereby leak the restricted ancestor.
+      // eslint-disable-next-line preserve-caught-error -- Raw fs error contains an absolute vault path; deliberately omit it from the causal chain.
       throw new Error("Path traversal check failed");
     }
     throw err;
