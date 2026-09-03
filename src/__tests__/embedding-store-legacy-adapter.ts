@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import path from "path";
 import {
   openEmbeddingStore,
@@ -7,6 +8,7 @@ import {
   buildSimilarNotesQueryVector,
   type ChunkEmbedding,
   type EmbeddingStore,
+  type EmbeddingStoreStats,
   type SearchOptions,
 } from "../lib/embedding-store-handle.js";
 
@@ -99,8 +101,54 @@ export function pruneMissingNotes(
   return storeFor(vaultPath).pruneMissingNotes(currentNotes);
 }
 
-export function snapshotForTests(vaultPath: string) {
-  return storeFor(vaultPath).stats();
+/**
+ * Legacy tests historically observed the module-global store synchronously.
+ * If the state belongs to a semantic tool's production handle instead of this
+ * adapter, that handle has already saved at the tool boundary, so mirror the
+ * same summary from its persisted snapshot without creating a second handle.
+ */
+export function snapshotForTests(vaultPath: string): EmbeddingStoreStats {
+  const root = path.resolve(vaultPath);
+  const local = stores.get(root);
+  if (local) return local.stats();
+
+  try {
+    const file = path.join(
+      root,
+      ".obsidian",
+      "cache",
+      "mcp-pro-embeddings.json"
+    );
+    const parsed = JSON.parse(readFileSync(file, "utf-8")) as {
+      providerId?: unknown;
+      model?: unknown;
+      dimension?: unknown;
+      embeddings?: Array<{ notePath?: unknown }>;
+    };
+    const embeddings = Array.isArray(parsed.embeddings) ? parsed.embeddings : [];
+    const notes = new Set(
+      embeddings
+        .map((entry) => entry.notePath)
+        .filter((note): note is string => typeof note === "string")
+    );
+    return {
+      totalChunks: embeddings.length,
+      totalNotes: notes.size,
+      providerId:
+        typeof parsed.providerId === "string" ? parsed.providerId : null,
+      model: typeof parsed.model === "string" ? parsed.model : null,
+      dimension:
+        typeof parsed.dimension === "number" ? parsed.dimension : null,
+    };
+  } catch {
+    return {
+      totalChunks: 0,
+      totalNotes: 0,
+      providerId: null,
+      model: null,
+      dimension: null,
+    };
+  }
 }
 
 export function searchEmbeddings(
@@ -129,4 +177,9 @@ export {
   cosineSimilarity,
   buildSimilarNotesQueryVector,
 };
-export type { ChunkEmbedding, EmbeddingStore, SearchOptions };
+export type {
+  ChunkEmbedding,
+  EmbeddingStore,
+  EmbeddingStoreStats,
+  SearchOptions,
+};
