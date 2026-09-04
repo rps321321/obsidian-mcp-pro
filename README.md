@@ -759,3 +759,45 @@ If you're adding or editing a tool, read [docs/TOOL_AUTHORING.md](./docs/TOOL_AU
 - Vault-wide link rewriting on `move_note` ([#3](https://github.com/rps321321/obsidian-mcp-pro/issues/3), [#4](https://github.com/rps321321/obsidian-mcp-pro/pull/4)) and the `sanitizeError` defense-in-depth hardening contributed by [@brentkearney](https://github.com/brentkearney).
 
 For the full list of everyone who's contributed, see the [contributors page](https://github.com/rps321321/obsidian-mcp-pro/graphs/contributors).
+
+## Stateless mode & SSE keep-alive heartbeat (HTTP transport)
+
+The HTTP transport supports two transport modes, controlled by environment
+variables. Both default to the original stateful + heartbeat behaviour, so
+upgrading is a no-op unless you opt in.
+
+### SSE keep-alive heartbeat
+
+- `SSE_KEEPALIVE_ENABLED` — `"true"` (default) / `"false"`. When `"false"` the
+  heartbeat never runs: no timer, no listeners, no bytes written.
+- `SSE_KEEPALIVE_INTERVAL_MS` — default `15000`. On an established GET SSE
+  stream the server writes an SSE comment line (`:\n\n`) this often, so
+  intermediate proxies / NAT / reverse proxies don't silently time out and drop
+  the long-lived connection. `<=0` disables it.
+
+### Stateless mode
+
+Set `STATELESS_MODE=true` to use a stateless, connectionless architecture (the
+same one used by Outline's MCP server):
+
+- Each request creates a fresh transport: **no session ids, no long-lived
+  connections, no GET SSE stream**.
+- Immune to reverse-proxy disconnects / client reconnects — the root-cause fix
+  for flaky MCP connections through proxies.
+- `GET` / `DELETE` (session endpoints) return `405`; clients just POST requests.
+- The heartbeat is automatically irrelevant in this mode (no long-lived stream).
+
+Switch modes anytime by changing the env var and restarting — the two modes are
+independent and never interfere.
+
+## Running from source with Docker
+
+```bash
+cp .env.example .env   # fill in VAULT_PATH and MCP_HTTP_TOKEN
+docker compose up -d --build
+```
+
+The Dockerfile compiles `src/` (`npm ci` + `npm run build`, output to `build/`)
+and starts via `entrypoint.sh`, which waits for the vault mount before running
+`node build/index.js`. Set `STATELESS_MODE=true` (or `SSE_KEEPALIVE_*`) in the
+compose `environment` block to switch modes.

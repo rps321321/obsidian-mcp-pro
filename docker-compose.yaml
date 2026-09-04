@@ -1,0 +1,37 @@
+# Example compose file for running obsidian-mcp-pro built from source.
+# Copy .env.example to .env and fill in VAULT_PATH / MCP_HTTP_TOKEN.
+services:
+  obsidian-mcp-pro:
+    build: .
+    image: obsidian-mcp-pro:local
+    restart: unless-stopped
+    ports:
+      - "3334:3333"
+    volumes:
+      - ${VAULT_PATH}:/vault
+    environment:
+      TZ: Asia/Shanghai
+      OBSIDIAN_VAULT_PATH: /vault
+      MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN}
+      LOG_LEVEL: info
+      LOG_FORMAT: text
+      OBSIDIAN_READ_PATHS: .
+
+      # SSE keep-alive heartbeat (stateful mode, see README)
+      SSE_KEEPALIVE_ENABLED: "true"
+      SSE_KEEPALIVE_INTERVAL_MS: "15000"
+
+      # Transport mode (see README)
+      #   "false" (default) = stateful: session management + SSE heartbeat
+      #   "true"            = stateless: one transport per request, no session
+      #                       ids or long-lived streams. Immune to reverse-proxy
+      #                       disconnects (same architecture as Outline MCP).
+      STATELESS_MODE: ${STATELESS_MODE:-false}
+
+    env_file:
+      - .env
+    command:
+      - "--transport=http"
+      - "--host=0.0.0.0"
+      - "--port=3333"
+      - "--rate-limit=600"
