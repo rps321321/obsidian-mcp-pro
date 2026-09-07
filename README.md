@@ -192,6 +192,36 @@ MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
 Startup always requires `MCP_HTTP_TOKEN`, including loopback-only local servers. The old `--token` flag was removed because command-line secrets can be exposed through OS process listings.
 
+When embedding the library, set `allowedHosts` to accept additional destination
+addresses, such as the hostname forwarded by an HTTPS reverse proxy:
+
+```ts
+import { buildMcpServer, startHttpServer } from "obsidian-mcp-pro";
+
+const vaultPath = process.env.OBSIDIAN_VAULT_PATH!;
+const server = await startHttpServer({
+  host: "127.0.0.1",
+  port: 3333,
+  bearerToken: process.env.MCP_HTTP_TOKEN!,
+  allowedHosts: ["vault.example.com", "192.0.2.10:3333"],
+  buildMcpServer: () => buildMcpServer(vaultPath),
+  installSignalHandlers: false,
+});
+
+// On application shutdown:
+await server.stop();
+```
+
+- Entries match the HTTP `Host` header exactly, including a port when present.
+  Use `vault.example.com:443` if the proxy forwards that value instead of
+  `vault.example.com`. Do not include schemes, paths, or wildcards.
+- Configured entries extend the bound-address and loopback defaults. Omitting
+  `allowedHosts` or passing `[]` preserves the defaults.
+- The server copies the list at startup. Restart it to apply configuration changes.
+- This controls destination addresses, not client identity. Bearer authentication
+  and Origin validation still apply; DNS-rebinding protection remains enabled.
+- This is an embedding API option, not a CLI flag.
+
 > [!WARNING]
 > **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. The server refuses HTTP startup without a bearer token, but if you need remote access:
 > - Put the server behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS, **and**
