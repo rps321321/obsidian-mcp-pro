@@ -212,12 +212,18 @@ const server = await startHttpServer({
 await server.stop();
 ```
 
-- Entries match the HTTP `Host` header exactly, including a port when present.
-  Use `vault.example.com:443` if the proxy forwards that value instead of
-  `vault.example.com`. Do not include schemes, paths, or wildcards.
+- Entries match the HTTP `Host` header exactly and case-sensitively, including a
+  port when present. Use `vault.example.com:443` if the proxy forwards that
+  value instead of `vault.example.com`. IPv6 must keep brackets (`[::1]:port`).
+  There is no IDN / punycode normalization. Do not include schemes, paths, or
+  wildcards; `"*"` is rejected at startup (it is not a wildcard).
 - Configured entries extend the bound-address and loopback defaults. Omitting
   `allowedHosts` or passing `[]` preserves the defaults.
-- The server copies the list at startup. Restart it to apply configuration changes.
+- The server copies and validates the list at startup. Restart it to apply
+  configuration changes. Listen-time logs include the effective Host allowlist
+  (never the bearer token).
+- `/health` and `/version` skip Host validation (pre-existing). `/mcp` rejects a
+  disallowed Host with 403 and a warn log, including when the bearer is valid.
 - This controls destination addresses, not client identity. Bearer authentication
   and Origin validation still apply; DNS-rebinding protection remains enabled.
 - This is an embedding API option, not a CLI flag.

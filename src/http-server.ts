@@ -1,4 +1,8 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -18,9 +22,11 @@ export interface HttpServerOptions {
   /** Reported on `/health` and `/version`. Defaults to empty string. */
   version?: string;
   /** Additional HTTP Host header values accepted by the MCP transport.
-   *  Matched exactly, including a port when present (e.g. "vault.example.com"
-   *  or "192.0.2.10:3333"). No schemes, paths, or wildcard matching.
-   *  Extends the bound-address and loopback defaults; does not replace them.
+   *  Matched exactly and case-sensitively, including a port when present
+   *  (e.g. "vault.example.com" or "192.0.2.10:3333"). IPv6 must keep
+   *  brackets (`[::1]:port`). No schemes, paths, IDN normalization, or
+   *  wildcard matching — `"*"` is rejected at startup. Extends the
+   *  bound-address and loopback defaults; does not replace them.
    *  Identifies destination hosts, not connecting clients. Copied at startup. */
   allowedHosts?: string[];
   /** Allowed CORS origins. Defaults to localhost-only patterns
@@ -42,7 +48,8 @@ export interface HttpServerHandle {
   stop: () => Promise<void>;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -64,11 +71,14 @@ class BodyTooLargeError extends Error {
 
 function declaredBodyTooLarge(req: IncomingMessage): boolean {
   const contentLength = req.headers["content-length"];
-  if (typeof contentLength !== "string" || !/^\d+$/.test(contentLength)) return false;
+  if (typeof contentLength !== "string" || !/^\d+$/.test(contentLength))
+    return false;
   return BigInt(contentLength) > BigInt(MAX_BODY_BYTES);
 }
 
-function isJsonContentType(contentType: string | string[] | undefined): boolean {
+function isJsonContentType(
+  contentType: string | string[] | undefined
+): boolean {
   if (typeof contentType !== "string") return false;
   const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
   return mediaType === "application/json";
@@ -180,7 +190,7 @@ function originAllowed(origin: string, allowedOrigins: string[]): boolean {
 function setCors(
   req: IncomingMessage,
   res: ServerResponse,
-  allowedOrigins: string[],
+  allowedOrigins: string[]
 ): void {
   // Reflect the request origin only when it matches the allowlist; fall back
   // to the first allowlist entry otherwise. `*` short-circuits to the
@@ -194,7 +204,10 @@ function setCors(
     // pinned to a different origin's request. This must fire regardless of
     // whether *this particular* origin matched the allowlist.
     res.setHeader("Vary", "Origin");
-    if (requestOrigin && allowedOrigins.some((p) => originMatches(requestOrigin, p))) {
+    if (
+      requestOrigin &&
+      allowedOrigins.some((p) => originMatches(requestOrigin, p))
+    ) {
       allowOrigin = requestOrigin;
     } else {
       allowOrigin = allowedOrigins[0] ?? "";
@@ -203,11 +216,11 @@ function setCors(
   if (allowOrigin) res.setHeader("Access-Control-Allow-Origin", allowOrigin);
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version",
+    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version"
   );
   res.setHeader(
     "Access-Control-Expose-Headers",
-    "Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate",
+    "Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate"
   );
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 }
@@ -218,7 +231,10 @@ function setCors(
 // request timestamps per IP pruned on read.
 class RateLimiter {
   private readonly windows = new Map<string, number[]>();
-  constructor(private readonly limit: number, private readonly windowMs = 60_000) {}
+  constructor(
+    private readonly limit: number,
+    private readonly windowMs = 60_000
+  ) {}
   check(ip: string): boolean {
     const now = Date.now();
     const floor = now - this.windowMs;
@@ -245,6 +261,42 @@ class RateLimiter {
   }
 }
 
+function copyConfiguredHosts(raw: string[] | undefined): string[] {
+  if (!raw || raw.length === 0) return [];
+  const copied: string[] = [];
+  for (const entry of raw) {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      throw new Error(
+        "allowedHosts entries must be non-empty Host header values"
+      );
+    }
+    if (trimmed === "*") {
+      throw new Error(
+        'allowedHosts does not accept "*": it is not a wildcard and does not disable DNS-rebinding protection'
+      );
+    }
+    if (trimmed.includes("://") || trimmed.includes("/")) {
+      throw new Error(
+        `allowedHosts entry ${JSON.stringify(entry)} must be a Host header value (host or host:port), not a URL`
+      );
+    }
+    copied.push(trimmed);
+  }
+  return copied;
+}
+
+function hostAllowed(
+  hostHeader: string | string[] | undefined,
+  allowedHosts: string[]
+): boolean {
+  return (
+    typeof hostHeader === "string" &&
+    hostHeader.length > 0 &&
+    allowedHosts.includes(hostHeader)
+  );
+}
+
 function clientIp(req: IncomingMessage): string {
   // No X-Forwarded-For trust here: the server binds to localhost by default
   // and does not know whether a reverse proxy is terminating TLS. Operators
@@ -256,20 +308,27 @@ function clientIp(req: IncomingMessage): string {
   return addr.startsWith("::ffff:") ? addr.slice(7) : addr;
 }
 
-export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServerHandle> {
+export async function startHttpServer(
+  opts: HttpServerOptions
+): Promise<HttpServerHandle> {
   const bearerToken = opts.bearerToken?.trim();
   if (opts.bearerToken !== undefined && !bearerToken) {
     throw new Error("HTTP bearer token cannot be empty");
   }
   if (!bearerToken) {
-    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN in the CLI or pass bearerToken when embedding.");
+    throw new Error(
+      "HTTP bearer token is required. Set MCP_HTTP_TOKEN in the CLI or pass bearerToken when embedding."
+    );
   }
-  const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
-    ? opts.allowedOrigins
-    : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
+  const allowedOrigins =
+    opts.allowedOrigins && opts.allowedOrigins.length > 0
+      ? opts.allowedOrigins
+      : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const lastActivity = new Map<string, number>();
-  const touch = (sid: string): void => { lastActivity.set(sid, Date.now()); };
+  const touch = (sid: string): void => {
+    lastActivity.set(sid, Date.now());
+  };
   // One `McpServer` per session: the underlying SDK `Protocol` rejects a
   // second `connect()` while a transport is still attached, so a singleton
   // 500s every reconnect and every concurrent client past the first. Each
@@ -277,11 +336,14 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // transport closes (Protocol._onclose clears the transport reference).
   // See https://github.com/rps321321/obsidian-mcp-pro/issues/8.
   if (allowedOrigins.includes("*")) {
-    log.warn("CORS configured with wildcard origin '*'. Consider restricting to specific origins for production deployments.");
+    log.warn(
+      "CORS configured with wildcard origin '*'. Consider restricting to specific origins for production deployments."
+    );
   }
-  const rateLimiter = opts.rateLimitPerMinute && opts.rateLimitPerMinute > 0
-    ? new RateLimiter(opts.rateLimitPerMinute)
-    : null;
+  const rateLimiter =
+    opts.rateLimitPerMinute && opts.rateLimitPerMinute > 0
+      ? new RateLimiter(opts.rateLimitPerMinute)
+      : null;
 
   // Evict sessions that have been idle past the timeout so dropped clients
   // (crash, network loss, no DELETE) don't leak transports forever.
@@ -290,7 +352,9 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     for (const [sid, ts] of lastActivity) {
       if (now - ts > SESSION_IDLE_TIMEOUT_MS) {
         const t = transports.get(sid);
-        if (t) { void t.close().catch(() => undefined); }
+        if (t) {
+          void t.close().catch(() => undefined);
+        }
         transports.delete(sid);
         lastActivity.delete(sid);
       }
@@ -308,9 +372,12 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   // re-assigning the binding: a new array would be invisible to transports
   // that already grabbed the original reference, silently disabling
   // DNS-rebinding protection.
-  const allowedHosts: string[] = [...(opts.allowedHosts ?? [])];
+  const allowedHosts: string[] = copyConfiguredHosts(opts.allowedHosts);
 
-  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  const handleRequest = async (
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> => {
     // Cap wall-clock time for POST requests only. GET is used by the
     // Streamable HTTP transport for long-lived SSE streams that intentionally
     // go write-silent between events — `socket.setTimeout` would reap them
@@ -341,7 +408,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
       return;
     }
     const requestOrigin = req.headers.origin;
-    if (typeof requestOrigin === "string" && !originAllowed(requestOrigin, allowedOrigins)) {
+    if (
+      typeof requestOrigin === "string" &&
+      !originAllowed(requestOrigin, allowedOrigins)
+    ) {
       log.warn("Rejected request from disallowed Origin", {
         origin: requestOrigin,
         method: req.method,
@@ -393,7 +463,10 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           const header = req.headers.authorization ?? "";
           const token = header.startsWith("Bearer ") ? header.slice(7) : "";
           if (!constantTimeEqual(token, bearerToken)) {
-            res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
+            res.setHeader(
+              "WWW-Authenticate",
+              'Bearer realm="obsidian-mcp-pro"'
+            );
             sendJson(res, 401, { error: "Unauthorized" });
             return;
           }
@@ -402,6 +475,21 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         return;
       }
       sendJson(res, 404, { error: "Not found" });
+      return;
+    }
+
+    // HTTP-layer Host check (same shape as Origin): SDK Host validation is
+    // 403 + optional onerror only, and runs after bearer auth, so probes
+    // otherwise produce no Host diagnostic. /health and /version skip this
+    // (pre-existing). Keep the SDK allowedHosts list as defense in depth.
+    if (!hostAllowed(req.headers.host, allowedHosts)) {
+      log.warn("Rejected request from disallowed Host", {
+        host: typeof req.headers.host === "string" ? req.headers.host : "",
+        method: req.method,
+        path: req.url ?? "",
+        ip: clientIp(req),
+      });
+      sendJson(res, 403, { error: "Host not allowed" });
       return;
     }
 
@@ -435,7 +523,9 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
         // a clearer 415 ("the server understands the request method but
         // the media type is unsupported") than a generic 400.
         if (!isJsonContentType(req.headers["content-type"])) {
-          sendJson(res, 415, { error: "Unsupported Media Type: expected application/json" });
+          sendJson(res, 415, {
+            error: "Unsupported Media Type: expected application/json",
+          });
           return;
         }
         if (declaredBodyTooLarge(req)) {
@@ -499,7 +589,11 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
         sendJson(res, 400, {
           jsonrpc: "2.0",
-          error: { code: -32000, message: "Invalid session or non-initialize request without session" },
+          error: {
+            code: -32000,
+            message:
+              "Invalid session or non-initialize request without session",
+          },
           id: null,
         });
         return;
@@ -544,13 +638,14 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     `${opts.host}:${boundPort}`,
     `127.0.0.1:${boundPort}`,
     `localhost:${boundPort}`,
-    `[::1]:${boundPort}`,
+    `[::1]:${boundPort}`
   );
 
   log.info(`HTTP server listening`, {
     url: `http://${opts.host}:${boundPort}/mcp`,
     bearerAuth: Boolean(bearerToken),
     allowedOrigins: allowedOrigins.join(","),
+    allowedHosts: allowedHosts.join(","),
     rateLimitPerMinute: opts.rateLimitPerMinute ?? 0,
   });
   const installSignals = opts.installSignalHandlers ?? true;
@@ -564,7 +659,11 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
     log.info(`Shutting down HTTP server`);
     clearInterval(sweeper);
     for (const t of transports.values()) {
-      try { await t.close(); } catch { /* ignore */ }
+      try {
+        await t.close();
+      } catch {
+        /* ignore */
+      }
     }
     transports.clear();
     lastActivity.clear();
