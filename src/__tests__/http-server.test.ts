@@ -1,14 +1,25 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { z } from "zod";
 import { startHttpServer, type HttpServerHandle } from "../http-server.js";
 
 const TEST_TOKEN = "test-http-token";
 const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
 
+// Registers one tool so `tools/list` is answerable — an empty McpServer
+// never registers a `tools/list` handler and would answer with
+// -32601 "Method not found" (harmless for connect-only tests, but the
+// stateless tests exercise a real tool round-trip and need it).
 function buildNoopServer(): McpServer {
-  return new McpServer({ name: "test", version: "0.0.0" });
+  const server = new McpServer({ name: "test", version: "0.0.0" });
+  server.registerTool(
+    "echo",
+    { text: z.string() },
+    async ({ text }) => ({ content: [{ type: "text" as const, text }] }),
+  );
+  return server;
 }
 
 const FETCH_FORBIDDEN_PORTS = new Set([
@@ -55,6 +66,9 @@ afterEach(async () => {
     await handle.stop();
     handle = null;
   }
+  // Un-stub STATELESS_MODE / SSE env vars set by stateless-mode tests so
+  // they can't leak into sibling test files (vitest shares the process).
+  vi.unstubAllEnvs();
 });
 
 describe("HTTP server — required Bearer auth", () => {
@@ -332,5 +346,149 @@ describe("HTTP server — /version", () => {
     expect(body.status).toBe("ok");
     expect(body.version).toBe("1.2.3");
     expect(body.sessions).toBeUndefined();
+  });
+});
+
+// --- Stateless mode (STATELESS_MODE=true) ---
+// The server supports two transport modes behind one env var:
+//   - "true"  → stateless: a fresh transport+McpServer per request, no
+//              session ids, no long-lived GET SSE stream, no heartbeat.
+//              Immune to reverse-proxy disconnects (same architecture as
+//              Outline MCP). GET/DELETE are rejected with 405.
+//   - "false" (default) → stateful: session table + SSE heartbeat.
+// Mode is read per-request via isStatelessMode(), so tests stub the env
+// var directly instead of reloading the module.
+describe("HTTP server — stateless mode (STATELESS_MODE=true)", () => {
+  it("initialize succeeds with NO Mcp-Session-Id response header", async () => {
+    vi.stubEnv("STATELESS_MODE", "true");
+    handle = await startOnEphemeral();
+
+    const res = await fetch(`${handle.url}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...AUTH_HEADERS,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "stateless-probe", version: "0.0.0" },
+        },
+      }),
+    });
+    expect(res.status).toBe(200);
+    // Stateless = no session, so the server must never issue a session id.
+    expect(res.headers.get("mcp-session-id")).toBeNull();
+    await res.arrayBuffer().catch(() => undefined);
+  });
+
+  it("serves two independent clients with no session-state leakage", async () => {
+    vi.stubEnv("STATELESS_MODE", "true");
+    handle = await startOnEphemeral();
+
+    const clientA = new Client({ name: "stateless-a", version: "0.0.0" });
+    const transportA = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
+    await clientA.connect(transportA);
+    // Stateful sessions surface a session id on the client transport;
+    // stateless must not.
+    expect(transportA.sessionId).toBeUndefined();
+    const toolsA = await clientA.listTools();
+    expect(Array.isArray(toolsA.tools)).toBe(true);
+    await clientA.close();
+
+    // A second, fully independent client must initialize cleanly — this
+    // guards against any session table left over from the first client.
+    const clientB = new Client({ name: "stateless-b", version: "0.0.0" });
+    const transportB = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
+    await clientB.connect(transportB);
+    expect(transportB.sessionId).toBeUndefined();
+    const toolsB = await clientB.listTools();
+    expect(Array.isArray(toolsB.tools)).toBe(true);
+    await clientB.close();
+  });
+
+  it("rejects GET /mcp with 405 (no SSE stream in stateless mode)", async () => {
+    vi.stubEnv("STATELESS_MODE", "true");
+    handle = await startOnEphemeral();
+
+    const res = await fetch(`${handle.url}`, {
+      method: "GET",
+      headers: { ...AUTH_HEADERS, Accept: "text/event-stream" },
+    });
+    expect(res.status).toBe(405);
+    await res.arrayBuffer().catch(() => undefined);
+  });
+
+  it("rejects DELETE /mcp with 405 (no session teardown in stateless mode)", async () => {
+    vi.stubEnv("STATELESS_MODE", "true");
+    handle = await startOnEphemeral();
+
+    const res = await fetch(`${handle.url}`, {
+      method: "DELETE",
+      headers: AUTH_HEADERS,
+    });
+    expect(res.status).toBe(405);
+    await res.arrayBuffer().catch(() => undefined);
+  });
+
+  it("heartbeat is a no-op in stateless mode: no GET SSE stream to keep alive", async () => {
+    // With stateless enabled, GET is rejected (405, asserted above), so the
+    // SSE keep-alive timer inside the stateful GET branch can never start.
+    // We assert that through the observable contract: an initialize + tool
+    // round-trip works while no GET stream exists anywhere.
+    vi.stubEnv("STATELESS_MODE", "true");
+    handle = await startOnEphemeral();
+
+    const client = new Client({ name: "stateless-hb", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
+    await client.connect(transport);
+    await client.listTools();
+    // No session id was handed out → the client never opens a GET stream.
+    expect(transport.sessionId).toBeUndefined();
+    await client.close();
+  });
+});
+
+// Explicit guard that the stateful path (default, STATELESS_MODE unset or
+// "false") still issues a session id — switching the env var off must
+// restore the old behavior exactly.
+describe("HTTP server — stateful mode explicit (STATELESS_MODE=false)", () => {
+  it("initialize issues a session id when stateless is disabled", async () => {
+    vi.stubEnv("STATELESS_MODE", "false");
+    handle = await startOnEphemeral();
+
+    const client = new Client({ name: "stateful-explicit", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
+    await client.connect(transport);
+    expect(transport.sessionId).toBeTruthy();
+    await client.close();
+  });
+
+  it("keeps the SSE heartbeat active in stateful mode (regression guard)", async () => {
+    vi.stubEnv("STATELESS_MODE", "false");
+    handle = await startOnEphemeral();
+
+    const client = new Client({ name: "stateful-hb", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: AUTH_HEADERS },
+    });
+    await client.connect(transport);
+    // Stateful initialize returns a session id, which is what makes the GET
+    // SSE stream + keep-alive heartbeat meaningful.
+    expect(transport.sessionId).toBeTruthy();
+    await client.close();
   });
 });

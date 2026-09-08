@@ -49,6 +49,38 @@ const REQUEST_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 const installedSignalHandlers = new Map<NodeJS.Signals, () => void>();
 
+// --- SSE keep-alive heartbeat (env-configurable) ---
+// SSE_KEEPALIVE_ENABLED      "true" (default) / "false" — disabled means no heartbeat at all
+// SSE_KEEPALIVE_INTERVAL_MS  heartbeat interval in ms, default 15000; <=0 or invalid disables it
+const SSE_KEEPALIVE_ENABLED =
+  (process.env.SSE_KEEPALIVE_ENABLED ?? "true").trim().toLowerCase() !== "false";
+const parsedKeepaliveInterval = Number(process.env.SSE_KEEPALIVE_INTERVAL_MS ?? "15000");
+const SSE_KEEPALIVE_INTERVAL_MS =
+  Number.isFinite(parsedKeepaliveInterval) && parsedKeepaliveInterval > 0
+    ? parsedKeepaliveInterval
+    : 0;
+
+// --- Stateless mode (optional, same architecture as Outline MCP) ---
+// When STATELESS_MODE=true:
+//   - A fresh transport is created per request (sessionIdGenerator: undefined):
+//     no session ids, no long-lived connections, no GET SSE stream.
+//   - Fully immune to reverse-proxy / network disconnects; no heartbeat needed.
+// When false (default): stateful + SSE heartbeat mode (original behaviour preserved).
+// The two modes are independent; switching only requires changing the env var.
+// Read as a function (not a module-level constant) so each request reads
+// process.env — easier to stub in tests and to hot-switch at runtime.
+// No-side-effect guarantees:
+//   - In stateless mode GET/DELETE go down the 405 branch and never touch the
+//     stateful session/SSE/heartbeat logic.
+//   - Heartbeat never starts in stateless mode (it only lives inside the
+//     stateful GET SSE stream).
+//   - The session table (transports/lastActivity) is not involved; the sweeper
+//     only cleans up rate-limit windows.
+function isStatelessMode(): boolean {
+  const raw = process.env.STATELESS_MODE ?? "false";
+  return raw.trim().toLowerCase() === "true";
+}
+
 class BodyTooLargeError extends Error {
   constructor() {
     super("Request body too large");
@@ -449,6 +481,25 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
           throw err;
         }
 
+        // --- Stateless mode (STATELESS_MODE=true): one transport per request ---
+        // No session id is generated and no session is looked up; each request
+        // is self-contained and GET/DELETE fall through to the 405 branch.
+        // Same architecture as Outline MCP, naturally immune to reverse-proxy
+        // disconnects and client reconnects.
+        if (isStatelessMode()) {
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+            allowedHosts,
+            allowedOrigins,
+            enableDnsRebindingProtection: true,
+          });
+          const sessionServer = opts.buildMcpServer();
+          await sessionServer.connect(transport);
+          await transport.handleRequest(req, res, body);
+          return;
+        }
+
+        // --- Stateful mode (default): session table + heartbeat (original logic) ---
         if (sessionId && transports.has(sessionId)) {
           touch(sessionId);
           await transports.get(sessionId)!.handleRequest(req, res, body);
@@ -494,19 +545,58 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
 
         sendJson(res, 400, {
           jsonrpc: "2.0",
-          error: { code: -32000, message: "Invalid session or non-initialize request without session" },
+          error: { code: -32000, message: "Invalid session or non-initialize request without session (No valid session ID provided)" },
           id: null,
         });
         return;
       }
 
       if (req.method === "GET" || req.method === "DELETE") {
+        // Stateless mode: no session concept, so GET SSE streams / DELETE session
+        // are not supported. Clients never open a GET stream (initialize returns
+        // no session id), hence no long-lived connection and no heartbeat needed.
+        if (isStatelessMode()) {
+          sendJson(res, 405, {
+            error: "Method not allowed in stateless mode. Use POST for MCP requests.",
+          });
+          return;
+        }
+
         if (!sessionId || !transports.has(sessionId)) {
           sendJson(res, 404, { error: "Session not found" });
           return;
         }
         touch(sessionId);
-        await transports.get(sessionId)!.handleRequest(req, res);
+        const transport = transports.get(sessionId)!;
+
+        // --- SSE keep-alive heartbeat (configurable): after the GET SSE stream
+        //     is established, write an SSE comment line every
+        //     SSE_KEEPALIVE_INTERVAL_MS to stop intermediate proxies / NAT /
+        //     reverse proxies from silently timing out and dropping the long
+        //     lived connection.
+        //     Note: can't rely on "start after first write" — without push
+        //     events the server may not write any bytes for a long time. ---
+        if (req.method === "GET") {
+          // Heartbeat disabled (enabled=false or interval<=0): skip entirely —
+          // no timer, no listeners, no bytes written.
+          if (SSE_KEEPALIVE_ENABLED && SSE_KEEPALIVE_INTERVAL_MS > 0) {
+            const keepAliveTimer = setInterval(() => {
+              if (!res.writableEnded) {
+                try {
+                  res.write(":\n\n"); // SSE comment line, clients ignore it
+                } catch {
+                  /* Ignore write failures; cleaned up by close/finish */
+                }
+              }
+            }, SSE_KEEPALIVE_INTERVAL_MS);
+            keepAliveTimer.unref?.();
+            const stopKeepAlive = () => clearInterval(keepAliveTimer);
+            res.on("close", stopKeepAlive);
+            res.on("finish", stopKeepAlive);
+          }
+        }
+
+        await transport.handleRequest(req, res);
         return;
       }
 
@@ -528,6 +618,14 @@ export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServ
   await new Promise<void>((resolve) => {
     httpServer.listen(opts.port, opts.host, () => resolve());
   });
+
+  const keepaliveActive = SSE_KEEPALIVE_ENABLED && SSE_KEEPALIVE_INTERVAL_MS > 0;
+  log.info(
+    keepaliveActive
+      ? `SSE keep-alive enabled (interval=${SSE_KEEPALIVE_INTERVAL_MS}ms)`
+      : "SSE keep-alive disabled",
+    { sseKeepAliveEnabled: keepaliveActive, sseKeepAliveIntervalMs: SSE_KEEPALIVE_INTERVAL_MS }
+  );
 
   // When port 0 is passed (OS-assigned port, used by tests and embedders
   // that don't care about a specific port), surface the actual bound port
