@@ -23,7 +23,7 @@ function buildNoopServer(): McpServer {
 }
 
 async function startOnEphemeral(
-  overrides: Partial<Parameters<typeof startHttpServer>[0]> = {}
+  overrides: Partial<Parameters<typeof startHttpServer>[0]> = {},
 ): Promise<HttpServerHandle> {
   return startHttpServer({
     host: "127.0.0.1",
@@ -41,21 +41,14 @@ afterEach(async () => {
   while (handles.length > 0) {
     const h = handles.pop();
     if (h) {
-      try {
-        await h.stop();
-      } catch {
-        /* ignore */
-      }
+      try { await h.stop(); } catch { /* ignore */ }
     }
   }
 });
 
 describe("regression: malformed Host is rejected before auth and routing", () => {
   it("returns 400 instead of leaving the response open", async () => {
-    const handle = await startOnEphemeral({
-      bearerToken: "secret",
-      rateLimitPerMinute: 1,
-    });
+    const handle = await startOnEphemeral({ bearerToken: "secret", rateLimitPerMinute: 1 });
     handles.push(handle);
 
     const res = await rawRequest(handle.port, {
@@ -87,7 +80,7 @@ function rawRequest(
     headers?: Record<string, string>;
     body?: string;
     timeoutMs?: number;
-  }
+  },
 ): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const finish = (fn: () => void): void => {
@@ -113,15 +106,13 @@ function rawRequest(
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => chunks.push(c));
         res.on("end", () => {
-          finish(() =>
-            resolve({
-              status: res.statusCode ?? 0,
-              headers: res.headers,
-              body: Buffer.concat(chunks).toString("utf-8"),
-            })
-          );
+          finish(() => resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString("utf-8"),
+          }));
         });
-      }
+      },
     );
     const timeout = setTimeout(() => {
       req.destroy(new Error("raw request timed out"));
@@ -141,7 +132,7 @@ function rawOpenBodyRequest(
     headers?: Record<string, string>;
     initialBody?: string | Buffer;
     timeoutMs?: number;
-  }
+  },
 ): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -168,15 +159,13 @@ function rawOpenBodyRequest(
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => chunks.push(c));
         res.on("end", () => {
-          finish(() =>
-            resolve({
-              status: res.statusCode ?? 0,
-              headers: res.headers,
-              body: Buffer.concat(chunks).toString("utf-8"),
-            })
-          );
+          finish(() => resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString("utf-8"),
+          }));
         });
-      }
+      },
     );
     const timeout = setTimeout(() => {
       finish(() => reject(new Error("raw open-body request timed out")));
@@ -225,11 +214,7 @@ describe("HTTP server — configurable allowedHosts", () => {
       `[::1]:${handle.port}`,
     ]) {
       const res = await rawRequest(handle.port, {
-        method: "POST",
-        path: "/mcp",
-        host,
-        headers,
-        body,
+        method: "POST", path: "/mcp", host, headers, body,
       });
       expect(res.status, host).toBe(200);
       expect(res.headers["mcp-session-id"], host).toEqual(expect.any(String));
@@ -237,38 +222,23 @@ describe("HTTP server — configurable allowedHosts", () => {
   });
 
   it("requires an exact configured Host and valid credentials", async () => {
-    const handle = await startOnEphemeral({
-      allowedHosts: ["vault.example.com:443"],
-    });
+    const handle = await startOnEphemeral({ allowedHosts: ["vault.example.com:443"] });
     handles.push(handle);
 
     const wrongPort = await rawRequest(handle.port, {
-      method: "POST",
-      path: "/mcp",
-      host: "vault.example.com:444",
-      headers,
-      body,
+      method: "POST", path: "/mcp", host: "vault.example.com:444", headers, body,
     });
     expect(wrongPort.status).toBe(403);
 
     const wrongToken = await rawRequest(handle.port, {
-      method: "POST",
-      path: "/mcp",
-      host: "vault.example.com:443",
-      headers: { ...headers, Authorization: "Bearer wrong-token" },
-      body,
+      method: "POST", path: "/mcp", host: "vault.example.com:443",
+      headers: { ...headers, Authorization: "Bearer wrong-token" }, body,
     });
     expect(wrongToken.status).toBe(401);
 
     const missingToken = await rawRequest(handle.port, {
-      method: "POST",
-      path: "/mcp",
-      host: "vault.example.com:443",
-      headers: {
-        "Content-Type": headers["Content-Type"],
-        Accept: headers.Accept,
-      },
-      body,
+      method: "POST", path: "/mcp", host: "vault.example.com:443",
+      headers: { "Content-Type": headers["Content-Type"], Accept: headers.Accept }, body,
     });
     expect(missingToken.status).toBe(401);
   });
@@ -278,26 +248,17 @@ describe("HTTP server — configurable allowedHosts", () => {
     const handle = await startOnEphemeral({ allowedHosts });
     handles.push(handle);
     const initialized = await rawRequest(handle.port, {
-      method: "POST",
-      path: "/mcp",
-      host: "vault.example.com",
-      headers,
-      body,
+      method: "POST", path: "/mcp", host: "vault.example.com", headers, body,
     });
     expect(initialized.status).toBe(200);
     const sessionId = initialized.headers["mcp-session-id"];
     expect(sessionId).toEqual(expect.any(String));
-    const sessionHeaders = {
-      ...headers,
-      "Mcp-Session-Id": sessionId as string,
-    };
+    const sessionHeaders = { ...headers, "Mcp-Session-Id": sessionId as string };
 
     allowedHosts.push("attacker.example.com");
     for (const method of ["POST", "GET", "DELETE"]) {
       const rejected = await rawRequest(handle.port, {
-        method,
-        path: "/mcp",
-        host: "attacker.example.com",
+        method, path: "/mcp", host: "attacker.example.com",
         headers: sessionHeaders,
         ...(method === "POST" ? { body } : {}),
       });
@@ -305,10 +266,7 @@ describe("HTTP server — configurable allowedHosts", () => {
     }
 
     const closed = await rawRequest(handle.port, {
-      method: "DELETE",
-      path: "/mcp",
-      host: "vault.example.com",
-      headers: sessionHeaders,
+      method: "DELETE", path: "/mcp", host: "vault.example.com", headers: sessionHeaders,
     });
     expect(closed.status).toBe(200);
   });
@@ -462,12 +420,7 @@ describe("regression: M1 — POST with non-JSON Content-Type returns 415", () =>
         ...AUTH_HEADERS,
         "Content-Type": "text/plain; profile=application/json",
       },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {},
-      }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
     });
 
     expect(res.status).toBe(415);
@@ -478,16 +431,8 @@ describe("regression: M1 — POST with non-JSON Content-Type returns 415", () =>
     handles.push(handle);
     const res = await fetch(handle.url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        ...AUTH_HEADERS,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {},
-      }),
+      headers: { "Content-Type": "application/json; charset=utf-8", ...AUTH_HEADERS },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
     });
     // Whatever the MCP layer does next, it must NOT be a Content-Type 415.
     expect(res.status).not.toBe(415);
@@ -496,10 +441,7 @@ describe("regression: M1 — POST with non-JSON Content-Type returns 415", () =>
 
 describe("regression: M2 — /version gates non-GET methods when bearerToken is set", () => {
   it("POST /version with no auth returns 401 when bearerToken is set", async () => {
-    const handle = await startOnEphemeral({
-      bearerToken: "secret",
-      version: "1.2.3",
-    });
+    const handle = await startOnEphemeral({ bearerToken: "secret", version: "1.2.3" });
     handles.push(handle);
 
     const res = await fetch(`http://127.0.0.1:${handle.port}/version`, {
@@ -512,22 +454,17 @@ describe("regression: M2 — /version gates non-GET methods when bearerToken is 
   });
 
   it("refuses to start without bearer auth instead of exposing tokenless /version writes", async () => {
-    await expect(
-      startHttpServer({
-        host: "127.0.0.1",
-        port: 0,
-        version: "9.9.9",
-        buildMcpServer: buildNoopServer,
-        installSignalHandlers: false,
-      } as Parameters<typeof startHttpServer>[0])
-    ).rejects.toThrow(/bearer token is required/i);
+    await expect(startHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      version: "9.9.9",
+      buildMcpServer: buildNoopServer,
+      installSignalHandlers: false,
+    } as Parameters<typeof startHttpServer>[0])).rejects.toThrow(/bearer token is required/i);
   });
 
   it("POST /version with the correct bearer token returns 200", async () => {
-    const handle = await startOnEphemeral({
-      bearerToken: "secret",
-      version: "1.2.3",
-    });
+    const handle = await startOnEphemeral({ bearerToken: "secret", version: "1.2.3" });
     handles.push(handle);
 
     const res = await fetch(`http://127.0.0.1:${handle.port}/version`, {
@@ -542,10 +479,7 @@ describe("regression: M2 — /version gates non-GET methods when bearerToken is 
   });
 
   it("GET /version stays unauthenticated even when bearerToken is set (existing public-monitoring behavior)", async () => {
-    const handle = await startOnEphemeral({
-      bearerToken: "secret",
-      version: "1.2.3",
-    });
+    const handle = await startOnEphemeral({ bearerToken: "secret", version: "1.2.3" });
     handles.push(handle);
 
     const res = await fetch(`http://127.0.0.1:${handle.port}/version`);
@@ -633,9 +567,7 @@ describe("regression: HTTP Origin validation rejects browser DNS-rebinding attem
   });
 
   it("rejects preflight requests from an Origin outside the allowlist", async () => {
-    const handle = await startOnEphemeral({
-      allowedOrigins: ["https://app.example"],
-    });
+    const handle = await startOnEphemeral({ allowedOrigins: ["https://app.example"] });
     handles.push(handle);
 
     const res = await rawRequest(handle.port, {
@@ -666,21 +598,17 @@ describe("regression: HTTP Origin validation rejects browser DNS-rebinding attem
 
 describe("regression: HTTP bearer token must not be empty", () => {
   it("rejects whitespace-only programmatic tokens", async () => {
-    await expect(startOnEphemeral({ bearerToken: "   " })).rejects.toThrow(
-      /token.*empty/i
-    );
+    await expect(startOnEphemeral({ bearerToken: "   " })).rejects.toThrow(/token.*empty/i);
   });
 
   it("rejects wildcard CORS without bearer auth", async () => {
-    await expect(
-      startHttpServer({
-        host: "127.0.0.1",
-        port: 0,
-        allowedOrigins: ["*"],
-        buildMcpServer: buildNoopServer,
-        installSignalHandlers: false,
-      } as Parameters<typeof startHttpServer>[0])
-    ).rejects.toThrow(/bearer token is required/i);
+    await expect(startHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      allowedOrigins: ["*"],
+      buildMcpServer: buildNoopServer,
+      installSignalHandlers: false,
+    } as Parameters<typeof startHttpServer>[0])).rejects.toThrow(/bearer token is required/i);
   });
 
   it("allows wildcard CORS when bearer auth is configured", async () => {

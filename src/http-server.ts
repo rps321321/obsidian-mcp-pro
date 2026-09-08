@@ -1,8 +1,4 @@
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -46,8 +42,7 @@ export interface HttpServerHandle {
   stop: () => Promise<void>;
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -69,14 +64,11 @@ class BodyTooLargeError extends Error {
 
 function declaredBodyTooLarge(req: IncomingMessage): boolean {
   const contentLength = req.headers["content-length"];
-  if (typeof contentLength !== "string" || !/^\d+$/.test(contentLength))
-    return false;
+  if (typeof contentLength !== "string" || !/^\d+$/.test(contentLength)) return false;
   return BigInt(contentLength) > BigInt(MAX_BODY_BYTES);
 }
 
-function isJsonContentType(
-  contentType: string | string[] | undefined
-): boolean {
+function isJsonContentType(contentType: string | string[] | undefined): boolean {
   if (typeof contentType !== "string") return false;
   const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
   return mediaType === "application/json";
@@ -188,7 +180,7 @@ function originAllowed(origin: string, allowedOrigins: string[]): boolean {
 function setCors(
   req: IncomingMessage,
   res: ServerResponse,
-  allowedOrigins: string[]
+  allowedOrigins: string[],
 ): void {
   // Reflect the request origin only when it matches the allowlist; fall back
   // to the first allowlist entry otherwise. `*` short-circuits to the
@@ -202,10 +194,7 @@ function setCors(
     // pinned to a different origin's request. This must fire regardless of
     // whether *this particular* origin matched the allowlist.
     res.setHeader("Vary", "Origin");
-    if (
-      requestOrigin &&
-      allowedOrigins.some((p) => originMatches(requestOrigin, p))
-    ) {
+    if (requestOrigin && allowedOrigins.some((p) => originMatches(requestOrigin, p))) {
       allowOrigin = requestOrigin;
     } else {
       allowOrigin = allowedOrigins[0] ?? "";
@@ -214,11 +203,11 @@ function setCors(
   if (allowOrigin) res.setHeader("Access-Control-Allow-Origin", allowOrigin);
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version"
+    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version",
   );
   res.setHeader(
     "Access-Control-Expose-Headers",
-    "Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate"
+    "Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate",
   );
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 }
@@ -229,10 +218,7 @@ function setCors(
 // request timestamps per IP pruned on read.
 class RateLimiter {
   private readonly windows = new Map<string, number[]>();
-  constructor(
-    private readonly limit: number,
-    private readonly windowMs = 60_000
-  ) {}
+  constructor(private readonly limit: number, private readonly windowMs = 60_000) {}
   check(ip: string): boolean {
     const now = Date.now();
     const floor = now - this.windowMs;
@@ -270,27 +256,20 @@ function clientIp(req: IncomingMessage): string {
   return addr.startsWith("::ffff:") ? addr.slice(7) : addr;
 }
 
-export async function startHttpServer(
-  opts: HttpServerOptions
-): Promise<HttpServerHandle> {
+export async function startHttpServer(opts: HttpServerOptions): Promise<HttpServerHandle> {
   const bearerToken = opts.bearerToken?.trim();
   if (opts.bearerToken !== undefined && !bearerToken) {
     throw new Error("HTTP bearer token cannot be empty");
   }
   if (!bearerToken) {
-    throw new Error(
-      "HTTP bearer token is required. Set MCP_HTTP_TOKEN in the CLI or pass bearerToken when embedding."
-    );
+    throw new Error("HTTP bearer token is required. Set MCP_HTTP_TOKEN in the CLI or pass bearerToken when embedding.");
   }
-  const allowedOrigins =
-    opts.allowedOrigins && opts.allowedOrigins.length > 0
-      ? opts.allowedOrigins
-      : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
+  const allowedOrigins = opts.allowedOrigins && opts.allowedOrigins.length > 0
+    ? opts.allowedOrigins
+    : ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"];
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const lastActivity = new Map<string, number>();
-  const touch = (sid: string): void => {
-    lastActivity.set(sid, Date.now());
-  };
+  const touch = (sid: string): void => { lastActivity.set(sid, Date.now()); };
   // One `McpServer` per session: the underlying SDK `Protocol` rejects a
   // second `connect()` while a transport is still attached, so a singleton
   // 500s every reconnect and every concurrent client past the first. Each
@@ -298,14 +277,11 @@ export async function startHttpServer(
   // transport closes (Protocol._onclose clears the transport reference).
   // See https://github.com/rps321321/obsidian-mcp-pro/issues/8.
   if (allowedOrigins.includes("*")) {
-    log.warn(
-      "CORS configured with wildcard origin '*'. Consider restricting to specific origins for production deployments."
-    );
+    log.warn("CORS configured with wildcard origin '*'. Consider restricting to specific origins for production deployments.");
   }
-  const rateLimiter =
-    opts.rateLimitPerMinute && opts.rateLimitPerMinute > 0
-      ? new RateLimiter(opts.rateLimitPerMinute)
-      : null;
+  const rateLimiter = opts.rateLimitPerMinute && opts.rateLimitPerMinute > 0
+    ? new RateLimiter(opts.rateLimitPerMinute)
+    : null;
 
   // Evict sessions that have been idle past the timeout so dropped clients
   // (crash, network loss, no DELETE) don't leak transports forever.
@@ -314,9 +290,7 @@ export async function startHttpServer(
     for (const [sid, ts] of lastActivity) {
       if (now - ts > SESSION_IDLE_TIMEOUT_MS) {
         const t = transports.get(sid);
-        if (t) {
-          void t.close().catch(() => undefined);
-        }
+        if (t) { void t.close().catch(() => undefined); }
         transports.delete(sid);
         lastActivity.delete(sid);
       }
@@ -336,10 +310,7 @@ export async function startHttpServer(
   // DNS-rebinding protection.
   const allowedHosts: string[] = [...(opts.allowedHosts ?? [])];
 
-  const handleRequest = async (
-    req: IncomingMessage,
-    res: ServerResponse
-  ): Promise<void> => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     // Cap wall-clock time for POST requests only. GET is used by the
     // Streamable HTTP transport for long-lived SSE streams that intentionally
     // go write-silent between events — `socket.setTimeout` would reap them
@@ -370,10 +341,7 @@ export async function startHttpServer(
       return;
     }
     const requestOrigin = req.headers.origin;
-    if (
-      typeof requestOrigin === "string" &&
-      !originAllowed(requestOrigin, allowedOrigins)
-    ) {
+    if (typeof requestOrigin === "string" && !originAllowed(requestOrigin, allowedOrigins)) {
       log.warn("Rejected request from disallowed Origin", {
         origin: requestOrigin,
         method: req.method,
@@ -425,10 +393,7 @@ export async function startHttpServer(
           const header = req.headers.authorization ?? "";
           const token = header.startsWith("Bearer ") ? header.slice(7) : "";
           if (!constantTimeEqual(token, bearerToken)) {
-            res.setHeader(
-              "WWW-Authenticate",
-              'Bearer realm="obsidian-mcp-pro"'
-            );
+            res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
             sendJson(res, 401, { error: "Unauthorized" });
             return;
           }
@@ -470,9 +435,7 @@ export async function startHttpServer(
         // a clearer 415 ("the server understands the request method but
         // the media type is unsupported") than a generic 400.
         if (!isJsonContentType(req.headers["content-type"])) {
-          sendJson(res, 415, {
-            error: "Unsupported Media Type: expected application/json",
-          });
+          sendJson(res, 415, { error: "Unsupported Media Type: expected application/json" });
           return;
         }
         if (declaredBodyTooLarge(req)) {
@@ -536,11 +499,7 @@ export async function startHttpServer(
 
         sendJson(res, 400, {
           jsonrpc: "2.0",
-          error: {
-            code: -32000,
-            message:
-              "Invalid session or non-initialize request without session",
-          },
+          error: { code: -32000, message: "Invalid session or non-initialize request without session" },
           id: null,
         });
         return;
@@ -585,7 +544,7 @@ export async function startHttpServer(
     `${opts.host}:${boundPort}`,
     `127.0.0.1:${boundPort}`,
     `localhost:${boundPort}`,
-    `[::1]:${boundPort}`
+    `[::1]:${boundPort}`,
   );
 
   log.info(`HTTP server listening`, {
@@ -605,11 +564,7 @@ export async function startHttpServer(
     log.info(`Shutting down HTTP server`);
     clearInterval(sweeper);
     for (const t of transports.values()) {
-      try {
-        await t.close();
-      } catch {
-        /* ignore */
-      }
+      try { await t.close(); } catch { /* ignore */ }
     }
     transports.clear();
     lastActivity.clear();
