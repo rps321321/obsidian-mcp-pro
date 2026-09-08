@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- HTTP embedders can configure additional destination Host header values with `HttpServerOptions.allowedHosts`, preserving the bound-address and loopback defaults and DNS-rebinding protection. Entries are trimmed and validated at startup (`"*"`, empty strings, schemes, and paths are rejected). `/mcp` Host denials return 403 with a warn log (host, method, path, ip — never the bearer). Matching is case-sensitive exact `Host` (IPv6 keeps brackets; no IDN normalization).
+
 ### Changed
 
 - Removed maintainer-only strategy, experiment notes, and draft outreach copy from the tracked documentation while keeping contributor workflow configuration under `docs/agents/`.
