@@ -66,6 +66,12 @@ served as bytes rather than parsed as text.
 related tools (read, write, tags, links, canvas, sections, bases, attachments,
 semantic) registered together.
 
+**Role**: a named list of Tool names assigned to a bearer token. It is that
+list of names, not an access level that grows when new Tools appear.
+_Avoid_: permission, allowlist, profile, scope, grant, capability set. Not a
+Tool group (registration family) and not the Permission allowlist (folder
+paths).
+
 **Untrusted vault content**: any vault-derived text surfaced to the model. It is
 wrapped in explicit BEGIN/END markers and tagged with trust metadata so the model
 treats it as data, never as instructions. This is the vault's prompt-injection
