@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   appendToNote,
@@ -159,6 +160,28 @@ it("preserves internal configuration reads inside excluded directories", async (
     format: "YYYY",
     template: undefined,
   });
+});
+
+it("keeps the vault boundary for directory aliases", async () => {
+  const outside = await fs.mkdtemp(
+    path.join(os.tmpdir(), "canonical-outside-")
+  );
+  try {
+    await fs.writeFile(path.join(outside, "note.md"), "outside");
+    await aliasDirectory(outside, path.join(env.vaultDir, "alias"));
+    await expect(readNote(env.vaultDir, "alias/note.md")).rejects.toThrow(
+      /symlink/
+    );
+    await expect(
+      writeNote(env.vaultDir, "alias/new.md", "denied")
+    ).rejects.toThrow(/symlink/);
+    expect(await fs.readFile(path.join(outside, "note.md"), "utf8")).toBe(
+      "outside"
+    );
+    await expect(fs.access(path.join(outside, "new.md"))).rejects.toThrow();
+  } finally {
+    await fs.rm(outside, { recursive: true, force: true });
+  }
 });
 
 it("denies file aliases into excluded subtrees when file symlinks are available", async ({

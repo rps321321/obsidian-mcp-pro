@@ -416,6 +416,24 @@ function vaultRelativeFromRealPath(
   return rel === "" ? "." : rel;
 }
 
+function assertCanonicalAccess(
+  canonical: { realVault: string; realPath: string },
+  relativePath: string,
+  access: AccessKind
+): void {
+  const canonicalRelative = vaultRelativeFromRealPath(
+    canonical.realVault,
+    canonical.realPath
+  );
+  resolveVaultPath(canonical.realVault, canonicalRelative, access);
+  if (
+    relativePath.toLowerCase().endsWith(".md") &&
+    !canonicalRelative.toLowerCase().endsWith(".md")
+  ) {
+    throw new Error(`Not a markdown note: ${relativePath}`);
+  }
+}
+
 // TOCTOU note: there is a small window between the realpath check in
 // `assertRealPathWithinVault` and the caller's actual use of the returned
 // path. If a symlink target is swapped by an external process (Obsidian,
@@ -438,10 +456,7 @@ export async function resolveVaultPathSafe(
     vaultPath,
     options?.realVaultRoot
   );
-  assertAllowed(
-    vaultRelativeFromRealPath(canonical.realVault, canonical.realPath),
-    access
-  );
+  assertCanonicalAccess(canonical, relativePath, access);
   return resolved;
 }
 
@@ -471,10 +486,7 @@ export async function openResolvedVaultFileForRead(
         options?.realVaultRoot
       );
       if (access !== null) {
-        assertAllowed(
-          vaultRelativeFromRealPath(canonical.realVault, canonical.realPath),
-          access
-        );
+        assertCanonicalAccess(canonical, relativePath, access);
       }
 
       const currentStats = await assertResolvedRegularFile(

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Refreshed compatible locked dependencies, including MCP SDK 1.32.1, js-yaml 4.3.2, Vitest 4.1.12, and ip-address 10.7.4. The refreshed lockfile clears the current npm audit findings. SDK input-budget configuration remains a separate release requirement described in `docs/dependency-security.md`.
+- Public file access now applies excluded-directory rules to canonical targets before access and after opening a file. Note aliases must resolve to Markdown targets. Internal configuration reads retain their separate vault-boundary checks.
 
 ## [4.0.1] - 2026-06-21
 
