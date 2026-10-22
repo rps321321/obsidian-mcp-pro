@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { sanitizeError } from "./lib/errors.js";
+import { isValidVaultPath } from "./lib/vault-path.js";
 
 export type InstallClient = "claude" | "cursor";
 
@@ -160,6 +161,10 @@ export function runInstall(options: InstallOptions): void {
       throw new Error(
         `Vault path is not a directory: ${resolvedVault}`,
       );
+    }
+
+    if (!isValidVaultPath(resolvedVault)) {
+      throw new Error("Vault path must contain an accessible .obsidian directory; refusing to write");
     }
 
     env.OBSIDIAN_VAULT_PATH = resolvedVault;

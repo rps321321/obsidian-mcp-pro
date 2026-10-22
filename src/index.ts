@@ -380,6 +380,7 @@ function resolveVaultPathOrWarn(): string | undefined {
   try {
     return getVaultConfig().vaultPath;
   } catch (err) {
+    if (process.env.OBSIDIAN_VAULT_PATH) throw err;
     log.warn(`Vault not configured — tools will return errors`, {
       err: err as Error,
       hint: "Set OBSIDIAN_VAULT_PATH environment variable to fix this.",

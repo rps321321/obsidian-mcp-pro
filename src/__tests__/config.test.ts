@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs/promises";
+import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { getDailyNoteConfig, getVaultConfig } from "../config.js";
@@ -59,6 +60,47 @@ async function writeObsidianConfig(content: string): Promise<void> {
 }
 
 describe("getVaultConfig", () => {
+  it.each(["missing", "ordinary-directory", "file", "marker-file"])(
+    "rejects an explicit %s even when another valid vault is configured",
+    async (kind) => {
+      await writeObsidianConfig(JSON.stringify({ vaults: { other: { path: vaultDir } } }));
+      const selected = path.join(configRoot, "selected");
+      if (kind === "file") await fs.writeFile(selected, "not a directory");
+      if (kind === "ordinary-directory" || kind === "marker-file") {
+        await fs.mkdir(selected);
+      }
+      if (kind === "marker-file") await fs.writeFile(path.join(selected, ".obsidian"), "not a directory");
+      process.env.OBSIDIAN_VAULT_PATH = selected;
+
+      expect(() => getVaultConfig()).toThrow(/OBSIDIAN_VAULT_PATH/);
+    },
+  );
+
+  it("keeps a valid explicit vault ahead of global configuration", async () => {
+    const selected = path.join(configRoot, "selected");
+    await fs.mkdir(path.join(selected, ".obsidian"), { recursive: true });
+    await writeObsidianConfig(JSON.stringify({ vaults: { other: { path: vaultDir } } }));
+    process.env.OBSIDIAN_VAULT_PATH = selected;
+
+    expect(getVaultConfig().vaultPath).toBe(selected);
+  });
+
+  it("rejects an inaccessible explicit vault instead of selecting another vault", async () => {
+    await writeObsidianConfig(
+      JSON.stringify({ vaults: { other: { path: vaultDir } } })
+    );
+    const selected = path.join(configRoot, "inaccessible");
+    process.env.OBSIDIAN_VAULT_PATH = selected;
+    const stat = fsSync.statSync;
+    vi.spyOn(fsSync, "statSync").mockImplementation((...args) => {
+      if (args[0] === selected)
+        throw Object.assign(new Error("denied"), { code: "EACCES" });
+      return Reflect.apply(stat, fsSync, args);
+    });
+
+    expect(() => getVaultConfig()).toThrow(/OBSIDIAN_VAULT_PATH/);
+  });
+
   it("auto-detects a valid vault from a bounded Obsidian config", async () => {
     await writeObsidianConfig(JSON.stringify({
       vaults: {

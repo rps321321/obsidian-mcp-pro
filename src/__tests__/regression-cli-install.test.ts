@@ -153,6 +153,31 @@ describe("runInstall config shape validation", () => {
     await fs.writeFile(configPath, content, "utf-8");
   }
 
+  it.each(["missing", "ordinary-directory", "file", "marker-file"])(
+    "rejects an explicit %s without changing client configuration",
+    async (kind) => {
+      const existing = JSON.stringify({ mcpServers: { existing: { command: "keep" } } });
+      await writeExistingConfig(existing);
+      const selected = path.join(tmpDir, "selected");
+      if (kind === "file") await fs.writeFile(selected, "not a directory");
+      if (kind === "ordinary-directory" || kind === "marker-file") await fs.mkdir(selected);
+      if (kind === "marker-file") await fs.writeFile(path.join(selected, ".obsidian"), "not a directory");
+
+      expect(() => runInstall({ client: "claude", vaultPath: selected })).toThrow();
+      await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(existing);
+    },
+  );
+
+  it("stores a valid explicit vault", async () => {
+    const selected = path.join(tmpDir, "selected");
+    await fs.mkdir(path.join(selected, ".obsidian"), { recursive: true });
+
+    runInstall({ client: "claude", vaultPath: selected });
+
+    const config = JSON.parse(await fs.readFile(configPath, "utf-8"));
+    expect(config.mcpServers.obsidian.env.OBSIDIAN_VAULT_PATH).toBe(selected);
+  });
+
   it("rejects a non-object config root before writing", async () => {
     await writeExistingConfig("[]");
 

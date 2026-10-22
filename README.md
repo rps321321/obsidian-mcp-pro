@@ -555,11 +555,13 @@ MCP clients only re-read their config on startup. After editing `claude_desktop_
 
 The server couldn't locate a vault. Resolution order is:
 
-1. `OBSIDIAN_VAULT_PATH` env var (absolute path) — always wins if set.
+1. `OBSIDIAN_VAULT_PATH` env var (absolute path) — always wins if set. An invalid selection fails startup instead of falling back to another vault.
 2. `OBSIDIAN_VAULT_NAME` env var — picks a named vault from Obsidian's global config.
 3. Auto-detection — reads `obsidian.json` (platform-specific) and uses the first valid vault found.
 
 Fastest fix: set `OBSIDIAN_VAULT_PATH` in the `env` block of your MCP client's config. Auto-detection fails when Obsidian has never been launched, `obsidian.json` is missing/corrupt, or all registered vaults resolve to paths that no longer exist.
+
+Both startup and `install --vault` require an accessible vault directory containing an accessible `.obsidian` directory. An ordinary folder or a file named `.obsidian` does not qualify. Correct an invalid explicit path, or unset `OBSIDIAN_VAULT_PATH` to enable auto-detection.
 
 ### "Path traversal detected" Error on Tool Calls
 

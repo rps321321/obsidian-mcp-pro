@@ -4,6 +4,7 @@ import * as os from "os";
 import type { VaultConfig, DailyNoteConfig } from "./types.js";
 import { log } from "./lib/logger.js";
 import { openVaultInternalFileForRead } from "./lib/vault.js";
+import { isValidVaultPath } from "./lib/vault-path.js";
 
 const DAILY_NOTES_CONFIG_REL_PATH = ".obsidian/daily-notes.json";
 const MAX_OBSIDIAN_CONFIG_BYTES = 1024 * 1024;
@@ -83,20 +84,6 @@ function normalizeDailyNoteFolder(folder: string | undefined): string | undefine
   return normalized;
 }
 
-function isValidVaultPath(vaultPath: string): boolean {
-  try {
-    const obsidianDir = path.join(vaultPath, ".obsidian");
-    return (
-      fs.existsSync(vaultPath) &&
-      fs.statSync(vaultPath).isDirectory() &&
-      fs.existsSync(obsidianDir) &&
-      fs.statSync(obsidianDir).isDirectory()
-    );
-  } catch {
-    return false;
-  }
-}
-
 function resolveVaultFromEnv(): string | null {
   const envPath = process.env.OBSIDIAN_VAULT_PATH;
   if (!envPath) {
@@ -105,12 +92,9 @@ function resolveVaultFromEnv(): string | null {
 
   const resolved = path.resolve(envPath);
   if (!isValidVaultPath(resolved)) {
-    // The logger redacts the path before writing to stderr or forwarding to
-    // MCP clients, so this stays useful without leaking host layout.
-    log.warn("OBSIDIAN_VAULT_PATH is not a valid vault (missing .obsidian dir)", {
-      vaultPath: resolved,
-    });
-    return null;
+    throw new Error(
+      "OBSIDIAN_VAULT_PATH must select an accessible directory containing a .obsidian directory. Correct it or unset it to enable auto-detection.",
+    );
   }
 
   return resolved;
