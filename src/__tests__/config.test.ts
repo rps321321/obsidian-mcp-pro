@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs/promises";
+import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { getDailyNoteConfig, getVaultConfig } from "../config.js";
@@ -82,6 +83,22 @@ describe("getVaultConfig", () => {
     process.env.OBSIDIAN_VAULT_PATH = selected;
 
     expect(getVaultConfig().vaultPath).toBe(selected);
+  });
+
+  it("rejects an inaccessible explicit vault instead of selecting another vault", async () => {
+    await writeObsidianConfig(
+      JSON.stringify({ vaults: { other: { path: vaultDir } } })
+    );
+    const selected = path.join(configRoot, "inaccessible");
+    process.env.OBSIDIAN_VAULT_PATH = selected;
+    const stat = fsSync.statSync;
+    vi.spyOn(fsSync, "statSync").mockImplementation((...args) => {
+      if (args[0] === selected)
+        throw Object.assign(new Error("denied"), { code: "EACCES" });
+      return Reflect.apply(stat, fsSync, args);
+    });
+
+    expect(() => getVaultConfig()).toThrow(/OBSIDIAN_VAULT_PATH/);
   });
 
   it("auto-detects a valid vault from a bounded Obsidian config", async () => {
