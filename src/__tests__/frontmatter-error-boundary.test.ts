@@ -9,6 +9,7 @@ import { buildMcpServer } from "../index.js";
 import { configureLogger } from "../lib/logger.js";
 import { setPermissions } from "../lib/permissions.js";
 import { parseStrictYamlFrontmatter } from "../lib/markdown.js";
+import { createTestEnv } from "./handlers/harness.js";
 
 const marker = "PRIVATE303";
 const fixtures = [
@@ -83,4 +84,26 @@ it("retains no parser source or raw reason on the returned Error", () => {
   expect(parsed.error).not.toHaveProperty("mark");
   expect(parsed.error).not.toHaveProperty("reason");
   expect(parsed.error).not.toHaveProperty("cause");
+});
+
+it("allows a write-only frontmatter update without returning existing note content", async () => {
+  const env = await createTestEnv({
+    skipFixtures: true,
+    extraFiles: { "private/note.md": `---\nsecret: ${marker}\n---\nPrivate body.\n` },
+  });
+  try {
+    setPermissions({ readPaths: ["public"], writePaths: null });
+    const result = await env.client.callTool({
+      name: "update_frontmatter",
+      arguments: { path: "private/note.md", properties: '{"status":"updated"}' },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(JSON.stringify(result)).not.toContain(marker);
+    const disk = await fs.readFile(path.join(env.vaultDir, "private/note.md"), "utf8");
+    expect(disk).toContain(`secret: ${marker}`);
+    expect(disk).toContain("status: updated");
+    expect(disk).toContain("Private body.");
+  } finally {
+    await env.cleanup();
+  }
 });

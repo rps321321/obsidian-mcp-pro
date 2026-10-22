@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Invalid explicit `OBSIDIAN_VAULT_PATH` selections now fail instead of selecting a different vault through auto-detection. The installer uses the same directory and `.obsidian` marker validation as runtime.
+- Frontmatter parser failures now return source-free errors with note line and column numbers, preventing malformed write-only notes from disclosing existing content through tool errors or logs.
 
 ### Added
 

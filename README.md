@@ -363,6 +363,8 @@ Restrict the tools' read/write surface to specific folders without exposing the 
 
 Read and write are independent, so an audit account can be read-only on most of the vault but write-only to a `Drafts/` folder. Moving a note requires read access to the source and write access to the destination, because the move carries the source content into its new folder. Surgical edits (`replace_in_note`, `update_section`, `insert_at_section`, and `edit_block`) require read access to the target plus write access because they inspect existing content before writing. In-vault symlinks are checked against their real target before the allowlist decision is finalized. The startup log line and `--help` advertise the active scope. The allowlist is enforced at a single path-resolution choke point so every tool inherits it.
 
+`append_to_note`, `prepend_to_note`, and `update_frontmatter` can modify write-only notes without granting retrieval access. Their internal read preserves existing content. Invalid YAML errors report a fixed category and a one-based line and column in the note, without source excerpts or parser-provided reasons. Oversized frontmatter errors report the size limit. These errors leave the note unchanged and do not include existing note text in responses or logs.
+
 ### Caches
 
 The note-content mtime cache is in-memory only. It speeds repeated vault-wide scans
