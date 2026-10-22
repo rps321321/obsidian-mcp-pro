@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed maintainer-only strategy, experiment notes, and draft outreach copy from the tracked documentation while keeping contributor workflow configuration under `docs/agents/`.
 - Added a pre-commit guard that rejects maintainer state, local assistant context, R&D notes, and outreach drafts before they can re-enter public history.
 
+### Security
+
+- Refreshed compatible locked dependencies, including MCP SDK 1.32.1, js-yaml 4.3.2, Vitest 4.1.12, and ip-address 10.7.4. The refreshed lockfile clears the current npm audit findings. SDK input-budget configuration remains a separate release requirement described in `docs/dependency-security.md`.
+
 ## [4.0.1] - 2026-06-21
 
 ### Changed
