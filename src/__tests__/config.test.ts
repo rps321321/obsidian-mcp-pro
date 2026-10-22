@@ -59,6 +59,31 @@ async function writeObsidianConfig(content: string): Promise<void> {
 }
 
 describe("getVaultConfig", () => {
+  it.each(["missing", "ordinary-directory", "file", "marker-file"])(
+    "rejects an explicit %s even when another valid vault is configured",
+    async (kind) => {
+      await writeObsidianConfig(JSON.stringify({ vaults: { other: { path: vaultDir } } }));
+      const selected = path.join(configRoot, "selected");
+      if (kind === "file") await fs.writeFile(selected, "not a directory");
+      if (kind === "ordinary-directory" || kind === "marker-file") {
+        await fs.mkdir(selected);
+      }
+      if (kind === "marker-file") await fs.writeFile(path.join(selected, ".obsidian"), "not a directory");
+      process.env.OBSIDIAN_VAULT_PATH = selected;
+
+      expect(() => getVaultConfig()).toThrow(/OBSIDIAN_VAULT_PATH/);
+    },
+  );
+
+  it("keeps a valid explicit vault ahead of global configuration", async () => {
+    const selected = path.join(configRoot, "selected");
+    await fs.mkdir(path.join(selected, ".obsidian"), { recursive: true });
+    await writeObsidianConfig(JSON.stringify({ vaults: { other: { path: vaultDir } } }));
+    process.env.OBSIDIAN_VAULT_PATH = selected;
+
+    expect(getVaultConfig().vaultPath).toBe(selected);
+  });
+
   it("auto-detects a valid vault from a bounded Obsidian config", async () => {
     await writeObsidianConfig(JSON.stringify({
       vaults: {
