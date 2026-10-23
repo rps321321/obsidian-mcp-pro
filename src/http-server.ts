@@ -622,7 +622,11 @@ export async function startHttpServer(
     } catch (err) {
       httpServer.off("error", onError);
       httpServer.off("listening", onListening);
-      reject(err);
+      reject(
+        err instanceof Error
+          ? err
+          : new Error("HTTP listen failed", { cause: err })
+      );
     }
   });
 

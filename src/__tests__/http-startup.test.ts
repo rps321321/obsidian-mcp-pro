@@ -122,12 +122,24 @@ describe("HTTP startup lifecycle", () => {
     expect(restarted.port).toBe(address.port);
   });
 
-  it("rejects an invalid host without allocating the sweeper", async () => {
-    await expect(
-      startHttpServer(options({ host: "bad\0host" }))
-    ).rejects.toHaveProperty("code");
+  it("preserves a synchronous listen error and removes startup listeners", async () => {
+    const failure = Object.assign(new TypeError("Synthetic invalid host"), {
+      code: "ERR_INVALID_ARG_VALUE",
+    });
+    const listeners = vi.spyOn(Server.prototype, "once");
+    vi.spyOn(Server.prototype, "listen").mockImplementationOnce(() => {
+      throw failure;
+    });
+    await expect(startHttpServer(options())).rejects.toBe(failure);
 
     expect(intervals).not.toHaveBeenCalled();
+    const attempted = listeners.mock.contexts.find(
+      (server) => server instanceof Server
+    );
+    if (!(attempted instanceof Server))
+      throw new Error("No startup server observed");
+    expect(attempted.listenerCount("error")).toBe(0);
+    expect(attempted.listenerCount("listening")).toBe(nativeListeningListeners);
   });
 
   it("starts after failure, serves health, and clears its sweeper on repeated stop", async () => {
