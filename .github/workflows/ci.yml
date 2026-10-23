@@ -46,3 +46,28 @@ jobs:
 
       - name: Verify package payload
         run: npm run pack:check
+
+  consumer:
+    name: Installed consumer on ${{ matrix.os }} / Node 24
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exercise the installed package
+        run: node scripts/check-packed-consumer.mjs
