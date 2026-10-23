@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { updateNote } from "../../lib/vault.js";
-import { sanitizeError } from "../../lib/errors.js";
+import { replaceNoteText } from "../../lib/note-replacement.js";
 import { defineTool, text, error } from "../../lib/tool-seam.js";
 import {
   FIND_MAX_LEN,
@@ -66,10 +66,12 @@ export function registerReplaceInNoteTool(
           ),
       },
     },
-    async ({ path: notePath, find, replace, regex, flags, expectedCount }) => {
+    async (
+      { path: notePath, find, replace, regex, flags, expectedCount },
+      { extra }
+    ) => {
       const ALLOWED_FLAGS = new Set(["g", "i", "m", "s", "u", "y"]);
 
-      let pattern: RegExp;
       let unsafeRegexPattern = false;
       if (regex) {
         if (find.length > FIND_MAX_LEN) {
@@ -97,24 +99,12 @@ export function registerReplaceInNoteTool(
             "Error replacing in note: regex flags must include 'g' for replace_in_note."
           );
         }
-        let compiledPattern: RegExp;
-        try {
-          compiledPattern = new RegExp(find, f);
-        } catch (syntaxErr) {
-          return error(
-            `Error replacing in note: invalid regex pattern: ${sanitizeError(syntaxErr)}`
-          );
-        }
         unsafeRegexPattern = hasUnsafeRepeatedGroup(find);
-        pattern = compiledPattern;
-      } else {
-        const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        pattern = new RegExp(escaped, "g");
       }
 
       let count = 0;
       await assertReadableEditTarget(vaultPath, notePath);
-      await updateNote(vaultPath, notePath, (existing) => {
+      await updateNote(vaultPath, notePath, async (existing) => {
         if (existing.length > NOTE_INPUT_MAX_LEN) {
           throw new Error(
             `note is too large for replace_in_note (${existing.length} > ${NOTE_INPUT_MAX_LEN} chars). Use a more targeted tool.`
@@ -125,17 +115,19 @@ export function registerReplaceInNoteTool(
             "unsafe regex pattern: nested quantifiers or ambiguous repeated alternation can cause catastrophic backtracking. Use a simpler pattern."
           );
         }
-        const matches = existing.match(pattern);
-        count = matches ? matches.length : 0;
-        if (expectedCount !== undefined && count !== expectedCount) {
-          throw new Error(
-            `Match-count check failed: expected ${expectedCount}, found ${count}. No changes written.`
-          );
-        }
-        if (count === 0) return existing;
-        return regex
-          ? existing.replace(pattern, replace)
-          : existing.replace(pattern, () => replace);
+        const result = await replaceNoteText(
+          {
+            text: existing,
+            find,
+            replace,
+            regex,
+            flags: flags ?? "g",
+            expectedCount,
+          },
+          extra.signal
+        );
+        count = result.count;
+        return result.nextContent;
       });
       invalidateSectionListCache(vaultPath, notePath);
       return text(
