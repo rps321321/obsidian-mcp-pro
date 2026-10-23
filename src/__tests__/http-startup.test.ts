@@ -52,42 +52,100 @@ afterEach(async () => {
 });
 
 describe("HTTP startup lifecycle", () => {
+  it("rejects scoped IPv6 before listening or allocating timers and signals", async () => {
+    const listen = vi.spyOn(Server.prototype, "listen");
+    const signalCounts = [
+      process.listenerCount("SIGINT"),
+      process.listenerCount("SIGTERM"),
+    ];
+    await expect(
+      startHttpServer(
+        options({
+          host: "fe80::1%synthetic-interface",
+          installSignalHandlers: true,
+        })
+      )
+    ).rejects.toThrow(
+      "Scoped IPv6 bind addresses are not supported for HTTP URLs"
+    );
+    expect(listen).not.toHaveBeenCalled();
+    expect(intervals).not.toHaveBeenCalled();
+    expect([
+      process.listenerCount("SIGINT"),
+      process.listenerCount("SIGTERM"),
+    ]).toEqual(signalCounts);
+  });
   it.each([
     ["::1", "[::1]"],
     ["::ffff:127.0.0.1", "[::ffff:7f00:1]"],
-  ])("returns a usable %s URL and canonical derived Host rule", async (host, hostname, context) => {
-    const listeningLog = vi.spyOn(log, "info");
-    let handle: HttpServerHandle;
-    try {
-      handle = await startHttpServer(options({ host, allowedHosts: ["vault.example.com:3333"] }));
-    } catch (err) {
-      if (err instanceof Error && "code" in err && ["EAFNOSUPPORT", "EADDRNOTAVAIL"].includes(String(err.code))) {
-        context.skip();
-        return;
+  ])(
+    "returns a usable %s URL and canonical derived Host rule",
+    async (host, hostname, context) => {
+      const listeningLog = vi.spyOn(log, "info");
+      let handle: HttpServerHandle;
+      try {
+        handle = await startHttpServer(
+          options({ host, allowedHosts: ["vault.example.com:3333"] })
+        );
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          "code" in err &&
+          ["EAFNOSUPPORT", "EADDRNOTAVAIL"].includes(String(err.code))
+        ) {
+          context.skip();
+          return;
+        }
+        throw err;
       }
-      throw err;
+      handles.push(handle);
+      expect((await fetch(new URL("/health", handle.url))).status).toBe(200);
+      const client = new Client({ name: "ipv6-test", version: "1" });
+      try {
+        await client.connect(
+          new StreamableHTTPClientTransport(new URL(handle.url), {
+            requestInit: {
+              headers: { Authorization: "Bearer synthetic-startup-token" },
+            },
+          })
+        );
+        expect(handle.host).toBe(host);
+        expect(handle.url).toBe(`http://${hostname}:${handle.port}/mcp`);
+        expect(listeningLog).toHaveBeenCalledWith(
+          "HTTP server listening",
+          expect.objectContaining({
+            url: handle.url,
+            allowedHosts: `vault.example.com:3333,${hostname}:${handle.port},127.0.0.1:${handle.port},localhost:${handle.port},[::1]:${handle.port}`,
+          })
+        );
+        const denied = await new Promise<number | undefined>(
+          (resolve, reject) => {
+            get(
+              {
+                host,
+                port: handle.port,
+                path: "/mcp",
+                headers: {
+                  Host: `[2001:db8::42]:${handle.port}`,
+                  Authorization: "Bearer synthetic-startup-token",
+                },
+                agent: false,
+              },
+              (response) => {
+                response.resume();
+                response.once("end", () => resolve(response.statusCode));
+              }
+            ).on("error", reject);
+          }
+        );
+        expect(denied).toBe(403);
+      } finally {
+        await client.close();
+      }
+      await handle.stop();
+      await expect(handle.stop()).resolves.toBeUndefined();
     }
-    handles.push(handle);
-    expect((await fetch(new URL("/health", handle.url))).status).toBe(200);
-    const client = new Client({ name: "ipv6-test", version: "1" });
-    try {
-      await client.connect(new StreamableHTTPClientTransport(new URL(handle.url), { requestInit: { headers: { Authorization: "Bearer synthetic-startup-token" } } }));
-      expect(handle.host).toBe(host);
-      expect(handle.url).toBe(`http://${hostname}:${handle.port}/mcp`);
-      expect(listeningLog).toHaveBeenCalledWith("HTTP server listening", expect.objectContaining({ url: handle.url, allowedHosts: `vault.example.com:3333,${hostname}:${handle.port},127.0.0.1:${handle.port},localhost:${handle.port},[::1]:${handle.port}` }));
-      const denied = await new Promise<number | undefined>((resolve, reject) => {
-        get({ host, port: handle.port, path: "/mcp", headers: { Host: `[2001:db8::42]:${handle.port}`, Authorization: "Bearer synthetic-startup-token" }, agent: false }, (response) => {
-          response.resume();
-          response.once("end", () => resolve(response.statusCode));
-        }).on("error", reject);
-      });
-      expect(denied).toBe(403);
-    } finally {
-      await client.close();
-    }
-    await handle.stop();
-    await expect(handle.stop()).resolves.toBeUndefined();
-  });
+  );
 
   it("allocates no sweeper when allowedHosts validation fails", async () => {
     await expect(

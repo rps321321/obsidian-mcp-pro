@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- IPv6 HTTP bind addresses are bracketed in returned and logged URLs and the derived Host allowlist entry, so clients can use the returned URL directly. IPv4, hostname, and explicit additional Host entries keep their existing spelling.
+- IPv6 HTTP bind addresses use canonical URL spelling and brackets in returned and logged URLs and the derived Host allowlist entry, including IPv4-mapped literals, so clients can use the returned URL directly. IPv4, hostname, and explicit additional Host entries keep their existing spelling.
+- Scoped IPv6 bind addresses reject before listening because they cannot form supported HTTP URLs.
 - Rebased explicit relative links retain a `./` prefix when their target becomes a sibling, preventing later note moves from resolving them to a same-named vault-root file.
 - `replace_in_note` now compiles, counts, and replaces in a terminable worker with a 1,000 ms startup/execution deadline, bounded JavaScript heap, and a 5 MiB UTF-8 output limit. Timeouts, cancellation, worker failure, and count mismatches leave the note unchanged. JavaScript regex replacement syntax and literal dollar-token behavior are preserved.
 - HTTP startup now rejects listen failures through its Promise and removes startup listeners on failure. The session sweeper starts only after a successful bind, preventing timer leaks after invalid settings or failed startup.

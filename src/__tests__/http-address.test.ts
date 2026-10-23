@@ -13,4 +13,9 @@ describe("HTTP address formatting", () => {
   ])("formats %s with its port", (host, expected) => {
     expect(formatHttpAddress(host, 3333)).toBe(expected);
   });
+  it("rejects scoped IPv6 because it has no supported HTTP URL spelling", () => {
+    expect(() => formatHttpAddress("fe80::1%eth0", 3333)).toThrow(
+      "Scoped IPv6 bind addresses are not supported for HTTP URLs"
+    );
+  });
 });

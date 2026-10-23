@@ -331,6 +331,7 @@ export async function startHttpServer(
   const bearerToken = opts.bearerToken?.trim();
   if (!roleMode && !bearerToken)
     throw new Error("HTTP bearer token is required and cannot be empty");
+  const requestedBindAddress = formatHttpAddress(opts.host, opts.port);
   let authorization = compileAuthorization(
     roleMode
       ? (opts as RoleHttpServerOptions)
@@ -818,7 +819,10 @@ export async function startHttpServer(
   // so callers can build URLs that work.
   const addr = httpServer.address();
   const boundPort = typeof addr === "object" && addr ? addr.port : opts.port;
-  const bindAddress = formatHttpAddress(opts.host, boundPort);
+  const bindAddress =
+    boundPort === opts.port
+      ? requestedBindAddress
+      : formatHttpAddress(opts.host, boundPort);
   const url = `http://${bindAddress}/mcp`;
 
   allowedHosts.push(
