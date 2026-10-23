@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import type { Stats } from "fs";
 import path from "path";
 import {
   assertNoteFileSize,
@@ -10,18 +11,16 @@ import { mapConcurrent } from "./concurrency.js";
 import { log } from "./logger.js";
 
 /**
- * mtime-keyed content cache (in-memory only).
+ * File-signature content cache (in-memory only).
  *
  * Vault-wide tools (get_tags, search_notes, find_orphans, …) repeatedly read
  * the same files. A cold scan of a 4k-note vault is dominated by realpath +
  * read syscalls; subsequent scans usually have a tiny working set of changed
- * files. This cache stat()'s each path, compares mtime against its last
- * cached read, and only re-reads files whose mtime has moved.
+ * files. Each validated open supplies the size, mtime, ctime, device, and inode
+ * signature. Content is reused only when that signature still matches.
  *
- * The cache is keyed by absolute path so two vaults sharing the same process
- * don't poison each other's entries. Stale entries (paths the caller didn't
- * pass this round) are pruned at the end of every batch — easier than
- * tracking deletions, and the next call repopulates anything still live.
+ * Each vault has its own map of relative paths. Entries for deleted files are
+ * pruned after each batch; live entries outside the batch stay cached.
  *
  * Disk snapshots used to live at
  * `<vault>/.obsidian/cache/mcp-pro-index-cache.json`. They carried full note
@@ -37,15 +36,42 @@ import { log } from "./logger.js";
 const READ_CONCURRENCY = 16;
 const CACHE_REL_PATH = ".obsidian/cache/mcp-pro-index-cache.json";
 
+interface FileSignature {
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  dev: number;
+  ino: number;
+}
+
+function fileSignature(stats: Stats): FileSignature {
+  return {
+    size: stats.size,
+    mtimeMs: stats.mtimeMs,
+    ctimeMs: stats.ctimeMs,
+    dev: stats.dev,
+    ino: stats.ino,
+  };
+}
+
+function sameSignature(left: FileSignature, right: FileSignature): boolean {
+  return (
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs &&
+    left.dev === right.dev &&
+    left.ino === right.ino
+  );
+}
+
 interface CacheEntry {
-  /** Absolute path used as the cache key. */
+  /** Absolute requested path validated for this entry. */
   fullPath: string;
   /** Vault-relative path the caller asked for (preserved for callbacks). */
   relPath: string;
   /** Latest cached content. */
   content: string;
-  /** mtime in milliseconds at the time content was last read. */
-  mtimeMs: number;
+  signature: FileSignature;
 }
 
 export interface CachedFileStats {
@@ -111,7 +137,7 @@ async function removeLegacySnapshot(vaultPath: string): Promise<void> {
 }
 
 export interface ReadAllResult {
-  /** vault-relative path → latest content. Files that failed to read are
+  /** vault-relative path → read or reused content. Files that failed to read are
    *  omitted; callers that need to know about failures should pass an
    *  `onError` callback. */
   contents: Map<string, string>;
@@ -121,13 +147,13 @@ export interface ReadAllResult {
   stats: Map<string, CachedFileStats>;
   /** Number of files whose content was reused from cache. */
   cacheHits: number;
-  /** Number of files newly read (or re-read after mtime change). */
+  /** Number of files newly read or re-read after a signature change. */
   cacheMisses: number;
 }
 
 /**
- * Read the latest content of every path in `relPaths`, using cached content
- * when mtime hasn't moved. Errors per file are reported via `onError` and
+ * Read every path in `relPaths`, using cached content
+ * when the file signature matches. Errors per file are reported via `onError` and
  * the file is omitted from the result map.
  */
 export async function readAllCached(
@@ -161,11 +187,11 @@ export async function readAllCached(
     }
     if (!opened) return undefined;
     const openedFile = opened;
-    let mtimeMs: number;
+    let signature: FileSignature;
     try {
       const stat = openedFile.stats;
       assertNoteFileSize(relPath, stat.size);
-      mtimeMs = stat.mtimeMs;
+      signature = fileSignature(stat);
       mtimes.set(relPath, stat.mtime.getTime());
       statsByPath.set(relPath, {
         size: stat.size,
@@ -181,7 +207,11 @@ export async function readAllCached(
       return undefined;
     }
     const cached = cache.get(relPath);
-    if (cached && cached.mtimeMs === mtimeMs && cached.fullPath === fullPath) {
+    if (
+      cached &&
+      cached.fullPath === fullPath &&
+      sameSignature(cached.signature, signature)
+    ) {
       contents.set(relPath, cached.content);
       cacheHits++;
       await openedFile.handle.close();
@@ -197,7 +227,7 @@ export async function readAllCached(
     } finally {
       await openedFile.handle.close();
     }
-    cache.set(relPath, { fullPath, relPath, content, mtimeMs });
+    cache.set(relPath, { fullPath, relPath, content, signature });
     contents.set(relPath, content);
     cacheMisses++;
     return undefined;
