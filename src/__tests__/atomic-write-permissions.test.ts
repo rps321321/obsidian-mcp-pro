@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { appendToNote, writeNote } from "../lib/vault.js";
+import { appendToNote, updateNote, writeNote } from "../lib/vault.js";
 import { atomicWriteFile } from "../lib/vault-fs.js";
 
 let vaultDir: string;
@@ -106,6 +106,41 @@ describe.skipIf(process.platform === "win32")(
 
       expect(await fs.readFile(note, "utf8")).toBe("original");
       expect((await fs.stat(note)).mode & 0o777).toBe(0o600);
+      expect(await fs.readdir(vaultDir)).toEqual(["note.md"]);
+    });
+    it("rejects a stale permission snapshot when timestamps and content match", async () => {
+      const note = path.join(vaultDir, "note.md");
+      await fs.writeFile(note, "original");
+      await fs.chmod(note, 0o640);
+      const expectedStats = await fs.stat(note);
+      expectedStats.mode = (expectedStats.mode & ~0o7777) | 0o600;
+
+      await expect(
+        atomicWriteFile(note, "replacement", {
+          content: Buffer.from("original"),
+          stats: expectedStats,
+        })
+      ).rejects.toThrow(/changed.*retry/i);
+
+      expect(await fs.readFile(note, "utf8")).toBe("original");
+      expect((await fs.stat(note)).mode & 0o777).toBe(0o640);
+      expect(await fs.readdir(vaultDir)).toEqual(["note.md"]);
+    });
+
+    it("preserves an external permission change instead of replacing that version", async () => {
+      const note = path.join(vaultDir, "note.md");
+      await fs.writeFile(note, "original");
+      await fs.chmod(note, 0o600);
+
+      await expect(
+        updateNote(vaultDir, "note.md", async () => {
+          await fs.chmod(note, 0o640);
+          return "replacement";
+        })
+      ).rejects.toThrow(/changed.*retry/i);
+
+      expect(await fs.readFile(note, "utf8")).toBe("original");
+      expect((await fs.stat(note)).mode & 0o777).toBe(0o640);
       expect(await fs.readdir(vaultDir)).toEqual(["note.md"]);
     });
   }
