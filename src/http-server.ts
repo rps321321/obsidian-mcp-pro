@@ -4,6 +4,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { randomUUID } from "node:crypto";
+import { formatHttpAddress } from "./lib/http-address.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -330,6 +331,7 @@ export async function startHttpServer(
   const bearerToken = opts.bearerToken?.trim();
   if (!roleMode && !bearerToken)
     throw new Error("HTTP bearer token is required and cannot be empty");
+  const requestedBindAddress = formatHttpAddress(opts.host, opts.port);
   let authorization = compileAuthorization(
     roleMode
       ? (opts as RoleHttpServerOptions)
@@ -817,9 +819,14 @@ export async function startHttpServer(
   // so callers can build URLs that work.
   const addr = httpServer.address();
   const boundPort = typeof addr === "object" && addr ? addr.port : opts.port;
+  const bindAddress =
+    boundPort === opts.port
+      ? requestedBindAddress
+      : formatHttpAddress(opts.host, boundPort);
+  const url = `http://${bindAddress}/mcp`;
 
   allowedHosts.push(
-    `${opts.host}:${boundPort}`,
+    bindAddress,
     `127.0.0.1:${boundPort}`,
     `localhost:${boundPort}`,
     `[::1]:${boundPort}`
@@ -845,7 +852,7 @@ export async function startHttpServer(
   sweeper.unref?.();
 
   log.info(`HTTP server listening`, {
-    url: `http://${opts.host}:${boundPort}/mcp`,
+    url,
     bearerAuth: true,
     allowedOrigins: allowedOrigins.join(","),
     allowedHosts: allowedHosts.join(","),
@@ -940,7 +947,7 @@ export async function startHttpServer(
     updateAuthorization,
     host: opts.host,
     port: boundPort,
-    url: `http://${opts.host}:${boundPort}/mcp`,
+    url,
     stop,
   };
 }
