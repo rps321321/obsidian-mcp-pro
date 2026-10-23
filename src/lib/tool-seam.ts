@@ -1,3 +1,4 @@
+import { toolAllowed, invocationAllowed } from "./roles.js";
 /**
  * The tool seam: one deep module every MCP tool is registered through.
  *
@@ -265,11 +266,14 @@ export function defineTool<InputArgs extends ZodRawShapeCompat>(
     ctx: ToolCtx
   ) => ToolResult | Promise<ToolResult>
 ): void {
+  if (!toolAllowed(server, spec.name)) return;
   const cb = async (
     args: ShapeOutput<InputArgs>,
     extra: ToolExtra
   ): Promise<ToolResult> => {
     try {
+      if (!invocationAllowed(server))
+        return error("Authorization changed; reinitialize the session");
       return await handler(args, { vaultPath, server, extra });
     } catch (err) {
       log.error(`${spec.name} failed`, { tool: spec.name, err: err as Error });
