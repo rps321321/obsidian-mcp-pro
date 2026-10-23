@@ -100,6 +100,22 @@ it.skipIf(process.platform !== "win32" && process.platform !== "darwin")("matche
   expect(result.failedReferrers).toEqual([]);
 });
 
+it.skipIf(process.platform !== "win32" && process.platform !== "darwin")("preserves differently cased relative self-link targets on a case-insensitive filesystem", async () => {
+  await seed("Inbox/Source.md", "[self](./source.md#Detail) [extensionless](./source#Detail) ![embed](./SOURCE.md#^block)");
+  await fs.access(path.join(root, "Inbox/source.md"));
+  const result = await moveNote(root, "Inbox/Source.md", "Archive/Moved.md");
+  const spans = extractMarkdownLinkSpans(await readNote(root, "Archive/Moved.md"));
+  const destination = await fs.realpath(path.join(root, "Archive/Moved.md"));
+  for (const span of spans) {
+    const target = path.posix.normalize(path.posix.join("Archive", span.urlPath));
+    const noteTarget = /\.md$/i.test(target) ? target : `${target}.md`;
+    await expect(fs.realpath(path.join(root, noteTarget))).resolves.toBe(destination);
+  }
+  expect(spans.map((span) => span.fragment)).toEqual(["#Detail", "#Detail", "#^block"]);
+  expect(spans[2]!.isEmbed).toBe(true);
+  expect(result.failedReferrers).toEqual([]);
+});
+
 it("normalizes move identities before planning incoming Markdown and wiki references", async () => {
   await seed("old.md", "source");
   await seed("ref.md", "[[old]] [old](./old.md#Detail)");
