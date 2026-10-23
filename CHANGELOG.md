@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a clean consumer acceptance probe that installs the actual package tarball and exercises its CLI, stdio and concurrent HTTP sessions, move targets, supported directory aliases, and POSIX replacement permissions against a temporary vault.
 - HTTP embedders can configure additional destination Host header values with `HttpServerOptions.allowedHosts`, preserving the bound-address and loopback defaults and DNS-rebinding protection. Entries are trimmed and validated at startup (`"*"`, empty strings, schemes, and paths are rejected). `/mcp` Host denials return 403 with a warn log (host, method, path, ip — never the bearer). Matching is case-sensitive exact `Host` (IPv6 keeps brackets; no IDN normalization).
 
 ### Changed

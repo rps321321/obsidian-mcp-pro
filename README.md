@@ -699,6 +699,8 @@ src/
 npm test
 ```
 
+Run `node scripts/check-packed-consumer.mjs` to build, pack and install the core into a fresh consumer, then exercise its installed CLI, library and HTTP sessions against a temporary vault. See [installed package acceptance](docs/packed-consumer-testing.md) for platform coverage and limits.
+
 952 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
 
 ```bash
