@@ -21,8 +21,14 @@ leave you hanging.
 
 ## Supported versions
 
-Fixes land on the latest `2.x` release on npm. Older majors aren't patched — upgrade
-to pick up security fixes.
+Security fixes target the latest published `4.x` release on npm. Older releases
+do not receive backports; upgrade to the latest published release for fixes.
+Unreleased repository code is not a supported npm release.
+
+Before each publication, review this support range alongside the selected
+package version, README, and release notes using the
+[publication checklist](docs/releases/4.1.0.md#publication-checklist). Update this
+policy whenever the supported version range changes.
 
 ## What I care about most
 
