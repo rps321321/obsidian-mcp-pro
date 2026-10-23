@@ -649,7 +649,7 @@ function relativeMarkdownTarget(
   const fromDir = referrerDir(notePath) || ".";
   let relative = path.posix.relative(fromDir, target);
   if (!relative) relative = path.posix.basename(target);
-  if (original.startsWith("./") && !relative.startsWith(".")) {
+  if (isExplicitRelativePath(original) && !isExplicitRelativePath(relative)) {
     relative = `./${relative}`;
   }
   return relative;
