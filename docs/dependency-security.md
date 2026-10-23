@@ -1,6 +1,6 @@
 # Dependency security review
 
-The initial 23 October 2026 dependency refresh kept the declared package ranges unchanged. The 4.1.1 correction below raises the MCP SDK minimum. It resolves the 11 affected package records reported by `npm audit` against the previous lockfile. A clean scanner result describes that lockfile and advisory snapshot, not every application security property.
+The initial 23 October 2026 dependency refresh kept the declared package ranges unchanged and resolved the 11 affected package records reported by `npm audit` against the previous lockfile. The 4.1.1 correction below additionally raises the MCP SDK minimum for retained consumer lockfiles. A clean scanner result describes that lockfile and advisory snapshot, not every application security property.
 
 The resolved versions include MCP SDK 1.32.1, js-yaml 4.3.2, hono 4.13.13, proxy-addr 2.0.8, ip-address 10.7.4, fast-uri 3.1.9, brace-expansion 5.0.12, source-map-js 1.2.2, Vite 8.3.5, and Vitest 4.1.12. The ip-address version proposed in #295, 10.7.3, is affected by a newer advisory, so that version is insufficient for the refreshed audit gate.
 

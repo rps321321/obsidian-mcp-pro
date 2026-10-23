@@ -11,7 +11,9 @@ The required deterministic checks are:
 - `npm run build`
 - `npm run pack:check`
 
-The workflow uses read-only repository permissions, cancels superseded runs, and has a 20-minute job timeout.
+The workflow uses read-only repository permissions and cancels superseded runs. The quality job has a 20-minute timeout.
+
+After the quality job passes, independent Node 24 jobs on Ubuntu, Windows and macOS run `node scripts/check-packed-consumer.mjs`, each with a 15-minute timeout. The probe installs the actual production tarball in an owned temporary consumer, retains an old direct SDK dependency, and verifies the core resolves its own compatible SDK. HTTP and stdio must reject over-budget calls before mutation, allow the boundary call, and recover. The probe also checks the installed CLI, link targets, concurrent sessions, reconnect, shutdown and supported directory aliases. POSIX mode checks run on Linux and macOS. These are installed-consumer checks, not the complete unit suite on every platform.
 
 ## Local and release verification
 

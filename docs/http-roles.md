@@ -1,7 +1,8 @@
 # HTTP Roles
 
-These APIs are part of the unreleased 4.1.0 source. Published npm 4.0.1 does not
-export the Role API. Use a package built from this source until a release includes it.
+These APIs are available in published core 4.1.0 and newer. Core 4.0.1 does not
+export the Role API. SDK 1.32.1 or newer is required for the configured input
+budget; see the [consumer dependency correction](dependency-security.md#consumer-sdk-resolution-correction-in-411).
 
 A bearer token selects one Role. A Role stores explicit Tool names. Multiple tokens can share that Role.
 
@@ -33,9 +34,11 @@ const server = await startHttpServer({
   roles,
   tokens,
   allowedHosts: ["vault.example.com"],
-  buildMcpServer: options => buildMcpServer(vaultPath, services, options),
+  buildMcpServer: (options) => buildMcpServer(vaultPath, services, options),
   installSignalHandlers: false,
-  onAudit: event => { /* Forward the authorization event to your audit sink. */ },
+  onAudit: (event) => {
+    /* Forward the authorization event to your audit sink. */
+  },
 });
 
 // Replace the complete configuration. This revokes the append token.
@@ -67,19 +70,19 @@ Each session stores a hashed token identity and its Role snapshot. Another valid
 
 Resources and prompts are filtered separately because they have separate SDK registries.
 
-| Resource | Required Tool |
-| --- | --- |
-| `obsidian://note/{+path}` | `get_note` |
-| `obsidian://tags` | `list_tags` |
-| `obsidian://daily` | `get_daily_note` |
+| Resource                  | Required Tool    |
+| ------------------------- | ---------------- |
+| `obsidian://note/{+path}` | `get_note`       |
+| `obsidian://tags`         | `list_tags`      |
+| `obsidian://daily`        | `get_daily_note` |
 
-| Prompt | Required Tools |
-| --- | --- |
-| `daily-review` | `get_daily_note`, `get_recent_notes`, `get_note`, `list_tags` |
-| `weekly-rollup` | `get_recent_notes` |
-| `find-stale-notes` | `get_recent_notes`, `get_note`, `find_orphans`, `find_broken_links` |
-| `extract-action-items` | `get_note`, `search_by_tag` |
-| `build-moc` | `search_by_tag`, `list_notes`, `get_note`, `create_note` |
+| Prompt                 | Required Tools                                                      |
+| ---------------------- | ------------------------------------------------------------------- |
+| `daily-review`         | `get_daily_note`, `get_recent_notes`, `get_note`, `list_tags`       |
+| `weekly-rollup`        | `get_recent_notes`                                                  |
+| `find-stale-notes`     | `get_recent_notes`, `get_note`, `find_orphans`, `find_broken_links` |
+| `extract-action-items` | `get_note`, `search_by_tag`                                         |
+| `build-moc`            | `search_by_tag`, `list_notes`, `get_note`, `create_note`            |
 
 The embedding application is trusted code. Deliberately replacing SDK handlers, changing registration methods, or exposing the vault through another endpoint is outside bearer authorization. Arbitrary custom MCP implementations are supported only by legacy single-token mode.
 
@@ -91,6 +94,6 @@ Authorization events contain `roleId`, `sessionId`, `tool`, `decision`, and `rea
 
 Search tools may return snippets, semantic chunks, full content with supported options, or Base query rows. Write tool responses may expose existing content or metadata. Read-only Roles must omit `index_vault`, which sends note text to the embedding provider and writes an index. `search_semantic` sends the query to the provider.
 
-This implements the library and HTTP portion of issue #284. Plugin Role editor, token settings, persisted migration, and CLI Role configuration are separate work. Publishing the core release and upgrading the companion plugin are still required before plugin users receive this behavior.
+This implements the library and HTTP portion of issue #284. The companion Role editor, token settings and persisted migration are prepared in [plugin PR #23](https://github.com/rps321321/obsidian-mcp-pro-plugin/pull/23). Its published dependency upgrade and native acceptance remain separate gates before plugin delivery. CLI Role configuration is not included.
 
 Run `npx vitest run src/__tests__/roles.test.ts` for the HTTP and registration acceptance tests.
