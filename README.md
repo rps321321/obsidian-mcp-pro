@@ -195,6 +195,7 @@ MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http
 ```
 
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
+IPv6 bind literals use brackets in returned and logged URLs and the derived Host allowlist entry. For example, `host: "::1"` returns `http://[::1]:port/mcp`; `handle.host` remains the unbracketed bind address. Explicit `allowedHosts` entries retain their exact configured spelling.
 Startup always requires `MCP_HTTP_TOKEN`, including loopback-only local servers. The old `--token` flag was removed because command-line secrets can be exposed through OS process listings.
 
 The following embedding option is merged for the unreleased 4.1.0 source and is
