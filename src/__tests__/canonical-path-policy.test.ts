@@ -162,6 +162,20 @@ it("preserves internal configuration reads inside excluded directories", async (
   });
 });
 
+it("keeps permitted directory aliases whose names end in .md", async () => {
+  const target = path.join(env.vaultDir, "permitted");
+  await fs.mkdir(target);
+  await fs.writeFile(path.join(target, "note.md"), "allowed");
+  await aliasDirectory(target, path.join(env.vaultDir, "folder.md"));
+
+  await expect(listNotes(env.vaultDir, "folder.md")).resolves.toEqual([
+    "folder.md/note.md",
+  ]);
+  await expect(
+    resolveVaultPathSafe(env.vaultDir, "folder.md", "write")
+  ).resolves.toBe(path.join(env.vaultDir, "folder.md"));
+});
+
 it("keeps the vault boundary for directory aliases", async () => {
   const outside = await fs.mkdtemp(
     path.join(os.tmpdir(), "canonical-outside-")
@@ -209,7 +223,7 @@ it("requires canonical markdown targets for note aliases when file symlinks are 
     /Not a markdown note/
   );
   await expect(
-    resolveVaultPathSafe(env.vaultDir, "alias.md", "write")
+    appendToNote(env.vaultDir, "alias.md", "denied")
   ).rejects.toThrow(/Not a markdown note/);
   await expect(
     openResolvedVaultFileForRead(env.vaultDir, "alias.md", alias, "read")
