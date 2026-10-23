@@ -52,11 +52,14 @@ afterEach(async () => {
 });
 
 describe("HTTP startup lifecycle", () => {
-  it("returns a usable IPv6 URL and brackets its derived Host rule", async (context) => {
+  it.each([
+    ["::1", "[::1]"],
+    ["::ffff:127.0.0.1", "[::ffff:7f00:1]"],
+  ])("returns a usable %s URL and canonical derived Host rule", async (host, hostname, context) => {
     const listeningLog = vi.spyOn(log, "info");
     let handle: HttpServerHandle;
     try {
-      handle = await startHttpServer(options({ host: "::1", allowedHosts: ["vault.example.com:3333"] }));
+      handle = await startHttpServer(options({ host, allowedHosts: ["vault.example.com:3333"] }));
     } catch (err) {
       if (err instanceof Error && "code" in err && ["EAFNOSUPPORT", "EADDRNOTAVAIL"].includes(String(err.code))) {
         context.skip();
@@ -65,15 +68,15 @@ describe("HTTP startup lifecycle", () => {
       throw err;
     }
     handles.push(handle);
-    expect(handle.host).toBe("::1");
-    expect(handle.url).toBe(`http://[::1]:${handle.port}/mcp`);
-    expect(listeningLog).toHaveBeenCalledWith("HTTP server listening", expect.objectContaining({ url: handle.url, allowedHosts: `vault.example.com:3333,[::1]:${handle.port},127.0.0.1:${handle.port},localhost:${handle.port},[::1]:${handle.port}` }));
     expect((await fetch(new URL("/health", handle.url))).status).toBe(200);
     const client = new Client({ name: "ipv6-test", version: "1" });
     try {
       await client.connect(new StreamableHTTPClientTransport(new URL(handle.url), { requestInit: { headers: { Authorization: "Bearer synthetic-startup-token" } } }));
+      expect(handle.host).toBe(host);
+      expect(handle.url).toBe(`http://${hostname}:${handle.port}/mcp`);
+      expect(listeningLog).toHaveBeenCalledWith("HTTP server listening", expect.objectContaining({ url: handle.url, allowedHosts: `vault.example.com:3333,${hostname}:${handle.port},127.0.0.1:${handle.port},localhost:${handle.port},[::1]:${handle.port}` }));
       const denied = await new Promise<number | undefined>((resolve, reject) => {
-        get({ host: "::1", port: handle.port, path: "/mcp", headers: { Host: `[2001:db8::42]:${handle.port}`, Authorization: "Bearer synthetic-startup-token" }, agent: false }, (response) => {
+        get({ host, port: handle.port, path: "/mcp", headers: { Host: `[2001:db8::42]:${handle.port}`, Authorization: "Bearer synthetic-startup-token" }, agent: false }, (response) => {
           response.resume();
           response.once("end", () => resolve(response.statusCode));
         }).on("error", reject);
