@@ -217,6 +217,7 @@ function fileVersionChanged(): Error {
 function sameFileVersion(left: Stats, right: Stats): boolean {
   return (
     sameFileIdentity(left, right) &&
+    left.mode === right.mode &&
     left.size === right.size &&
     left.mtimeMs === right.mtimeMs &&
     left.ctimeMs === right.ctimeMs
@@ -288,9 +289,23 @@ export async function atomicWriteFile(
     `.${base}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
   );
   try {
+    let mode: number | undefined;
+    if (!IS_WIN32) {
+      try {
+        mode = (expected?.stats ?? (await fs.stat(fullPath))).mode & 0o7777;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        mode = 0o666 & ~process.umask();
+      }
+    }
     // `wx` on the temp file guards against the astronomically unlikely case
     // of a collision with a leftover tmp from a crashed run.
-    await fs.writeFile(tmp, content, { encoding: "utf-8", flag: "wx" });
+    await fs.writeFile(tmp, content, {
+      encoding: "utf-8",
+      flag: "wx",
+      mode: mode === undefined ? undefined : mode & 0o600,
+    });
+    if (mode !== undefined) await fs.chmod(tmp, mode);
     await renameWithRetry(
       tmp,
       fullPath,
