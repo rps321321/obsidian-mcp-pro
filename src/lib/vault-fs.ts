@@ -418,20 +418,14 @@ function vaultRelativeFromRealPath(
 
 function assertCanonicalAccess(
   canonical: { realVault: string; realPath: string },
-  relativePath: string,
   access: AccessKind
-): void {
+): string {
   const canonicalRelative = vaultRelativeFromRealPath(
     canonical.realVault,
     canonical.realPath
   );
   resolveVaultPath(canonical.realVault, canonicalRelative, access);
-  if (
-    relativePath.toLowerCase().endsWith(".md") &&
-    !canonicalRelative.toLowerCase().endsWith(".md")
-  ) {
-    throw new Error(`Not a markdown note: ${relativePath}`);
-  }
+  return canonicalRelative;
 }
 
 // TOCTOU note: there is a small window between the realpath check in
@@ -456,7 +450,7 @@ export async function resolveVaultPathSafe(
     vaultPath,
     options?.realVaultRoot
   );
-  assertCanonicalAccess(canonical, relativePath, access);
+  assertCanonicalAccess(canonical, access);
   return resolved;
 }
 
@@ -486,7 +480,13 @@ export async function openResolvedVaultFileForRead(
         options?.realVaultRoot
       );
       if (access !== null) {
-        assertCanonicalAccess(canonical, relativePath, access);
+        const canonicalRelative = assertCanonicalAccess(canonical, access);
+        if (
+          relativePath.toLowerCase().endsWith(".md") &&
+          !canonicalRelative.toLowerCase().endsWith(".md")
+        ) {
+          throw new Error(`Not a markdown note: ${relativePath}`);
+        }
       }
 
       const currentStats = await assertResolvedRegularFile(
