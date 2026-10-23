@@ -212,6 +212,12 @@ const server = await startHttpServer({
 await server.stop();
 ```
 
+`startHttpServer()` resolves after the socket starts listening. Validation errors,
+invalid listen arguments, and bind failures such as `EADDRINUSE` reject its Promise,
+so an embedder can catch the error and retry. These startup failures create no
+session sweeper or signal handlers. A successful handle supports repeated `stop()`
+calls.
+
 - Entries match the HTTP `Host` header exactly and case-sensitively, including a
   port when present. Use `vault.example.com:443` if the proxy forwards that
   value instead of `vault.example.com`. IPv6 must keep brackets (`[::1]:port`).

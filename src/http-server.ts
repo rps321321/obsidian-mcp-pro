@@ -345,24 +345,6 @@ export async function startHttpServer(
       ? new RateLimiter(opts.rateLimitPerMinute)
       : null;
 
-  // Evict sessions that have been idle past the timeout so dropped clients
-  // (crash, network loss, no DELETE) don't leak transports forever.
-  const sweeper = setInterval(() => {
-    const now = Date.now();
-    for (const [sid, ts] of lastActivity) {
-      if (now - ts > SESSION_IDLE_TIMEOUT_MS) {
-        const t = transports.get(sid);
-        if (t) {
-          void t.close().catch(() => undefined);
-        }
-        transports.delete(sid);
-        lastActivity.delete(sid);
-      }
-    }
-    rateLimiter?.sweep();
-  }, SESSION_SWEEP_INTERVAL_MS);
-  sweeper.unref?.();
-
   // DNS rebinding protection: restrict Host to configured destinations plus
   // the bound interface and localhost aliases. Append defaults after listen()
   // when we know the bound port; this matters when callers pass `port: 0` (tests,
@@ -624,8 +606,24 @@ export async function startHttpServer(
     void handleRequest(req, res);
   });
 
-  await new Promise<void>((resolve) => {
-    httpServer.listen(opts.port, opts.host, () => resolve());
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error): void => {
+      httpServer.off("listening", onListening);
+      reject(err);
+    };
+    const onListening = (): void => {
+      httpServer.off("error", onError);
+      resolve();
+    };
+    httpServer.once("error", onError);
+    httpServer.once("listening", onListening);
+    try {
+      httpServer.listen(opts.port, opts.host);
+    } catch (err) {
+      httpServer.off("error", onError);
+      httpServer.off("listening", onListening);
+      reject(err);
+    }
   });
 
   // When port 0 is passed (OS-assigned port, used by tests and embedders
@@ -640,6 +638,24 @@ export async function startHttpServer(
     `localhost:${boundPort}`,
     `[::1]:${boundPort}`
   );
+
+  // Evict sessions that have been idle past the timeout so dropped clients
+  // (crash, network loss, no DELETE) don't leak transports forever.
+  const sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const [sid, ts] of lastActivity) {
+      if (now - ts > SESSION_IDLE_TIMEOUT_MS) {
+        const t = transports.get(sid);
+        if (t) {
+          void t.close().catch(() => undefined);
+        }
+        transports.delete(sid);
+        lastActivity.delete(sid);
+      }
+    }
+    rateLimiter?.sweep();
+  }, SESSION_SWEEP_INTERVAL_MS);
+  sweeper.unref?.();
 
   log.info(`HTTP server listening`, {
     url: `http://${opts.host}:${boundPort}/mcp`,

@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { createServer, get, Server } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
@@ -9,7 +17,8 @@ import {
 
 const handles: HttpServerHandle[] = [];
 const holders: Server[] = [];
-let intervals: ReturnType<typeof vi.spyOn<typeof globalThis, "setInterval">>;
+const nativeListeningListeners = createServer().listenerCount("listening");
+let intervals: MockInstance<typeof globalThis.setInterval>;
 
 function options(
   overrides: Partial<HttpServerOptions> = {}
@@ -65,7 +74,9 @@ describe("HTTP startup lifecycle", () => {
       if (!(attempted instanceof Server))
         throw new Error("No startup server observed");
       expect(attempted.listenerCount("error")).toBe(0);
-      expect(attempted.listenerCount("listening")).toBe(0);
+      expect(attempted.listenerCount("listening")).toBe(
+        nativeListeningListeners
+      );
     }
   );
 
@@ -102,7 +113,13 @@ describe("HTTP startup lifecycle", () => {
     if (!(attempted instanceof Server))
       throw new Error("No startup server observed");
     expect(attempted.listenerCount("error")).toBe(0);
-    expect(attempted.listenerCount("listening")).toBe(0);
+    expect(attempted.listenerCount("listening")).toBe(nativeListeningListeners);
+
+    await new Promise<void>((resolve) => holder.close(() => resolve()));
+    holders.pop();
+    const restarted = await startHttpServer(options({ port: address.port }));
+    handles.push(restarted);
+    expect(restarted.port).toBe(address.port);
   });
 
   it("rejects an invalid host without allocating the sweeper", async () => {
@@ -139,7 +156,7 @@ describe("HTTP startup lifecycle", () => {
     if (!(listening instanceof Server))
       throw new Error("No listening server observed");
     expect(listening.listenerCount("error")).toBe(0);
-    expect(listening.listenerCount("listening")).toBe(0);
+    expect(listening.listenerCount("listening")).toBe(nativeListeningListeners);
     const clear = vi.spyOn(globalThis, "clearInterval");
     await handle.stop();
     await expect(handle.stop()).resolves.toBeUndefined();
