@@ -94,6 +94,6 @@ Authorization events contain `roleId`, `sessionId`, `tool`, `decision`, and `rea
 
 Search tools may return snippets, semantic chunks, full content with supported options, or Base query rows. Write tool responses may expose existing content or metadata. Read-only Roles must omit `index_vault`, which sends note text to the embedding provider and writes an index. `search_semantic` sends the query to the provider.
 
-This implements the library and HTTP portion of issue #284. The companion Role editor, token settings and persisted migration are prepared in [plugin PR #23](https://github.com/rps321321/obsidian-mcp-pro-plugin/pull/23). Core 4.1.1 is published; the companion PR remains pending final native acceptance and merge. Plugin delivery remains a separate gate. CLI Role configuration is not included.
+This implements the library and HTTP portion of issue #284. The companion Role editor, token settings and persisted migration shipped in [plugin 0.4.0](https://github.com/rps321321/obsidian-mcp-pro-plugin/releases/tag/v0.4.0), following [PR #23](https://github.com/rps321321/obsidian-mcp-pro-plugin/pull/23), and use published core 4.1.1. See the [native validation record](https://github.com/rps321321/obsidian-mcp-pro-plugin/blob/v0.4.0/docs/role-settings-validation.md) for the tested Windows environment and limitations. CLI Role configuration is not included.
 
 Run `npx vitest run src/__tests__/roles.test.ts` for the HTTP and registration acceptance tests.
