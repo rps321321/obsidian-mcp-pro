@@ -9,6 +9,9 @@ import {
 } from "vitest";
 import { createServer, get, Server } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { log } from "../lib/logger.js";
 import {
   startHttpServer,
   type HttpServerHandle,
@@ -49,6 +52,40 @@ afterEach(async () => {
 });
 
 describe("HTTP startup lifecycle", () => {
+  it("returns a usable IPv6 URL and brackets its derived Host rule", async (context) => {
+    const listeningLog = vi.spyOn(log, "info");
+    let handle: HttpServerHandle;
+    try {
+      handle = await startHttpServer(options({ host: "::1", allowedHosts: ["vault.example.com:3333"] }));
+    } catch (err) {
+      if (err instanceof Error && "code" in err && ["EAFNOSUPPORT", "EADDRNOTAVAIL"].includes(String(err.code))) {
+        context.skip();
+        return;
+      }
+      throw err;
+    }
+    handles.push(handle);
+    expect(handle.host).toBe("::1");
+    expect(handle.url).toBe(`http://[::1]:${handle.port}/mcp`);
+    expect(listeningLog).toHaveBeenCalledWith("HTTP server listening", expect.objectContaining({ url: handle.url, allowedHosts: `vault.example.com:3333,[::1]:${handle.port},127.0.0.1:${handle.port},localhost:${handle.port},[::1]:${handle.port}` }));
+    expect((await fetch(new URL("/health", handle.url))).status).toBe(200);
+    const client = new Client({ name: "ipv6-test", version: "1" });
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(handle.url), { requestInit: { headers: { Authorization: "Bearer synthetic-startup-token" } } }));
+      const denied = await new Promise<number | undefined>((resolve, reject) => {
+        get({ host: "::1", port: handle.port, path: "/mcp", headers: { Host: `[2001:db8::42]:${handle.port}`, Authorization: "Bearer synthetic-startup-token" }, agent: false }, (response) => {
+          response.resume();
+          response.once("end", () => resolve(response.statusCode));
+        }).on("error", reject);
+      });
+      expect(denied).toBe(403);
+    } finally {
+      await client.close();
+    }
+    await handle.stop();
+    await expect(handle.stop()).resolves.toBeUndefined();
+  });
+
   it("allocates no sweeper when allowedHosts validation fails", async () => {
     await expect(
       startHttpServer(options({ allowedHosts: ["*"] }))
