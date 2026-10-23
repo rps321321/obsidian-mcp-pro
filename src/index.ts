@@ -234,6 +234,7 @@ export function buildMcpServer(
       // server hosts callable starter templates (registered via
       // `registerPrompts`).
       capabilities: { logging: {}, prompts: { listChanged: false } },
+      maxToolInputElements: 16,
     }
   );
 
