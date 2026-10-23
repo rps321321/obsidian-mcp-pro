@@ -51,6 +51,10 @@ function isExternalMarkdownUrl(url: string): boolean {
   return url.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(url);
 }
 
+function sameMovePath(left: string, right: string): boolean {
+  return CASE_INSENSITIVE_FS ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
 /** A single in-place edit on a referrer file, expressed as a byte-offset slice
  *  to replace. Edits within a file are listed in increasing-offset order.
  *
@@ -108,7 +112,7 @@ export async function planMoveRewrites(
   oldPath = path.posix.normalize(oldPath.replace(/\\/g, "/"));
   newPath = path.posix.normalize(newPath.replace(/\\/g, "/"));
   if (CASE_INSENSITIVE_FS) {
-    oldPath = preMoveNotes.find((note) => note.toLowerCase() === oldPath.toLowerCase()) ?? oldPath;
+    oldPath = preMoveNotes.find((note) => sameMovePath(note, oldPath)) ?? oldPath;
   }
   // Build the post-move note set by substituting old → new. Used for picking
   // the output form (basename vs path) that matches Obsidian's behavior.
@@ -190,8 +194,8 @@ export async function planMoveRewrites(
       if (notePath === oldPath && isExplicitRelativePath(decoded)) {
         const target = path.posix.normalize(path.posix.join(referrerDir(notePath), decoded));
         if (target === ".." || target.startsWith("../")) continue;
-        const destination = target === oldPath ? newPath :
-          target === oldPath.replace(/\.md$/i, "") ? newPath.replace(/\.md$/i, "") : target;
+        const destination = sameMovePath(target, oldPath) ? newPath :
+          sameMovePath(target, oldPath.replace(/\.md$/i, "")) ? newPath.replace(/\.md$/i, "") : target;
         newUrl = encodeUrlPath(relativeMarkdownTarget(destination, outputPath, decoded));
       } else {
         const resolved = resolveMarkdownLinkPath(decoded, notePath, preMoveNotes, aliasMap);
