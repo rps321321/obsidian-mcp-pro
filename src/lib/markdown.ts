@@ -107,11 +107,16 @@ export function parseStrictYamlFrontmatter(content: string): ParsedFrontmatter {
       bytes: scan.bytes,
     };
   } catch (err) {
+    const mark = err instanceof yaml.YAMLException ? err.mark : undefined;
+    const location = mark && Number.isSafeInteger(mark.line) && mark.line >= 0 &&
+      Number.isSafeInteger(mark.column) && mark.column >= 0
+      ? ` at line ${mark.line + 2}, column ${mark.column + 1}`
+      : "";
     return {
       data: {},
       content,
       hasFrontmatter: true,
-      error: err as Error,
+      error: new Error(`Invalid YAML frontmatter${location}.`),
       bytes: scan.bytes,
     };
   }
