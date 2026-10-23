@@ -5,7 +5,13 @@ All notable changes to `obsidian-mcp-pro` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.1.1] - Unreleased
+
+### Fixed
+
+- Require MCP SDK 1.32.1 or newer within major version 1 so installed consumers enforce the 16-element tool-input budget. Version 4.1.0 allowed SDK 1.29.0, which silently ignored the configured limit when retained by an existing consumer lockfile. Packed-consumer tests now retain that old root SDK and verify rejection before mutation, the 16-element boundary, and recovery over HTTP and stdio.
+
+## [4.1.0] - 2026-10-23
 
 ### Fixed
 

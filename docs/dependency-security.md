@@ -1,6 +1,6 @@
 # Dependency security review
 
-The 23 October 2026 dependency refresh keeps the declared package ranges unchanged. It resolves the 11 affected package records reported by `npm audit` against the previous lockfile. A clean scanner result describes that lockfile and advisory snapshot, not every application security property.
+The initial 23 October 2026 dependency refresh kept the declared package ranges unchanged. The 4.1.1 correction below raises the MCP SDK minimum. It resolves the 11 affected package records reported by `npm audit` against the previous lockfile. A clean scanner result describes that lockfile and advisory snapshot, not every application security property.
 
 The resolved versions include MCP SDK 1.32.1, js-yaml 4.3.2, hono 4.13.13, proxy-addr 2.0.8, ip-address 10.7.4, fast-uri 3.1.9, brace-expansion 5.0.12, source-map-js 1.2.2, Vite 8.3.5, and Vitest 4.1.12. The ip-address version proposed in #295, 10.7.3, is affected by a newer advisory, so that version is insufficient for the refreshed audit gate.
 
@@ -22,3 +22,9 @@ This is a security restriction on extra fields outside the advertised tool schem
 The HTTP parser cap remains 4 MiB. One million characters can approach 4 MiB in UTF-8 before JSON framing, and JSON escaping can make a schema-valid string exceed the cap. HTTP clients must satisfy both limits; they may need smaller content chunks. Stdio retains the SDK transport's separate default 10 MB read-buffer limit. Authentication still runs before HTTP body parsing: an unauthenticated over-size request receives 401, while an authenticated one receives 413. Authentication alone does not make every token holder trustworthy.
 
 Before completing #311, run the release gate and verify this rejection and recovery through the packaged server. A passing source test or clean audit does not establish a published, consumable release.
+
+## Consumer SDK resolution correction in 4.1.1
+
+The published 4.1.0 package declared SDK `^1.29.0`, although its development lockfile resolved 1.32.1. A consumer retaining SDK 1.29.0 could satisfy that range and silently ignore `maxToolInputElements`. A bounded reproduction installed registry 4.1.0 with an exact root SDK 1.29.0: `append_to_note` with 17 extra scalar fields (19 total) succeeded and changed the fixture. This demonstrates missing pre-dispatch enforcement without an exhaustion payload.
+
+Version 4.1.1 requires SDK `^1.32.1`. The packed-consumer check first installs an exact root SDK 1.29.0, then installs the production tarball. It verifies that the consumer retains its old dependency while the core resolves a compatible nested SDK. Actual HTTP and stdio calls reject 17 total fields without changing a note, accept 16, and successfully read afterward. This tests the installed dependency graph and behavior rather than relying on the repository lockfile or a version assertion. No tool schema or public API changes are required.
