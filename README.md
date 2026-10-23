@@ -19,7 +19,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/rps321321/obsidian-mcp-pro?style=flat&logo=github)](https://github.com/rps321321/obsidian-mcp-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 24](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-664_passing-brightgreen.svg)](https://github.com/rps321321/obsidian-mcp-pro)
+[![CI](https://github.com/rps321321/obsidian-mcp-pro/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/rps321321/obsidian-mcp-pro/actions/workflows/ci.yml)
 [![Tool Quality](https://img.shields.io/badge/Glama-41_tools_A--grade-success)](https://glama.ai/mcp/servers/rps321321/obsidian-mcp-pro)
 
 Give AI assistants deep, structured access to your Obsidian knowledge base. Read, write, search, tag, analyze links, traverse graphs, manipulate canvases, query Bases, edit by heading or block reference, run semantic search, and pull binary attachments. All through the [Model Context Protocol](https://modelcontextprotocol.io/).
@@ -124,6 +124,11 @@ The server exposes five starter prompts that clients (Claude Desktop, Cursor) su
 
 ## Quick Start
 
+`npx` installs the latest published npm release. This README follows the source
+branch and may describe merged changes that have not been published. See the
+[4.1.0 preparation notes](docs/releases/4.1.0.md) for release status and verification
+still required before publication.
+
 > **Using Obsidian?** There's also an [Obsidian plugin](https://github.com/rps321321/obsidian-mcp-pro-plugin) that runs this server inside the app with a ribbon toggle and settings UI — no config-file editing. Recommended for most users.
 
 ### One-Command Install (Claude Desktop / Cursor)
@@ -192,7 +197,9 @@ MCP_HTTP_TOKEN=your-secret npx -y obsidian-mcp-pro --transport=http
 The HTTP server binds to `127.0.0.1` by default with DNS rebinding protection enabled.
 Startup always requires `MCP_HTTP_TOKEN`, including loopback-only local servers. The old `--token` flag was removed because command-line secrets can be exposed through OS process listings.
 
-When embedding the library, set `allowedHosts` to accept additional destination
+The following embedding option is merged for the unreleased 4.1.0 source and is
+unavailable in the published 4.0.1 package. When embedding the library, set
+`allowedHosts` to accept additional destination
 addresses, such as the hostname forwarded by an HTTPS reverse proxy:
 
 ```ts
@@ -701,7 +708,12 @@ npm test
 
 Run `node scripts/check-packed-consumer.mjs` to build, pack and install the core into a fresh consumer, then exercise its installed CLI, library and HTTP sessions against a temporary vault. See [installed package acceptance](docs/packed-consumer-testing.md) for platform coverage and limits.
 
-952 tests covering vault operations, atomic writes + concurrent-mutation races, markdown parsing (frontmatter, wikilinks, tags, fenced + indented code blocks, multi-backtick inline code), section / block-id parsing, tag rewriting (inline + frontmatter, hierarchical sub-tags), Bases filter DSL, attachment classification, semantic chunking + cosine ranking + persistent embedding store, moment-token date formatting, canvas round-trip fidelity, HTTP transport (Bearer auth, oversize-body, CORS allowlist with `Vary: Origin`, per-IP rate limiting, `/version`), leveled logger (text + JSON output), folder-permission allowlist, mtime-cache rehydration across simulated restarts, vault-wide link rewriting on `move_note` and `delete_note` (TOCTOU correctness, control-char injection escape), and security regression guards (symlink escape, case-only rename, path-leak sanitization, cross-process exclusive-create). Handler tests exercise every tool through a real MCP client/server pair via `InMemoryTransport`.
+The suite covers vault operations, concurrent writes, Markdown parsing, link and
+tag rewriting, attachment classification, semantic search and embedding
+persistence, cache freshness, HTTP transport, and security regressions. Handler
+tests exercise tools through a real MCP client/server pair via
+`InMemoryTransport`. See [CI runs](https://github.com/rps321321/obsidian-mcp-pro/actions/workflows/ci.yml)
+for results tied to a commit; the badge above reports the `master` workflow state.
 
 ```bash
 npm run lint       # eslint v9 + typescript-eslint v8 (flat config)

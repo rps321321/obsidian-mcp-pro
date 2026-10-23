@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- README validation claims now link to CI evidence. The 4.1.0 preparation notes distinguish published behavior, merged unreleased changes, and remaining publication and attachment-client verification.
 - Removed maintainer-only strategy, experiment notes, and draft outreach copy from the tracked documentation while keeping contributor workflow configuration under `docs/agents/`.
 - Added a pre-commit guard that rejects maintainer state, local assistant context, R&D notes, and outreach drafts before they can re-enter public history.
 
