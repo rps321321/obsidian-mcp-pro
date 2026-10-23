@@ -52,7 +52,7 @@ export function registerMoveNote(server: McpServer, vaultPath: string): void {
           ),
       },
     },
-    async ({ oldPath, newPath, updateLinks, confirmPath }) => {
+    async ({ oldPath, newPath, updateLinks, confirmPath }, { extra }) => {
       const resolvedOld = ensureMdExtension(oldPath);
       const resolvedNew = ensureMdExtension(newPath);
       if (updateLinks !== false) {
@@ -71,6 +71,7 @@ export function registerMoveNote(server: McpServer, vaultPath: string): void {
           fieldDescription:
             "Re-type the destination path to confirm vault-wide reference rewriting.",
           expectedValue: resolvedNew,
+          signal: extra.signal,
         });
         if (confirmation.status === "cancelled") {
           return text(
@@ -83,6 +84,8 @@ export function registerMoveNote(server: McpServer, vaultPath: string): void {
           );
         }
       }
+      if (extra.signal.aborted)
+        return error("Move cancelled before changes were applied.");
       const result = await moveNote(vaultPath, resolvedOld, resolvedNew, {
         updateLinks,
       });
