@@ -52,7 +52,10 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
           ),
       },
     },
-    async ({ path: notePath, permanent, confirm, removeReferences }) => {
+    async (
+      { path: notePath, permanent, confirm, removeReferences },
+      { extra }
+    ) => {
       const resolvedPath = ensureMdExtension(notePath);
 
       // Hard gate: permanent deletes require the caller to set confirm=true.
@@ -67,11 +70,6 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
         );
       }
 
-      // Elicit a typed confirmation before permanent deletion. The shared
-      // confirmation seam owns capability detection and best-effort fallback:
-      // clients without elicitation support (or clients whose elicitation
-      // request fails) return "skipped" and fall through to the delete. The
-      // confirm=true hard gate above remains the mandatory safety latch.
       if (permanent) {
         const confirmation = await elicitTextConfirmation(server, {
           tool: "delete_note",
@@ -84,6 +82,7 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
           fieldName: "confirmPath",
           fieldDescription: "Re-type the path to confirm permanent deletion.",
           expectedValue: resolvedPath,
+          signal: extra.signal,
         });
 
         if (confirmation.status === "cancelled") {
@@ -98,6 +97,8 @@ export function registerDeleteNote(server: McpServer, vaultPath: string): void {
         }
       }
 
+      if (extra.signal.aborted)
+        return error("Deletion cancelled before changes were applied.");
       const result = await deleteNote(vaultPath, resolvedPath, {
         permanent,
         removeReferences,

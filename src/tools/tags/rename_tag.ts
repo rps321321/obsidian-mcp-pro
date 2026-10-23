@@ -89,6 +89,7 @@ export function registerRenameTag(server: McpServer, vaultPath: string): void {
           fieldDescription:
             "Re-type the new tag name to confirm vault-wide tag rewriting.",
           expectedValue: newName,
+          signal: extra.signal,
         });
         if (confirmation.status === "cancelled") {
           return text(
@@ -101,6 +102,8 @@ export function registerRenameTag(server: McpServer, vaultPath: string): void {
           );
         }
       }
+      if (extra.signal.aborted)
+        return error("Tag rename cancelled before changes were applied.");
       const notes = await listNotes(vaultPath);
       const opts = { oldName, newName, hierarchical };
       const reportProgress = makeProgressReporter(extra);

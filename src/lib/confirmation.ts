@@ -13,29 +13,35 @@ interface TextConfirmationOptions {
   fieldName: string;
   fieldDescription: string;
   expectedValue: string;
+  signal?: AbortSignal;
 }
 
 export async function elicitTextConfirmation(
   server: McpServer,
-  options: TextConfirmationOptions,
+  options: TextConfirmationOptions
 ): Promise<TextConfirmationResult> {
-  const caps = server.server.getClientCapabilities();
-  if (caps?.elicitation === undefined) return { status: "skipped" };
-
   try {
-    const elicit = await server.server.elicitInput({
-      message: options.message,
-      requestedSchema: {
-        type: "object",
-        properties: {
-          [options.fieldName]: {
-            type: "string",
-            description: options.fieldDescription,
+    options.signal?.throwIfAborted();
+    const caps = server.server.getClientCapabilities();
+    if (caps?.elicitation?.form === undefined) return { status: "skipped" };
+
+    const elicit = await server.server.elicitInput(
+      {
+        message: options.message,
+        requestedSchema: {
+          type: "object",
+          properties: {
+            [options.fieldName]: {
+              type: "string",
+              description: options.fieldDescription,
+            },
           },
+          required: [options.fieldName],
         },
-        required: [options.fieldName],
       },
-    });
+      { signal: options.signal }
+    );
+    options.signal?.throwIfAborted();
 
     if (elicit.action !== "accept") return { status: "cancelled" };
 
@@ -50,8 +56,12 @@ export async function elicitTextConfirmation(
       return { status: "mismatch", value: confirmed };
     }
     return { status: "confirmed" };
-  } catch (err) {
-    log.warn(`${options.tool}: elicitation skipped`, { err: err as Error });
-    return { status: "skipped" };
+  } catch {
+    log.warn("Interactive confirmation failed; operation aborted", {
+      tool: options.tool,
+    });
+    throw new Error(
+      "Interactive confirmation failed; operation aborted. Resolve the confirmation failure before retrying."
+    );
   }
 }
