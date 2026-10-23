@@ -1,10 +1,12 @@
 import path from "path";
+import fs from "fs/promises";
 import {
   resolveVaultPathSafe,
   readVaultTextFile,
   withFileLock,
   atomicWriteFile,
   assertNoteFileSize,
+  CASE_INSENSITIVE_FS,
 } from "./vault-fs.js";
 import { readNote } from "./note-reads.js";
 import {
@@ -103,6 +105,11 @@ export async function planMoveRewrites(
   newPath: string,
   preMoveNotes: string[]
 ): Promise<RewritePlan> {
+  oldPath = path.posix.normalize(oldPath.replace(/\\/g, "/"));
+  newPath = path.posix.normalize(newPath.replace(/\\/g, "/"));
+  if (CASE_INSENSITIVE_FS) {
+    oldPath = preMoveNotes.find((note) => note.toLowerCase() === oldPath.toLowerCase()) ?? oldPath;
+  }
   // Build the post-move note set by substituting old → new. Used for picking
   // the output form (basename vs path) that matches Obsidian's behavior.
   const postMoveNotes = preMoveNotes.map((n) => (n === oldPath ? newPath : n));
@@ -135,8 +142,12 @@ export async function planMoveRewrites(
   }
 
   const notesPlan = new Map<string, SpanEdit[]>();
+  const postMoveAliases = new Map(
+    Array.from(aliasMap, ([alias, note]) => [alias, note === oldPath ? newPath : note])
+  );
 
   for (const [notePath, content] of contents) {
+    const outputPath = notePath === oldPath ? newPath : notePath;
     const edits: SpanEdit[] = [];
 
     // Wikilinks.
@@ -145,15 +156,14 @@ export async function planMoveRewrites(
       const resolved = resolveWikilink(span.target, notePath, preMoveNotes, {
         aliasMap,
       });
-      if (resolved !== oldPath) continue;
-
-      // Don't rewrite a self-reference inside the moved file itself — the
-      // file's path is changing too, so the link's resolution travels with
-      // the new file. Leaving it untouched is the simpler invariant.
-      if (notePath === oldPath) continue;
+      if (!resolved || (notePath !== oldPath && resolved !== oldPath)) continue;
+      const destination = resolved === oldPath ? newPath : resolved;
+      if (notePath === oldPath && resolveWikilink(span.target, outputPath, postMoveNotes, {
+        aliasMap: postMoveAliases,
+      }) === destination) continue;
 
       const newTarget = formatWikilinkTarget(
-        newPath,
+        destination,
         span.target,
         postMoveNotes
       );
@@ -171,32 +181,37 @@ export async function planMoveRewrites(
     // Markdown `[text](url)` links. Resolve URL paths the same way wikilinks
     // resolve, so `[x](inbox/idea.md)` and `[x](inbox/idea)` both rewrite.
     for (const span of extractMarkdownLinkSpans(content)) {
-      if (notePath === oldPath) continue;
       const url = span.urlPath;
       // Skip absolute / external URLs — only intra-vault references rewrite.
       if (isExternalMarkdownUrl(url)) continue;
       const decoded = safeDecode(url);
-      const resolved = resolveMarkdownLinkPath(
-        decoded,
-        notePath,
-        preMoveNotes,
-        aliasMap
-      );
-      if (resolved !== oldPath) continue;
-
-      // Preserve the user's choice of with/without `.md` extension and their
-      // basename-vs-path style. `formatWikilinkTarget` handles the
-      // basename-collision check so a post-move ambiguous basename falls back
-      // to the full path automatically.
-      const hadExt = /\.md$/i.test(decoded);
-      const decodedBare = decoded.replace(/\.md$/i, "");
-      const newBare = formatMarkdownLinkTarget(
-        newPath,
-        decodedBare,
-        notePath,
-        postMoveNotes
-      );
-      const newUrl = encodeUrlPath(hadExt ? `${newBare}.md` : newBare);
+      if (!decoded || isExternalMarkdownUrl(decoded)) continue;
+      let newUrl: string;
+      if (notePath === oldPath && isExplicitRelativePath(decoded)) {
+        const target = path.posix.normalize(path.posix.join(referrerDir(notePath), decoded));
+        if (target === ".." || target.startsWith("../")) continue;
+        const destination = target === oldPath ? newPath :
+          target === oldPath.replace(/\.md$/i, "") ? newPath.replace(/\.md$/i, "") : target;
+        newUrl = encodeUrlPath(relativeMarkdownTarget(destination, outputPath, decoded));
+      } else {
+        const resolved = resolveMarkdownLinkPath(decoded, notePath, preMoveNotes, aliasMap);
+        const attachment = notePath === oldPath || resolved === oldPath
+          ? await existingMarkdownAttachment(vaultPath, decoded, notePath)
+          : null;
+        if (attachment) {
+          if (notePath !== oldPath || !attachment.relative) continue;
+          newUrl = encodeUrlPath(relativeMarkdownTarget(attachment.target, outputPath, decoded));
+        } else {
+          if (!resolved || (notePath !== oldPath && resolved !== oldPath)) continue;
+          const destination = resolved === oldPath ? newPath : resolved;
+          if (notePath === oldPath && resolveMarkdownLinkPath(decoded, outputPath, postMoveNotes, postMoveAliases) === destination) continue;
+          const hadExt = /\.md$/i.test(decoded);
+          const newBare = formatMarkdownLinkTarget(
+            destination, decoded.replace(/\.md$/i, ""), outputPath, postMoveNotes
+          );
+          newUrl = encodeUrlPath(hadExt ? `${newBare}.md` : newBare);
+        }
+      }
       const replacement = `${span.isEmbed ? "!" : ""}[${span.text}](${newUrl}${span.fragment}${span.title})`;
       const expected = content.slice(span.start, span.end);
       if (replacement === expected) continue;
@@ -208,7 +223,7 @@ export async function planMoveRewrites(
       // (wikilinks then markdown links). Sort ascending so the apply step
       // can walk back-to-front cleanly.
       edits.sort((a, b) => a.start - b.start);
-      notesPlan.set(notePath, edits);
+      notesPlan.set(outputPath, edits);
     }
   }
 
@@ -567,6 +582,28 @@ function safeDecode(s: string): string {
   }
 }
 
+async function existingMarkdownAttachment(
+  vaultPath: string,
+  decodedPath: string,
+  notePath: string
+): Promise<{ target: string; relative: boolean } | null> {
+  if (!path.posix.extname(decodedPath) || /\.md$/i.test(decodedPath)) return null;
+  const targets = isExplicitRelativePath(decodedPath)
+    ? [path.posix.join(referrerDir(notePath), decodedPath)]
+    : [decodedPath, path.posix.join(referrerDir(notePath), decodedPath)];
+  for (const target of targets) {
+    try {
+      const fullPath = await resolveVaultPathSafe(vaultPath, target, "read");
+      if ((await fs.stat(fullPath)).isFile()) {
+        return { target: path.posix.normalize(target), relative: target !== decodedPath };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 function resolveMarkdownLinkPath(
   decodedPath: string,
   notePath: string,
@@ -580,7 +617,8 @@ function resolveMarkdownLinkPath(
     if (resolved === "." || resolved === ".." || resolved.startsWith("../")) {
       return null;
     }
-    return resolveWikilink(resolved, notePath, allNotes, { aliasMap });
+    const target = resolved.replace(/\.md$/i, "").toLowerCase();
+    return allNotes.find((note) => note.replace(/\.md$/i, "").toLowerCase() === target) ?? null;
   }
 
   return resolveWikilink(decodedPath, notePath, allNotes, { aliasMap });
@@ -596,11 +634,18 @@ function formatMarkdownLinkTarget(
     return formatWikilinkTarget(newPath, originalBare, allNotes);
   }
 
-  const newBarePath = newPath.replace(/\.md$/i, "");
+  return relativeMarkdownTarget(newPath.replace(/\.md$/i, ""), notePath, originalBare);
+}
+
+function relativeMarkdownTarget(
+  target: string,
+  notePath: string,
+  original: string
+): string {
   const fromDir = referrerDir(notePath) || ".";
-  let relative = path.posix.relative(fromDir, newBarePath);
-  if (!relative || relative === "") relative = path.posix.basename(newBarePath);
-  if (originalBare.startsWith("./") && !relative.startsWith(".")) {
+  let relative = path.posix.relative(fromDir, target);
+  if (!relative) relative = path.posix.basename(target);
+  if (original.startsWith("./") && !relative.startsWith(".")) {
     relative = `./${relative}`;
   }
   return relative;

@@ -48,7 +48,7 @@ it("keeps a basename self-link unchanged when it still resolves to the moved not
 });
 
 it("rebases relative Markdown notes and attachments without changing their targets", async () => {
-  await seed("inbox/source.md", '[neighbor](./neighbor.md#Detail "title")\n[self](./source.md#^block)\n![image](./images/pic%20one.png#view "image title")\n![bare](pic.png)');
+  await seed("inbox/source.md", '---\naliases: [pic.png]\n---\n[neighbor](./neighbor.md#Detail "title")\n[self](./source.md#^block)\n![image](./images/pic%20one.png#view "image title")\n![bare](pic.png)');
   await seed("inbox/neighbor.md", "original neighbor");
   await seed("archive/neighbor.md", "different neighbor");
   await seed("inbox/images/pic one.png", "image bytes");
@@ -70,6 +70,34 @@ it("preserves external URLs, fragment-only links, root attachment paths, and cod
   await seed("assets/pic.png", "root image");
   await moveNote(root, "inbox/source.md", "archive/moved.md");
   expect(await readNote(root, "archive/moved.md")).toBe(body);
+});
+
+it("does not treat an existing attachment as an identically named note alias", async () => {
+  await seed("inbox/source.md", "---\naliases: [assets/pic.png]\n---\nSource");
+  await seed("assets/pic.png", "image bytes");
+  await seed("ref.md", "![image](assets/pic.png)");
+  await moveNote(root, "inbox/source.md", "archive/moved.md");
+  expect(await readNote(root, "ref.md")).toBe("![image](assets/pic.png)");
+  await expect(fs.readFile(path.join(root, "assets/pic.png"), "utf8")).resolves.toBe("image bytes");
+});
+
+it("preserves extensionless relative self-links and parent-folder targets", async () => {
+  await seed("inbox/nested/source.md", "[self](./source#Detail) [neighbor](../neighbor)");
+  await seed("inbox/neighbor.md", "original neighbor");
+  await moveNote(root, "inbox/nested/source.md", "archive/moved.md");
+  const spans = extractMarkdownLinkSpans(await readNote(root, "archive/moved.md"));
+  const targets = spans.map((span) => `${path.posix.normalize(path.posix.join("archive", span.urlPath))}.md`);
+  expect(targets).toEqual(["archive/moved.md", "inbox/neighbor.md"]);
+  expect(spans[0]!.fragment).toBe("#Detail");
+  await expect(fs.readFile(path.join(root, targets[1]!), "utf8")).resolves.toBe("original neighbor");
+});
+
+it.skipIf(process.platform !== "win32" && process.platform !== "darwin")("matches source spelling to its filesystem note identity", async () => {
+  await seed("inbox/source.md", "[[inbox/source]]");
+  const result = await moveNote(root, "./INBOX/SOURCE.md", "archive/moved.md");
+  const [span] = extractWikilinkSpans(await readNote(root, "archive/moved.md"));
+  expect(resolveWikilink(span!.target, "archive/moved.md", await listNotes(root))).toBe("archive/moved.md");
+  expect(result.failedReferrers).toEqual([]);
 });
 
 it("normalizes move identities before planning incoming Markdown and wiki references", async () => {

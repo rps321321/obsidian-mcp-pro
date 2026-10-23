@@ -298,6 +298,8 @@ Other things the tool set lets agents do without hand-holding:
 - **Maintain a daily log.** `get_daily_note` reads today's note (using the vault's configured date format) and `append_to_note` adds the new entry — daily-note plugin config is honored, no manual date formatting.
 - **Canvas editing.** `read_canvas` → agent reasons about the node graph → `add_canvas_node` + `add_canvas_edge` lays out new ideas on an existing board.
 
+With `updateLinks=true`, `move_note` also preserves self-links and outgoing targets inside the moved note. Explicit relative Markdown links and embeds retain their original targets after a folder change. [Move link behavior](docs/move-link-targets.md) describes resolution and partial failures.
+
 Tool descriptions + typed schemas + safety hints (`readOnlyHint`, `destructiveHint`) are what make this work reliably — the agent knows `delete_note` is destructive and asks first, knows `search_notes` is free to call speculatively, and knows the expected shape of every argument.
 
 ---
