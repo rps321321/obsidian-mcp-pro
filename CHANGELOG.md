@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Note updates, appends, and prepends reject observed external edits before replacing the note, including edits during staging or a Windows rename retry. Conflict errors preserve the competing version and tell callers to read again before retrying. The check is optimistic, not atomic compare-and-swap.
 - Invalid explicit `OBSIDIAN_VAULT_PATH` selections now fail instead of selecting a different vault through auto-detection. The installer uses the same directory and `.obsidian` marker validation as runtime.
 - Frontmatter parser failures now return source-free errors with note line and column numbers, preventing malformed write-only notes from disclosing existing content through tool errors or logs.
 

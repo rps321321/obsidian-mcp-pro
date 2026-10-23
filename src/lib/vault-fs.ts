@@ -203,25 +203,83 @@ export function vaultRewriteLockKey(vaultPath: string): string {
   return `vault-rewrite:${lockKey(path.resolve(vaultPath))}`;
 }
 
+interface ExpectedFileVersion {
+  content: Buffer;
+  stats: Stats;
+}
+
+function fileVersionChanged(): Error {
+  return new Error(
+    "Note changed during this update. No changes were written. Read the current note and retry."
+  );
+}
+
+function sameFileVersion(left: Stats, right: Stats): boolean {
+  return (
+    sameFileIdentity(left, right) &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  );
+}
+
+async function assertFileVersion(
+  fullPath: string,
+  expected: ExpectedFileVersion
+): Promise<void> {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await fs.open(fullPath, "r");
+    const before = await handle.stat();
+    if (
+      !before.isFile() ||
+      !sameFileVersion(before, expected.stats) ||
+      before.size !== expected.content.length
+    ) {
+      throw fileVersionChanged();
+    }
+    const content = Buffer.alloc(expected.content.length + 1);
+    let bytesRead = 0;
+    while (bytesRead < content.length) {
+      const result = await handle.read(
+        content,
+        bytesRead,
+        content.length - bytesRead,
+        bytesRead
+      );
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    const after = await handle.stat();
+    const current = await fs.stat(fullPath);
+    if (
+      bytesRead !== expected.content.length ||
+      !content.subarray(0, bytesRead).equals(expected.content) ||
+      !sameFileVersion(current, before) ||
+      !sameFileVersion(after, before)
+    ) {
+      throw fileVersionChanged();
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR") {
+      throw fileVersionChanged();
+    }
+    throw err;
+  } finally {
+    await handle?.close();
+  }
+}
+
 /**
- * Crash-atomic file write: stages content to a sibling temp file, then renames
- * onto the target. `fs.rename` is atomic on the same filesystem (POSIX
- * `rename(2)` + Win32 `MoveFileEx` with REPLACE_EXISTING on Node), so readers
- * see either the old content or the new content — never a truncated or
- * partially-written file.
- *
- * Same-directory staging is required: cross-device renames fall back to
- * copy+unlink and lose atomicity. All current callers write inside the vault,
- * so this invariant holds.
- *
- * Callers must serialize themselves via `withFileLock` — the temp-file suffix
- * is random enough to avoid collisions between processes, but atomicity
- * against concurrent writers to the *same* target path still requires the
- * per-path lock (otherwise two concurrent renames race on the final name).
+ * Stages a sibling file and atomically replaces the target. Callers serialize
+ * cooperating mutations with withFileLock. An expected version rejects observed
+ * changes before each rename attempt, but is not atomic compare-and-swap.
  */
 export async function atomicWriteFile(
   fullPath: string,
-  content: string
+  content: string,
+  expected?: ExpectedFileVersion
 ): Promise<void> {
   const dir = path.dirname(fullPath);
   const base = path.basename(fullPath);
@@ -233,7 +291,11 @@ export async function atomicWriteFile(
     // `wx` on the temp file guards against the astronomically unlikely case
     // of a collision with a leftover tmp from a crashed run.
     await fs.writeFile(tmp, content, { encoding: "utf-8", flag: "wx" });
-    await renameWithRetry(tmp, fullPath);
+    await renameWithRetry(
+      tmp,
+      fullPath,
+      expected ? () => assertFileVersion(fullPath, expected) : undefined
+    );
   } catch (err) {
     // Best-effort cleanup: the rename failed (or writeFile did), so the tmp
     // is still on disk. Ignore ENOENT in case writeFile never created it.
