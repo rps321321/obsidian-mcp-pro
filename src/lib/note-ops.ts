@@ -468,17 +468,16 @@ async function movePathNoReplace(
 }
 
 export interface MoveNoteOptions {
-  /** When true (default), rewrite wikilinks and markdown links in every other
-   *  note + canvas to point at the new path. Set false to skip the scan
+  /** When true (default), preserve link targets in the moved note and rewrite
+   *  incoming references in other notes and canvases. Set false to skip the scan
    *  entirely (faster on large vaults / for scripted bulk moves where the
    *  caller is doing its own link bookkeeping). */
   updateLinks?: boolean;
 }
 
 export interface MoveNoteResult {
-  /** Vault-relative paths of files whose references were rewritten. Empty
-   *  when no other note/canvas referenced the moved file (or `updateLinks`
-   *  was false). */
+  /** Vault-relative paths of files whose references were rewritten, including
+   *  the destination when links inside the moved note changed. */
   updatedReferrers: string[];
   /** Per-file failures during the rewrite pass. The move has already
    *  committed by the time these are surfaced. Empty when everything landed
@@ -500,6 +499,8 @@ export async function moveNote(
   await resolveVaultPathSafe(vaultPath, oldPath, "read");
   const fullOldPath = await resolveVaultPathSafe(vaultPath, oldPath, "write");
   const fullNewPath = await resolveVaultPathSafe(vaultPath, newPath, "write");
+  oldPath = path.relative(path.resolve(vaultPath), fullOldPath).replace(/\\/g, "/");
+  newPath = path.relative(path.resolve(vaultPath), fullNewPath).replace(/\\/g, "/");
   const doRename = async (): Promise<void> => {
     // A case-only rename (Note.md to note.md on a case-insensitive FS)
     // resolves to the same inode, so a fail-on-exists move would reject the
