@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { readAllCached, clearCache, cacheSize } from "../lib/index-cache.js";
+import { readNote } from "../lib/vault.js";
 
 let vaultDir: string;
 
@@ -74,6 +75,55 @@ describe("readAllCached", () => {
     expect(result.contents.get("a.md")).toBe("v2");
     expect(result.cacheMisses).toBe(1);
     expect(result.cacheHits).toBe(0);
+  });
+
+  it("re-reads changed-size content when mtime is restored", async () => {
+    const stamp = new Date("2020-01-01T00:00:00Z");
+    const fullPath = path.join(vaultDir, "a.md");
+    await write("a.md", "old");
+    await fs.utimes(fullPath, stamp, stamp);
+    await readAllCached(vaultDir, ["a.md"]);
+
+    await write("a.md", "longer replacement");
+    await fs.utimes(fullPath, stamp, stamp);
+    const result = await readAllCached(vaultDir, ["a.md"]);
+
+    expect(result.contents.get("a.md")).toBe("longer replacement");
+    expect(result.cacheMisses).toBe(1);
+    expect(result.cacheHits).toBe(0);
+  });
+
+  it("re-reads a replacement with the same size and mtime", async () => {
+    const stamp = new Date("2020-01-01T00:00:00Z");
+    const fullPath = path.join(vaultDir, "a.md");
+    const replacement = path.join(vaultDir, "replacement.tmp");
+    await write("a.md", "alpha");
+    await fs.utimes(fullPath, stamp, stamp);
+    await readAllCached(vaultDir, ["a.md"]);
+
+    await fs.writeFile(replacement, "bravo");
+    await fs.utimes(replacement, stamp, stamp);
+    await fs.rename(replacement, fullPath);
+    const result = await readAllCached(vaultDir, ["a.md"]);
+
+    expect(result.contents.get("a.md")).toBe("bravo");
+    expect(result.cacheMisses).toBe(1);
+    expect(result.cacheHits).toBe(0);
+    const unchanged = await readAllCached(vaultDir, ["a.md"]);
+    expect(unchanged.contents.get("a.md")).toBe("bravo");
+    expect(unchanged.cacheHits).toBe(1);
+  });
+
+  it("keeps direct point reads fresh with a warmed batch entry", async () => {
+    const stamp = new Date("2020-01-01T00:00:00Z");
+    const fullPath = path.join(vaultDir, "a.md");
+    await write("a.md", "alpha");
+    await fs.utimes(fullPath, stamp, stamp);
+    await readAllCached(vaultDir, ["a.md"]);
+    await write("a.md", "bravo");
+    await fs.utimes(fullPath, stamp, stamp);
+
+    await expect(readNote(vaultDir, "a.md")).resolves.toBe("bravo");
   });
 
   it("calls onError for missing files and omits them from contents", async () => {
