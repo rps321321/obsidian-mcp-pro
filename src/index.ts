@@ -7,6 +7,26 @@ import {
   McpServer,
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  ListPromptsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import {
+  configureServerTools,
+  toolAllowed,
+  PROMPT_TOOLS,
+  type McpServerOptions,
+} from "./lib/roles.js";
+export {
+  TOOL_NAMES,
+  type Role,
+  type TokenAssignment,
+  type AuthorizationOptions,
+  type AuthorizationAuditEvent,
+  type McpServerOptions,
+} from "./lib/roles.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Variables } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import { getVaultConfig, getDailyNoteConfig } from "./config.js";
@@ -218,7 +238,8 @@ function readPackageVersion(): string {
 
 export function buildMcpServer(
   vaultPath: string | undefined,
-  services: McpServerServices = createMcpServerServices(vaultPath)
+  services: McpServerServices = createMcpServerServices(vaultPath),
+  options: McpServerOptions = {}
 ): McpServer {
   const server = new McpServer(
     {
@@ -233,34 +254,115 @@ export function buildMcpServer(
       // the server instance is available. `prompts` advertises that the
       // server hosts callable starter templates (registered via
       // `registerPrompts`).
-      capabilities: { logging: {}, prompts: { listChanged: false } },
+      capabilities: {
+        logging: {},
+        tools: {},
+        resources: {},
+        prompts: { listChanged: false },
+      },
       maxToolInputElements: 16,
     }
   );
+
+  if (options.tools !== undefined) configureServerTools(server, options.tools);
 
   const noVaultError =
     "No Obsidian vault configured. Set OBSIDIAN_VAULT_PATH environment variable.";
 
   // --- MCP Resources ---
 
-  server.registerResource(
-    "note",
-    new ResourceTemplate("obsidian://note/{+path}", { list: undefined }),
-    {},
-    async (uri: URL, params: Variables) => {
-      if (!vaultPath) throw new Error(noVaultError);
-      const rawPath = params.path;
-      const notePath = Array.isArray(rawPath)
-        ? rawPath.join("/")
-        : (rawPath ?? "");
+  if (toolAllowed(server, "get_note"))
+    server.registerResource(
+      "note",
+      new ResourceTemplate("obsidian://note/{+path}", { list: undefined }),
+      {},
+      async (uri: URL, params: Variables) => {
+        if (!vaultPath) throw new Error(noVaultError);
+        const rawPath = params.path;
+        const notePath = Array.isArray(rawPath)
+          ? rawPath.join("/")
+          : (rawPath ?? "");
 
-      if (!notePath) {
-        throw new Error("Note path is required");
+        if (!notePath) {
+          throw new Error("Note path is required");
+        }
+
+        try {
+          const content = await readNote(vaultPath, notePath);
+          const trustLabel = "note resource body";
+          return {
+            contents: [
+              {
+                uri: uri.href,
+                mimeType: "text/markdown",
+                text: formatUntrustedVaultContent(trustLabel, content),
+                _meta: untrustedVaultContentMeta(trustLabel),
+              },
+            ],
+          };
+        } catch (err) {
+          throw new Error(`Failed to read note: ${sanitizeError(err)}`, {
+            cause: err,
+          });
+        }
       }
+    );
+
+  if (toolAllowed(server, "list_tags"))
+    server.registerResource("tags", "obsidian://tags", {}, async (uri) => {
+      if (!vaultPath) throw new Error(noVaultError);
+      const tagIndex: Record<string, string[]> = {};
+      const notes = await listNotes(vaultPath);
+
+      // Use the mtime-based cache so repeated tag-index requests skip re-reading
+      // files that haven't changed. Same pattern as list_tags in tools/tags.ts.
+      // Per-file failures are logged and skipped so one corrupt note can't poison
+      // the entire index.
+      const { contents } = await readAllCached(
+        vaultPath,
+        notes,
+        (note, err) => {
+          log.warn("obsidian://tags resource: note read failed", { note, err });
+        }
+      );
+
+      for (const notePath of notes) {
+        const content = contents.get(notePath);
+        if (content === undefined) continue;
+        for (const tag of extractTags(content)) {
+          const normalizedTag = `#${escapeControlChars(tag)}`;
+          (tagIndex[normalizedTag] ??= []).push(escapeControlChars(notePath));
+        }
+      }
+
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(tagIndex, null, 2),
+            _meta: untrustedVaultContentMeta("tag resource"),
+          },
+        ],
+      };
+    });
+
+  if (toolAllowed(server, "get_daily_note"))
+    server.registerResource("daily", "obsidian://daily", {}, async (uri) => {
+      if (!vaultPath) throw new Error(noVaultError);
+      const dailyConfig = await getDailyNoteConfig(vaultPath);
+      let filename = formatMomentDate(new Date(), dailyConfig.format);
+      if (!filename.endsWith(".md")) {
+        filename += ".md";
+      }
+
+      const notePath = dailyConfig.folder
+        ? `${dailyConfig.folder}/${filename}`
+        : filename;
 
       try {
         const content = await readNote(vaultPath, notePath);
-        const trustLabel = "note resource body";
+        const trustLabel = "daily note resource body";
         return {
           contents: [
             {
@@ -271,84 +373,17 @@ export function buildMcpServer(
             },
           ],
         };
-      } catch (err) {
-        throw new Error(`Failed to read note: ${sanitizeError(err)}`, {
-          cause: err,
-        });
+      } catch {
+        // Throw rather than return synthetic 200 content. A successful resource
+        // response with body "No daily note found..." is indistinguishable to
+        // MCP clients from a real note whose first line happens to say the
+        // same thing — clients need a proper error so they can branch on it.
+        const pathLabel = "daily note resource expected path";
+        throw new Error(
+          `No daily note found for today.\n${formatUntrustedVaultContent(pathLabel, escapeControlChars(notePath))}`
+        );
       }
-    }
-  );
-
-  server.registerResource("tags", "obsidian://tags", {}, async (uri) => {
-    if (!vaultPath) throw new Error(noVaultError);
-    const tagIndex: Record<string, string[]> = {};
-    const notes = await listNotes(vaultPath);
-
-    // Use the mtime-based cache so repeated tag-index requests skip re-reading
-    // files that haven't changed. Same pattern as list_tags in tools/tags.ts.
-    // Per-file failures are logged and skipped so one corrupt note can't poison
-    // the entire index.
-    const { contents } = await readAllCached(vaultPath, notes, (note, err) => {
-      log.warn("obsidian://tags resource: note read failed", { note, err });
     });
-
-    for (const notePath of notes) {
-      const content = contents.get(notePath);
-      if (content === undefined) continue;
-      for (const tag of extractTags(content)) {
-        const normalizedTag = `#${escapeControlChars(tag)}`;
-        (tagIndex[normalizedTag] ??= []).push(escapeControlChars(notePath));
-      }
-    }
-
-    return {
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "application/json",
-          text: JSON.stringify(tagIndex, null, 2),
-          _meta: untrustedVaultContentMeta("tag resource"),
-        },
-      ],
-    };
-  });
-
-  server.registerResource("daily", "obsidian://daily", {}, async (uri) => {
-    if (!vaultPath) throw new Error(noVaultError);
-    const dailyConfig = await getDailyNoteConfig(vaultPath);
-    let filename = formatMomentDate(new Date(), dailyConfig.format);
-    if (!filename.endsWith(".md")) {
-      filename += ".md";
-    }
-
-    const notePath = dailyConfig.folder
-      ? `${dailyConfig.folder}/${filename}`
-      : filename;
-
-    try {
-      const content = await readNote(vaultPath, notePath);
-      const trustLabel = "daily note resource body";
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: "text/markdown",
-            text: formatUntrustedVaultContent(trustLabel, content),
-            _meta: untrustedVaultContentMeta(trustLabel),
-          },
-        ],
-      };
-    } catch {
-      // Throw rather than return synthetic 200 content. A successful resource
-      // response with body "No daily note found..." is indistinguishable to
-      // MCP clients from a real note whose first line happens to say the
-      // same thing — clients need a proper error so they can branch on it.
-      const pathLabel = "daily note resource expected path";
-      throw new Error(
-        `No daily note found for today.\n${formatUntrustedVaultContent(pathLabel, escapeControlChars(notePath))}`
-      );
-    }
-  });
 
   // --- Register tool groups ---
   // Tools always register so MCP clients (and registries like Glama) can
@@ -368,6 +403,32 @@ export function buildMcpServer(
   registerAttachmentTools(server, vaultForTools);
   registerSemanticTools(server, vaultForTools, services.embeddingStore);
   registerPrompts(server);
+  if (options.tools?.length === 0)
+    server.server.setRequestHandler(ListToolsRequestSchema, () => ({
+      tools: [],
+    }));
+  if (
+    !["get_note", "list_tags", "get_daily_note"].some((name) =>
+      toolAllowed(server, name)
+    )
+  ) {
+    server.server.setRequestHandler(ListResourcesRequestSchema, () => ({
+      resources: [],
+    }));
+    server.server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({
+      resourceTemplates: [],
+    }));
+  }
+  if (
+    !Object.values(PROMPT_TOOLS).some((names) =>
+      names.every((name) => toolAllowed(server, name))
+    )
+  ) {
+    server.server.setRequestHandler(ListPromptsRequestSchema, () => ({
+      prompts: [],
+    }));
+  }
+
   if (!vaultPath) {
     log.warn(
       `Tools registered but vault unconfigured — calls will return errors`
@@ -470,6 +531,8 @@ export {
   startHttpServer,
   type HttpServerHandle,
   type HttpServerOptions,
+  type RoleHttpServerOptions,
+  type AuthorizedHttpServerHandle,
 } from "./http-server.js";
 
 // Only auto-run as CLI when this file is the entrypoint. Library consumers

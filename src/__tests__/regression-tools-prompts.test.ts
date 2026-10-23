@@ -13,21 +13,7 @@ import { createTestEnv, type TestEnv } from "./handlers/harness.js";
 
 let env: TestEnv;
 
-// Known tool surface (registered in src/tools/*.ts). Used to verify every tool
-// name referenced inside a prompt body actually resolves to a real tool.
-const KNOWN_TOOLS = new Set<string>([
-  "search_notes", "get_note", "list_notes", "get_daily_note",
-  "search_by_frontmatter", "get_recent_notes", "get_vault_stats", "resolve_alias",
-  "create_note", "append_to_note", "prepend_to_note", "update_frontmatter",
-  "create_daily_note", "move_note", "delete_note",
-  "update_section", "insert_at_section", "list_sections", "replace_in_note", "edit_block",
-  "get_backlinks", "get_outlinks", "find_orphans", "find_broken_links", "get_graph_neighbors",
-  "get_tags", "search_by_tag", "rename_tag",
-  "list_attachments", "find_unused_attachments", "get_attachment",
-  "list_bases", "read_base", "query_base",
-  "list_canvases", "read_canvas", "add_canvas_node", "add_canvas_edge",
-  "index_vault", "search_semantic", "find_similar_notes",
-]);
+let KNOWN_TOOLS: Set<string>;
 
 // Tools referenced by name in a prompt body. Matches identifiers like
 // `get_recent_notes` that appear as bare words (not parts of longer identifiers).
@@ -43,6 +29,7 @@ function extractToolReferences(text: string): string[] {
 
 beforeAll(async () => {
   env = await createTestEnv({ skipFixtures: true });
+  KNOWN_TOOLS = new Set((await env.client.listTools()).tools.map(tool => tool.name));
 });
 
 afterAll(async () => {

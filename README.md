@@ -241,6 +241,13 @@ calls.
   and Origin validation still apply; DNS-rebinding protection remains enabled.
 - This is an embedding API option, not a CLI flag.
 
+The Role API below is part of the unreleased 4.1.0 source and is unavailable in
+published npm 4.0.1. HTTP embedders can assign each token a named Role containing
+an explicit Tool list.
+Roles filter tool, resource, and prompt discovery and calls. Permission changes close
+affected sessions immediately. See [HTTP Roles](docs/http-roles.md) for configuration,
+legacy-token migration, audit events, and the remaining plugin integration work.
+
 > [!WARNING]
 > **Never bind `--host=0.0.0.0` directly to the public internet.** Doing so exposes your entire Obsidian vault to anyone who can reach the port. The server refuses HTTP startup without a bearer token, but if you need remote access:
 > - Put the server behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS, **and**

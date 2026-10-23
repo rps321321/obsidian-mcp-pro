@@ -3,18 +3,32 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  compileAuthorization,
+  bindInvocationGuard,
+  PROMPT_TOOLS,
+  resolveIdentity,
+  sameRole,
+  tokenIdentity,
+  hasServerTools,
+  TOOL_NAMES,
+  type AuthorizationOptions,
+  type AuthorizationAuditEvent,
+  type McpServerOptions,
+  type ResolvedRole,
+} from "./lib/roles.js";
 import { log } from "./lib/logger.js";
 
-export interface HttpServerOptions {
+interface HttpServerCommonOptions {
   host: string;
   port: number;
-  /** Required for HTTP transport. Use MCP_HTTP_TOKEN in the CLI path. */
-  bearerToken: string;
-  buildMcpServer: () => McpServer;
+  buildMcpServer: (options: McpServerOptions) => McpServer;
+  /** Authorization decisions only; never receives request arguments or bearer secrets. */
+  onAudit?: (event: AuthorizationAuditEvent) => void;
   /** Install SIGINT/SIGTERM handlers + exit the process on shutdown. Default
    *  `true` for CLI use. Set `false` when embedding (e.g. inside an Obsidian
    *  plugin) so stopping the server doesn't kill the host process. */
@@ -41,11 +55,29 @@ export interface HttpServerOptions {
   rateLimitPerMinute?: number;
 }
 
+export interface HttpServerOptions extends Omit<
+  HttpServerCommonOptions,
+  "buildMcpServer"
+> {
+  buildMcpServer: () => McpServer;
+  bearerToken: string;
+  roles?: never;
+  tokens?: never;
+}
+export interface RoleHttpServerOptions
+  extends HttpServerCommonOptions, AuthorizationOptions {
+  bearerToken?: never;
+}
+
 export interface HttpServerHandle {
   host: string;
   port: number;
   url: string;
   stop: () => Promise<void>;
+}
+
+export interface AuthorizedHttpServerHandle extends HttpServerHandle {
+  updateAuthorization: (options: AuthorizationOptions) => Promise<void>;
 }
 
 const UUID_RE =
@@ -149,25 +181,6 @@ function parseRequestUrl(req: IncomingMessage): URL | null {
   } catch {
     return null;
   }
-}
-
-// Constant-time string compare that does not leak the expected token's
-// length. Both inputs are padded to a fixed comparison width (the longer
-// of the two) before `timingSafeEqual`, so the compare time is the same
-// whether or not the supplied token's length matches the expected token.
-// Length-mismatch is recorded separately and returned without an early
-// exit, so an attacker can't binary-search the expected length via timing.
-function constantTimeEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a);
-  const bBuf = Buffer.from(b);
-  const lengthsMatch = aBuf.length === bBuf.length;
-  const width = Math.max(aBuf.length, bBuf.length, 1);
-  const aPad = Buffer.alloc(width);
-  const bPad = Buffer.alloc(width);
-  aBuf.copy(aPad);
-  bBuf.copy(bPad);
-  const bytesMatch = timingSafeEqual(aPad, bPad);
-  return lengthsMatch && bytesMatch;
 }
 
 // Check whether an origin matches an allowlist entry. Supports a trailing
@@ -309,17 +322,47 @@ function clientIp(req: IncomingMessage): string {
 }
 
 export async function startHttpServer(
-  opts: HttpServerOptions
-): Promise<HttpServerHandle> {
+  opts: HttpServerOptions | RoleHttpServerOptions
+): Promise<AuthorizedHttpServerHandle> {
+  let roleMode = opts.tokens !== undefined;
+  if (roleMode && opts.bearerToken !== undefined)
+    throw new Error("tokens and bearerToken cannot be combined");
   const bearerToken = opts.bearerToken?.trim();
-  if (opts.bearerToken !== undefined && !bearerToken) {
-    throw new Error("HTTP bearer token cannot be empty");
-  }
-  if (!bearerToken) {
-    throw new Error(
-      "HTTP bearer token is required. Set MCP_HTTP_TOKEN in the CLI or pass bearerToken when embedding."
-    );
-  }
+  if (!roleMode && !bearerToken)
+    throw new Error("HTTP bearer token is required and cannot be empty");
+  let authorization = compileAuthorization(
+    roleMode
+      ? (opts as RoleHttpServerOptions)
+      : {
+          roles: [{ id: "legacy-full-access", tools: TOOL_NAMES }],
+          tokens: [{ token: bearerToken!, roleId: "legacy-full-access" }],
+        }
+  );
+  const authenticate = (req: IncomingMessage): ResolvedRole | undefined => {
+    const header = req.headers.authorization ?? "";
+    if (!header.startsWith("Bearer ")) return undefined;
+    return resolveIdentity(authorization, tokenIdentity(header.slice(7)));
+  };
+  const audit = (event: AuthorizationAuditEvent): void => {
+    log.info("Authorization decision", { ...event });
+    try {
+      opts.onAudit?.(Object.freeze(event));
+    } catch {
+      log.warn("Authorization audit callback failed");
+    }
+  };
+  const unauthorized = (
+    res: ServerResponse,
+    role?: ResolvedRole,
+    sessionId?: string,
+    reason = "invalid_token"
+  ): void => {
+    audit({ roleId: role?.roleId, sessionId, decision: "deny", reason });
+    res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
+    sendJson(res, 401, { error: "Unauthorized" });
+  };
+  const sessions = new Map<string, ResolvedRole>();
+  const initializing = new Map<StreamableHTTPServerTransport, ResolvedRole>();
   const allowedOrigins =
     opts.allowedOrigins && opts.allowedOrigins.length > 0
       ? opts.allowedOrigins
@@ -441,10 +484,8 @@ export async function startHttpServer(
         // version endpoint and, when a Bearer token is configured, must
         // require it — anonymous POSTs were previously a free
         // unauthenticated reflection point.
-        if (req.method !== "GET" && bearerToken) {
-          const header = req.headers.authorization ?? "";
-          const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-          if (!constantTimeEqual(token, bearerToken)) {
+        if (req.method !== "GET") {
+          if (!authenticate(req)) {
             res.setHeader(
               "WWW-Authenticate",
               'Bearer realm="obsidian-mcp-pro"'
@@ -475,20 +516,10 @@ export async function startHttpServer(
       return;
     }
 
-    if (bearerToken) {
-      const header = req.headers.authorization ?? "";
-      const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-      if (!constantTimeEqual(token, bearerToken)) {
-        log.warn("Authentication failure", {
-          method: req.method,
-          path: url.pathname,
-          ip: clientIp(req),
-          reason: header ? "invalid token" : "missing token",
-        });
-        res.setHeader("WWW-Authenticate", 'Bearer realm="obsidian-mcp-pro"');
-        sendJson(res, 401, { error: "Unauthorized" });
-        return;
-      }
+    let role = authenticate(req);
+    if (!role) {
+      unauthorized(res);
+      return;
     }
 
     try {
@@ -498,7 +529,19 @@ export async function startHttpServer(
         return;
       }
 
+      const owner = sessionId ? sessions.get(sessionId) : undefined;
+      if (owner && owner.identity !== role.identity) {
+        unauthorized(res, role, sessionId, "session_token_mismatch");
+        return;
+      }
+
       if (req.method === "POST") {
+        audit({
+          roleId: role.roleId,
+          sessionId,
+          decision: "allow",
+          reason: "request_authenticated",
+        });
         // MCP Streamable HTTP requires JSON bodies. Reject anything else
         // before reading the stream: avoids buffering up to 4 MB of
         // non-JSON data just to produce a parse error, and gives clients
@@ -526,7 +569,98 @@ export async function startHttpServer(
           throw err;
         }
 
+        const currentRole = authenticate(req);
+        if (!currentRole || !sameRole(role, currentRole)) {
+          unauthorized(res, currentRole, sessionId, "authorization_changed");
+          return;
+        }
+        role = currentRole;
         if (sessionId && transports.has(sessionId)) {
+          const messages: unknown[] = Array.isArray(body) ? body : [body];
+          for (const message of messages) {
+            const request = message as {
+              method?: unknown;
+              params?: { name?: unknown; uri?: unknown };
+              id?: unknown;
+            } | null;
+            if (request?.method === "tools/call") {
+              const name = request.params?.name;
+              const allowed =
+                !roleMode ||
+                (typeof name === "string" && role.tools.includes(name));
+              audit({
+                roleId: role.roleId,
+                sessionId,
+                tool:
+                  typeof name === "string" && TOOL_NAMES.includes(name)
+                    ? name
+                    : undefined,
+                decision: allowed ? "allow" : "deny",
+                reason: allowed ? "tool_in_role" : "tool_not_in_role",
+              });
+              if (roleMode && !allowed) {
+                sendJson(res, 200, {
+                  jsonrpc: "2.0",
+                  id: request.id ?? null,
+                  error: { code: -32602, message: "Tool not found" },
+                });
+                return;
+              }
+            }
+            if (
+              roleMode &&
+              (request?.method === "resources/read" ||
+                request?.method === "prompts/get")
+            ) {
+              const uri = request.params?.uri;
+              const name = request.params?.name;
+              const required =
+                request.method === "prompts/get"
+                  ? typeof name === "string" &&
+                    Object.hasOwn(PROMPT_TOOLS, name)
+                    ? PROMPT_TOOLS[name]
+                    : undefined
+                  : typeof uri !== "string"
+                    ? undefined
+                    : uri.startsWith("obsidian://note/")
+                      ? ["get_note"]
+                      : uri === "obsidian://tags"
+                        ? ["list_tags"]
+                        : uri === "obsidian://daily"
+                          ? ["get_daily_note"]
+                          : undefined;
+              const allowed =
+                !!required &&
+                required.every((tool) => role!.tools.includes(tool));
+              audit({
+                roleId: role.roleId,
+                sessionId,
+                tool: required?.length === 1 ? required[0] : undefined,
+                decision: allowed ? "allow" : "deny",
+                reason: allowed
+                  ? "prerequisites_in_role"
+                  : "prerequisites_not_in_role",
+              });
+              if (!allowed) {
+                sendJson(res, 200, {
+                  jsonrpc: "2.0",
+                  id: request.id ?? null,
+                  error: {
+                    code: -32602,
+                    message: "Resource or prompt not found",
+                  },
+                });
+                return;
+              }
+            }
+          }
+          if (
+            !sameRole(role, authenticate(req)) ||
+            !transports.has(sessionId)
+          ) {
+            unauthorized(res, undefined, sessionId, "authorization_changed");
+            return;
+          }
           touch(sessionId);
           await transports.get(sessionId)!.handleRequest(req, res, body);
           return;
@@ -537,6 +671,8 @@ export async function startHttpServer(
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sid) => {
               transports.set(sid, transport);
+              sessions.set(sid, role!);
+              initializing.delete(transport);
               touch(sid);
             },
             allowedHosts,
@@ -547,12 +683,52 @@ export async function startHttpServer(
             if (transport.sessionId) {
               transports.delete(transport.sessionId);
               lastActivity.delete(transport.sessionId);
+              sessions.delete(transport.sessionId);
             }
           };
-          const sessionServer = opts.buildMcpServer();
+          initializing.set(transport, role);
           try {
+            const sessionServer = opts.buildMcpServer({ tools: role.tools });
+            if (roleMode && !hasServerTools(sessionServer, role.tools)) {
+              await sessionServer.close();
+              audit({
+                roleId: role.roleId,
+                decision: "deny",
+                reason: "invalid_server_registration",
+              });
+              throw new Error(
+                "Role factory must forward the resolved tools to buildMcpServer"
+              );
+            }
+            const sessionRole = role;
+            bindInvocationGuard(
+              sessionServer,
+              () =>
+                sameRole(
+                  sessionRole,
+                  resolveIdentity(authorization, sessionRole.identity)
+                ) &&
+                (initializing.has(transport) ||
+                  (!!transport.sessionId &&
+                    sessions.get(transport.sessionId) === sessionRole))
+            );
             await sessionServer.connect(transport);
+            if (
+              !initializing.has(transport) ||
+              !sameRole(role, authenticate(req))
+            ) {
+              await transport.close();
+              unauthorized(res, undefined, undefined, "authorization_changed");
+              return;
+            }
             await transport.handleRequest(req, res, body);
+            if (transport.sessionId && sessions.has(transport.sessionId))
+              audit({
+                roleId: role.roleId,
+                sessionId: transport.sessionId,
+                decision: "allow",
+                reason: "session_initialized",
+              });
           } catch (err) {
             // If init throws after the SDK already assigned a session id
             // (e.g. handleRequest fails mid-stream), the `onclose` cleanup
@@ -563,8 +739,14 @@ export async function startHttpServer(
             if (sid) {
               transports.delete(sid);
               lastActivity.delete(sid);
+              sessions.delete(sid);
             }
+            await transport.close().catch(() => undefined);
             throw err;
+          } finally {
+            initializing.delete(transport);
+            if (!transport.sessionId || !sessions.has(transport.sessionId))
+              await transport.close().catch(() => undefined);
           }
           return;
         }
@@ -655,6 +837,7 @@ export async function startHttpServer(
         }
         transports.delete(sid);
         lastActivity.delete(sid);
+        sessions.delete(sid);
       }
     }
     rateLimiter?.sweep();
@@ -663,7 +846,7 @@ export async function startHttpServer(
 
   log.info(`HTTP server listening`, {
     url: `http://${opts.host}:${boundPort}/mcp`,
-    bearerAuth: Boolean(bearerToken),
+    bearerAuth: true,
     allowedOrigins: allowedOrigins.join(","),
     allowedHosts: allowedHosts.join(","),
     rateLimitPerMinute: opts.rateLimitPerMinute ?? 0,
@@ -686,6 +869,9 @@ export async function startHttpServer(
       }
     }
     transports.clear();
+    sessions.clear();
+    for (const t of initializing.keys()) await t.close().catch(() => undefined);
+    initializing.clear();
     lastActivity.clear();
     // `httpServer.close()` waits for all active sockets to close on their
     // own — keep-alive idle connections would otherwise pin the server
@@ -712,7 +898,46 @@ export async function startHttpServer(
     }
   }
 
+  const updateAuthorization = async (
+    options: AuthorizationOptions
+  ): Promise<void> => {
+    const next = compileAuthorization(options);
+    authorization = next;
+    const wasRoleMode = roleMode;
+    roleMode = true;
+    const closing: StreamableHTTPServerTransport[] = [];
+    for (const [sid, previous] of sessions) {
+      if (
+        !wasRoleMode ||
+        !sameRole(previous, resolveIdentity(next, previous.identity))
+      ) {
+        const transport = transports.get(sid);
+        sessions.delete(sid);
+        transports.delete(sid);
+        lastActivity.delete(sid);
+        if (transport) closing.push(transport);
+        audit({
+          roleId: previous.roleId,
+          sessionId: sid,
+          decision: "deny",
+          reason: "authorization_changed",
+        });
+      }
+    }
+    for (const [transport, previous] of initializing) {
+      if (
+        !wasRoleMode ||
+        !sameRole(previous, resolveIdentity(next, previous.identity))
+      ) {
+        initializing.delete(transport);
+        closing.push(transport);
+      }
+    }
+    await Promise.all(closing.map((t) => t.close()));
+  };
+
   return {
+    updateAuthorization,
     host: opts.host,
     port: boundPort,
     url: `http://${opts.host}:${boundPort}/mcp`,
