@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rebased explicit relative links retain a `./` prefix when their target becomes a sibling, preventing later note moves from resolving them to a same-named vault-root file.
 - `replace_in_note` now compiles, counts, and replaces in a terminable worker with a 1,000 ms startup/execution deadline, bounded JavaScript heap, and a 5 MiB UTF-8 output limit. Timeouts, cancellation, worker failure, and count mismatches leave the note unchanged. JavaScript regex replacement syntax and literal dollar-token behavior are preserved.
 - HTTP startup now rejects listen failures through its Promise and removes startup listeners on failure. The session sweeper starts only after a successful bind, preventing timer leaks after invalid settings or failed startup.
+- Tool arguments now have a shared 16-element SDK validation budget over HTTP and stdio. Oversized nested extra fields are rejected before dispatch; supported scalar fields and content lengths are unchanged. HTTP authentication and the 4 MiB body cap remain in place.
 - Note updates, appends, and prepends reject observed external edits before replacing the note, including edits during staging or a Windows rename retry. Conflict errors preserve the competing version and tell callers to read again before retrying. The check is optimistic, not atomic compare-and-swap.
 - Failed interactive confirmation now aborts permanent deletes, link-rewriting moves, and tag renames. Confirmation requests follow tool cancellation, and late responses cannot authorize a cancelled request. Clients without form elicitation retain the documented explicit-latch fallback.
 - Note moves normalize source and destination spellings before planning, preserve moved-note self-links and outgoing link targets, and rebase relative Markdown links and embeds. Partial rewrite failures identify the destination when its own links could not be updated.
@@ -32,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Refreshed compatible locked dependencies, including MCP SDK 1.32.1, js-yaml 4.3.2, Vitest 4.1.12, and ip-address 10.7.4. The refreshed lockfile clears the current npm audit findings. SDK input-budget configuration remains a separate release requirement described in `docs/dependency-security.md`.
+- Refreshed compatible locked dependencies, including MCP SDK 1.32.1, js-yaml 4.3.2, Vitest 4.1.12, and ip-address 10.7.4. The refreshed lockfile clears the current npm audit findings. The SDK input budget is configured as described in `docs/dependency-security.md`.
 - Public file access now applies excluded-directory rules to canonical targets before access and after opening a file. Note reads and read-modify-write operations require Markdown file targets, while folder aliases remain valid regardless of their names. Internal configuration reads retain their separate vault-boundary checks.
 - Atomic updates preserve existing POSIX file modes. Staging files start without group or other access, and new notes retain the `0666 & ~umask` creation policy.
 

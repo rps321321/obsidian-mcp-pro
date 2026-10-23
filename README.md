@@ -434,6 +434,8 @@ The server also declares the MCP [`logging` capability](https://modelcontextprot
 
 ## Security
 
+Tool calls over HTTP and stdio are limited to 16 object keys and array entries, counted recursively before validation. The largest current tool takes eight scalar fields. String length does not consume this element budget, so existing content and frontmatter string limits still apply. Over-budget calls return a tool error before dispatch. HTTP requests also remain subject to the 4 MiB body cap, including JSON framing and escaping; schema-valid text may need smaller chunks. See the [dependency security review](docs/dependency-security.md) for the budget rationale and separate transport limits.
+
 - **Vault boundary** — every tool and resource routes through a single path resolver that rejects `..` traversal, null-byte injection, and symlinks pointing outside the vault (ancestor-realpath check). On Windows it also rejects reserved device names, alternate data stream syntax, and trailing-dot/space filename aliases.
 - **Note/file boundary** — note read and edit surfaces only target `.md` files; attachments, Canvas files, and Bases stay on their dedicated tools with their own caps and parsers.
 - **Full-note cap** — full `.md` note reads and read-modify-write helpers refuse notes over 5 MiB before materializing them; `get_note` line fragments still stream from large notes for targeted inspection.
