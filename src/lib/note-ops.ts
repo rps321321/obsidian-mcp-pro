@@ -112,16 +112,9 @@ export async function writeNote(
 }
 
 /**
- * Atomic read-modify-write: reads existing content, applies `transform`, and
- * writes the result while holding the per-file lock for the full sequence.
- * Prevents lost updates when concurrent callers would otherwise read the same
- * base and overwrite each other's changes.
- *
- * Skips the write when the transform returns the existing content unchanged.
- * Without this guard, no-op tools (e.g. `replace_in_note` with zero matches,
- * `rename_tag` on a note that contains no occurrences) would still call
- * `atomicWriteFile`, bumping mtime and invalidating downstream caches
- * (index-cache, embedding-store) for files we didn't actually modify.
+ * Serializes note transforms in this process and rejects observed external
+ * changes before replacement. The check is optimistic: an uncooperative writer
+ * can still act after validation. Unchanged transforms do not write.
  */
 export async function updateNote(
   vaultPath: string,
@@ -137,17 +130,21 @@ export async function updateNote(
       fullPath,
       "write"
     );
-    let existing: string;
+    let original: Buffer;
     try {
       assertNoteFileSize(relativePath, opened.stats.size);
-      existing = await opened.handle.readFile("utf-8");
+      original = await opened.handle.readFile();
     } finally {
       await opened.handle.close();
     }
+    const existing = original.toString("utf-8");
     const next = await transform(existing);
     if (next === existing) return;
     assertNoteContentSize(relativePath, next);
-    await atomicWriteFile(fullPath, next);
+    await atomicWriteFile(fullPath, next, {
+      content: original,
+      stats: opened.stats,
+    });
   });
 }
 
@@ -156,26 +153,9 @@ export async function appendToNote(
   relativePath: string,
   content: string
 ): Promise<void> {
-  assertMarkdownNotePath(relativePath);
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
-  await withFileLock(fullPath, async () => {
-    const opened = await openResolvedVaultFileForRead(
-      vaultPath,
-      relativePath,
-      fullPath,
-      "write"
-    );
-    let existing: string;
-    try {
-      assertNoteFileSize(relativePath, opened.stats.size);
-      existing = await opened.handle.readFile("utf-8");
-    } finally {
-      await opened.handle.close();
-    }
+  await updateNote(vaultPath, relativePath, (existing) => {
     const separator = existing.endsWith("\n") ? "" : "\n";
-    const next = existing + separator + content;
-    assertNoteContentSize(relativePath, next);
-    await atomicWriteFile(fullPath, next);
+    return existing + separator + content;
   });
 }
 
@@ -216,27 +196,7 @@ export async function prependToNote(
   relativePath: string,
   content: string
 ): Promise<void> {
-  assertMarkdownNotePath(relativePath);
-  const fullPath = await resolveVaultPathSafe(vaultPath, relativePath, "write");
-  await withFileLock(fullPath, async () => {
-    const opened = await openResolvedVaultFileForRead(
-      vaultPath,
-      relativePath,
-      fullPath,
-      "write"
-    );
-    let existing: string;
-    try {
-      assertNoteFileSize(relativePath, opened.stats.size);
-      existing = await opened.handle.readFile("utf-8");
-    } finally {
-      await opened.handle.close();
-    }
-
-    // Detect frontmatter by scanning only the first N lines instead of
-    // running a lazy-match regex across the full file. A malformed note with
-    // an opening `---` but no closing delimiter would otherwise scan the
-    // entire (potentially multi-MB) content and block the event loop.
+  await updateNote(vaultPath, relativePath, (existing) => {
     const frontmatter = extractLeadingFrontmatter(existing);
 
     let result: string;
@@ -248,8 +208,7 @@ export async function prependToNote(
       result = content + "\n" + existing;
     }
 
-    assertNoteContentSize(relativePath, result);
-    await atomicWriteFile(fullPath, result);
+    return result;
   });
 }
 
