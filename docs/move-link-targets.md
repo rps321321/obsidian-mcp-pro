@@ -6,6 +6,8 @@ The plan covers incoming references in other notes and Canvas files. It also cov
 
 Markdown paths starting with `./` or `../` are relative to the containing note. Moving that note rebases those paths, including attachment paths and extensionless note paths. Explicit relative note paths match their normalized location and do not fall back to an unrelated note with the same basename. Other Markdown note paths retain the existing vault-path and basename resolution rules.
 
+Rebased explicit relative paths keep a `./` or `../` prefix, including dot-prefixed filenames. If a parent-relative target becomes a sibling, the link uses `./target.md`. This keeps later moves from interpreting that link as a vault-root path when the same filename exists at the root.
+
 Existing non-Markdown files take precedence over identically named note aliases. For those files, the planner checks a readable vault-root path first, then a readable path relative to the source note. A relative attachment target is rebased; a vault-root target stays unchanged. The planner checks file metadata and does not read attachment content.
 
 External URLs, root-absolute URLs, fragment-only links, and code spans are left unchanged. `updateLinks=false` moves the file without scanning or changing links.
