@@ -116,7 +116,7 @@ The server exposes five starter prompts that clients (Claude Desktop, Cursor) su
 
 ### Operational features
 - **Folder-scoped permissions**: `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists gate every tool at the path-resolution choke point
-- **In-memory mtime cache** speeds repeated vault scans within a running process without persisting note bodies to disk
+- **In-memory note cache** speeds repeated vault scans within a running process without persisting note bodies to disk
 - **Progress notifications** (`notifications/progress`) on `rename_tag`, `find_unused_attachments`, and `index_vault` when the client subscribes via `_meta.progressToken`
 - **Hard bulk-write latches** require `confirmPath` for default `move_note` reference rewrites, `confirmTag` for non-dry-run `rename_tag`, and `confirm=true` for permanent deletion; clients with elicitation support also get typed prompts
 
@@ -332,7 +332,7 @@ Every setting is optional unless noted. The sections below explain the grouped o
 | `OBSIDIAN_VAULT_NAME` | Select a vault by folder name when several exist. | first valid vault |
 | `OBSIDIAN_READ_PATHS` | Comma/colon list of folders read tools may access (see [Folder-Scoped Permissions](#folder-scoped-permissions)). | unrestricted |
 | `OBSIDIAN_WRITE_PATHS` | Same shape, for mutating tools. | unrestricted |
-| `OBSIDIAN_CACHE_DISABLED` | Set truthy to disable the in-memory mtime cache (see [Caches](#caches)). | enabled |
+| `OBSIDIAN_CACHE_DISABLED` | Set `1`, `true`, or `yes` to disable semantic embedding persistence (see [Caches](#caches)). The in-memory note cache remains active. | enabled |
 | `OBSIDIAN_EMBEDDING_PROVIDER` | Semantic-search provider, e.g. `openai` (see [Semantic Search Provider](#semantic-search-provider)). | unset (disabled) |
 | `OBSIDIAN_EMBEDDING_MODEL` | Embedding model name for the chosen provider. | provider default |
 | `OBSIDIAN_EMBEDDING_URL` | Override the embedding endpoint base URL. | provider default |
@@ -375,10 +375,18 @@ Read and write are independent, so an audit account can be read-only on most of 
 
 ### Caches
 
-The note-content mtime cache is in-memory only. It speeds repeated vault-wide scans
+The note-content cache is in-memory only. It speeds repeated vault-wide scans
 inside the running process, but it does not persist note bodies or absolute paths to
 disk. Any legacy `<vault>/.obsidian/cache/mcp-pro-index-cache.json` snapshot is
 ignored and removed on first cache use.
+
+Batch reads reuse content only when the validated file's size, mtime, ctime,
+device, and inode match the cached signature at the same requested path. A size
+change or replacement therefore invalidates an entry even when mtime is restored.
+Filesystems can reuse identities or preserve metadata, and a file can change
+after validation. This signature is not content validation. Direct point reads
+remain uncached; use a direct read and validate the bytes when exact content
+freshness is required.
 
 Semantic embeddings live under `<vault>/.obsidian/cache/`:
 
@@ -650,7 +658,7 @@ src/
     chunker.ts            # Heading-aware chunking for embeddings
     embedding-providers.ts# Ollama + OpenAI providers
     embedding-store.ts    # Persistent vector index, cosine search
-    index-cache.ts        # mtime-keyed content cache (in-memory)
+    index-cache.ts        # file-signature content cache (in-memory)
     progress.ts           # MCP progress-notification helper
     mime.ts               # extension -> MIME map for attachments
     dates.ts              # Moment-style date format for daily-note filenames
@@ -767,7 +775,7 @@ npm run lint:fix   # auto-fix
 - **Attachments.** `list_attachments`, `find_unused_attachments`, `get_attachment` (returns image / audio / blob bytes inline).
 - **Tag renames vault-wide.** `rename_tag` rewrites both inline `#tag` and frontmatter `tags:` (hierarchical mode rebases nested sub-tags).
 - **Folder-scoped permissions.** `OBSIDIAN_READ_PATHS` / `OBSIDIAN_WRITE_PATHS` allowlists.
-- **In-memory mtime cache.** Vault-wide scans (`get_tags`, `search_notes`, `search_by_tag`) reuse unchanged note content within the running process without persisting note bodies to disk.
+- **In-memory note cache.** Vault-wide scans (`get_tags`, `search_notes`, `search_by_tag`) reuse note content when its file signature matches, without persisting note bodies to disk.
 - **Quick wins.** `get_recent_notes`, `get_vault_stats`, `resolve_alias`.
 - **MCP prompts.** `daily-review`, `weekly-rollup`, `find-stale-notes`, `extract-action-items`, `build-moc`.
 - **Progress notifications** on `rename_tag`, `find_unused_attachments`, `index_vault`.
