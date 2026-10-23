@@ -146,3 +146,30 @@ it("reports a changed moved-note link at its destination as a partial failure", 
   expect(result.failed).toEqual([{ path: "archive/moved.md", error: "content changed during move; references not updated" }]);
   expect(await readNote(root, "archive/moved.md")).toBe("[[different]]");
 });
+
+it.each(["neighbor.md", ".neighbor.md"])("keeps a rebased parent-relative %s link explicit across later note moves", async (targetName) => {
+  await seed(targetName, "root neighbor");
+  await seed(`inbox/${targetName}`, "intended neighbor");
+  await seed("inbox/nested/source.md", `[neighbor](../${targetName}#Detail "title")`);
+  await moveNote(root, "inbox/nested/source.md", "inbox/moved.md");
+  const afterFirstMove = await readNote(root, "inbox/moved.md");
+
+  await moveNote(root, targetName, "root-renamed.md");
+  expect(await readNote(root, "inbox/moved.md")).toBe(afterFirstMove);
+
+  await moveNote(root, `inbox/${targetName}`, "inbox/renamed.md");
+  const [span] = extractMarkdownLinkSpans(await readNote(root, "inbox/moved.md"));
+  expect(span).toMatchObject({ urlPath: "./renamed.md", fragment: "#Detail", title: ' "title"' });
+  await expect(fs.readFile(path.join(root, "inbox", span!.urlPath), "utf8")).resolves.toBe("intended neighbor");
+});
+
+it("keeps rebased attachment links explicit so a second source move preserves their targets", async () => {
+  await seed("pic.png", "root image");
+  await seed("inbox/pic.png", "intended image");
+  await seed("inbox/nested/source.md", '![image](../pic.png#view "image title")');
+  await moveNote(root, "inbox/nested/source.md", "inbox/moved.md");
+  await moveNote(root, "inbox/moved.md", "archive/final.md");
+  const [span] = extractMarkdownLinkSpans(await readNote(root, "archive/final.md"));
+  expect(span).toMatchObject({ urlPath: "../inbox/pic.png", fragment: "#view", title: ' "image title"', isEmbed: true });
+  await expect(fs.readFile(path.join(root, "archive", span!.urlPath), "utf8")).resolves.toBe("intended image");
+});
