@@ -1,8 +1,8 @@
 # HTTP Roles
 
 These APIs are available in published core 4.1.0 and newer. Core 4.0.1 does not
-export the Role API. SDK 1.32.1 or newer is required for the configured input
-budget; see the [consumer dependency correction](dependency-security.md#consumer-sdk-resolution-correction-in-411).
+export the Role API. Use published core 4.1.1 or newer, which requires SDK
+1.32.1 or newer for the configured input budget; see the [consumer dependency correction](dependency-security.md#consumer-sdk-resolution-correction-in-411).
 
 A bearer token selects one Role. A Role stores explicit Tool names. Multiple tokens can share that Role.
 
@@ -94,6 +94,6 @@ Authorization events contain `roleId`, `sessionId`, `tool`, `decision`, and `rea
 
 Search tools may return snippets, semantic chunks, full content with supported options, or Base query rows. Write tool responses may expose existing content or metadata. Read-only Roles must omit `index_vault`, which sends note text to the embedding provider and writes an index. `search_semantic` sends the query to the provider.
 
-This implements the library and HTTP portion of issue #284. The companion Role editor, token settings and persisted migration are prepared in [plugin PR #23](https://github.com/rps321321/obsidian-mcp-pro-plugin/pull/23). Its published dependency upgrade and native acceptance remain separate gates before plugin delivery. CLI Role configuration is not included.
+This implements the library and HTTP portion of issue #284. The companion Role editor, token settings and persisted migration are prepared in [plugin PR #23](https://github.com/rps321321/obsidian-mcp-pro-plugin/pull/23). Core 4.1.1 is published; the companion PR remains pending final native acceptance and merge. Plugin delivery remains a separate gate. CLI Role configuration is not included.
 
 Run `npx vitest run src/__tests__/roles.test.ts` for the HTTP and registration acceptance tests.
