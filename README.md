@@ -126,8 +126,8 @@ The server exposes five starter prompts that clients (Claude Desktop, Cursor) su
 
 `npx` installs the latest published npm release. This README follows the source
 branch and may describe merged changes that have not been published. See the
-[4.1.0 preparation notes](docs/releases/4.1.0.md) for release status and verification
-still required before publication.
+[4.1.0 release notes](docs/releases/4.1.0.md) for verified publication and
+consumer dependency requirements.
 
 > **Using Obsidian?** There's also an [Obsidian plugin](https://github.com/rps321321/obsidian-mcp-pro-plugin) that runs this server inside the app with a ribbon toggle and settings UI — no config-file editing. Recommended for most users.
 
@@ -199,8 +199,7 @@ IPv6 bind literals use canonical URL spelling and brackets in returned and logge
 Scoped IPv6 bind addresses such as `fe80::1%eth0` are unsupported by the HTTP URL parser and reject before the server starts listening.
 Startup always requires `MCP_HTTP_TOKEN`, including loopback-only local servers. The old `--token` flag was removed because command-line secrets can be exposed through OS process listings.
 
-The following embedding option is merged for the unreleased 4.1.0 source and is
-unavailable in the published 4.0.1 package. When embedding the library, set
+The following embedding option is available in core 4.1.0 and newer. When embedding the library, set
 `allowedHosts` to accept additional destination
 addresses, such as the hostname forwarded by an HTTPS reverse proxy:
 
@@ -243,8 +242,7 @@ calls.
   and Origin validation still apply; DNS-rebinding protection remains enabled.
 - This is an embedding API option, not a CLI flag.
 
-The Role API below is part of the unreleased 4.1.0 source and is unavailable in
-published npm 4.0.1. HTTP embedders can assign each token a named Role containing
+The Role API below is available in core 4.1.0 and newer. HTTP embedders can assign each token a named Role containing
 an explicit Tool list.
 Roles filter tool, resource, and prompt discovery and calls. Permission changes close
 affected sessions immediately. See [HTTP Roles](docs/http-roles.md) for configuration,
