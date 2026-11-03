@@ -61,3 +61,18 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: "false"
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
           GITLEAKS_ENABLE_SUMMARY: "false"
+          GITLEAKS_VERSION: "8.30.1"
+      - name: Full-history secret audit (PR, schedule, manual)
+        if: github.event_name != 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          asset="gitleaks_${version}_linux_x64.tar.gz"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${version}"
+          curl --fail --silent --show-error --location --output "/tmp/${asset}" "${base}/${asset}"
+          curl --fail --silent --show-error --location --output /tmp/gitleaks_checksums.txt "${base}/gitleaks_${version}_checksums.txt"
+          (cd /tmp && grep -F "${asset}" gitleaks_checksums.txt | sha256sum --check --status)
+          mkdir -p /tmp/gitleaks-bin
+          tar -xzf "/tmp/${asset}" -C /tmp/gitleaks-bin gitleaks
+          /tmp/gitleaks-bin/gitleaks git --redact --exit-code=2 --log-opts="--all" .
